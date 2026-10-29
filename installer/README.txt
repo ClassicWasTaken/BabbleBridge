@@ -3,8 +3,8 @@ BABBLE BRIDGE INSTALLER
 The Windows installer installs Babble Bridge for the current user, creates its
 Start menu shortcut, offers a desktop shortcut, and adds an uninstaller to
 Windows Installed Apps. The application and its .NET runtime are included.
-Tracking modules are separate: users import compatible VRCFaceTracking ZIPs after
-opening the app. Existing imported modules stay available through upgrades.
+Tracking modules are separate: users download official modules or import their
+own compatible ZIPs from Modules. Imported modules stay available through upgrades.
 The setup wizard and uninstaller also follow Windows light/dark preferences.
 
 Windows shortcuts and Installed Apps use the original headset icon stored at

@@ -26,6 +26,7 @@
     <Style.Triggers><Trigger Property="IsPressed" Value="True"><Setter Property="local:Motion.Pressed" Value="True"/></Trigger></Style.Triggers>
    </Style>
    <Style x:Key="QuietButton" TargetType="Button" BasedOn="{StaticResource {x:Type Button}}"><Setter Property="Background" Value="Transparent"/><Setter Property="Foreground" Value="{DynamicResource AccentInk}"/><Setter Property="BorderBrush" Value="{DynamicResource InputBorder}"/></Style>
+   <Style x:Key="DangerButton" TargetType="Button" BasedOn="{StaticResource QuietButton}"><Setter Property="Background" Value="{DynamicResource ErrorBackground}"/><Setter Property="Foreground" Value="{DynamicResource DangerInk}"/><Setter Property="BorderBrush" Value="{DynamicResource ErrorBorder}"/></Style>
    <Style x:Key="LinkButton" TargetType="Button" BasedOn="{StaticResource {x:Type Button}}"><Setter Property="Background" Value="Transparent"/><Setter Property="Foreground" Value="{DynamicResource AccentInk}"/><Setter Property="BorderThickness" Value="0"/><Setter Property="Padding" Value="0"/></Style>
    <Style x:Key="Navigation" TargetType="RadioButton">
     <Setter Property="local:Motion.Hover" Value="True"/>

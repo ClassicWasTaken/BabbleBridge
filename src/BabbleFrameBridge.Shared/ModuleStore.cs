@@ -6,6 +6,8 @@ using System.Reflection.Metadata;
 using System.Reflection.PortableExecutable;
 using System.Security.Cryptography;
 using System.Text.Json;
+using System.Text;
+using System.Reflection;
 
 namespace BabbleFrameBridge.Shared;
 
@@ -19,7 +21,8 @@ public sealed record ModuleRelease(
     string DirectoryPath,
     string ModuleName,
     ModuleKind Kind = ModuleKind.BabbleHeadsetRuntime,
-    bool SupportsHeadset = false);
+    bool SupportsHeadset = false,
+    string? AssemblyName = null);
 
 /// <summary>
 /// Stages packages without loading code, then switches the active release with an atomic
@@ -47,6 +50,7 @@ public sealed class ModuleStore
         _statePath = Path.Combine(_storeRoot, "module-state.json");
         Directory.CreateDirectory(_releasesRoot);
         _state = ReadState();
+        CleanupRemovedReleases();
     }
 
     public ModuleRelease? Current { get { lock (_gate) return ReadRelease(_state.Current); } }
@@ -112,55 +116,19 @@ public sealed class ModuleStore
         }
     }
 
-    /// <summary>Validates and extracts a new release; does not change the active module.</summary>
-    public ModuleRelease Prepare(string zipPath, ModuleKind? requestedKind = null)
+    /// <summary>Stages a DLL or ZIP without loading module code or changing the selected module.</summary>
+    public ModuleRelease Prepare(string path, ModuleKind? requestedKind = null)
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(zipPath);
-        using var source = new FileStream(zipPath, FileMode.Open, FileAccess.Read, FileShare.Read);
+        ArgumentException.ThrowIfNullOrWhiteSpace(path);
+        if (requestedKind is { } requested) _ = ModuleCatalog.Get(requested);
+        var bareDll = string.Equals(Path.GetExtension(path), ".dll", StringComparison.OrdinalIgnoreCase);
+        if (!bareDll && !string.Equals(Path.GetExtension(path), ".zip", StringComparison.OrdinalIgnoreCase))
+            throw new InvalidDataException("Choose a compiled module DLL or a module ZIP.");
+        using var source = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read);
         if (source.Length is <= 0 or > MaxArchiveBytes)
-            throw new InvalidDataException("The module ZIP must be between 1 byte and 256 MB.");
+            throw new InvalidDataException("The module file must be between 1 byte and 256 MB.");
         var hash = Convert.ToHexString(SHA256.HashData(source)).ToLowerInvariant();
         source.Position = 0;
-        using var archive = new ZipArchive(source, ZipArchiveMode.Read, leaveOpen: false);
-        if (archive.Entries.Count is 0 or > MaxEntries)
-            throw new InvalidDataException("The module ZIP has no files or too many entries.");
-
-        var paths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        var files = new List<(ZipArchiveEntry Entry, string Relative)>();
-        long expanded = 0;
-        foreach (var entry in archive.Entries)
-        {
-            var relative = ValidateArchivePath(entry);
-            if (!paths.Add(relative.TrimEnd('/')))
-                throw new InvalidDataException("The module ZIP contains duplicate paths.");
-            checked { expanded += entry.Length; }
-            if (expanded > MaxExpandedBytes)
-                throw new InvalidDataException("The module ZIP expands beyond 512 MB.");
-            if (!relative.EndsWith('/')) files.Add((entry, relative));
-        }
-        var manifests = files.Where(f => string.Equals(Path.GetFileName(f.Relative), "module.json", StringComparison.OrdinalIgnoreCase)).ToArray();
-        if (manifests.Length != 1)
-            throw new InvalidDataException("The module ZIP must contain exactly one module.json.");
-        if (manifests[0].Entry.Length > 1024 * 1024)
-            throw new InvalidDataException("The module manifest is too large.");
-
-        ModuleManifest manifest;
-        try
-        {
-            using var manifestStream = manifests[0].Entry.Open();
-            manifest = JsonSerializer.Deserialize<ModuleManifest>(manifestStream, JsonOptions)
-                ?? throw new InvalidDataException("The module manifest is empty.");
-        }
-        catch (JsonException ex) { throw new InvalidDataException("The module manifest is not valid JSON.", ex); }
-        var definition = ValidateManifest(manifest);
-        if (requestedKind is { } requested && ModuleCatalog.Get(requested).ModuleId != definition.ModuleId)
-            throw new InvalidDataException("The ZIP does not match the selected module.");
-
-        var manifestDirectory = Path.GetDirectoryName(manifests[0].Relative.Replace('/', Path.DirectorySeparatorChar)) ?? "";
-        var expectedDllPath = Path.Combine(manifestDirectory, manifest.DllFileName!).Replace('\\', '/');
-        if (!files.Any(f => string.Equals(f.Relative, expectedDllPath, StringComparison.OrdinalIgnoreCase)))
-            throw new InvalidDataException("The module entry DLL is missing beside module.json.");
-
         var id = Guid.NewGuid().ToString("N");
         var releaseRoot = Path.Combine(_releasesRoot, id);
         var staging = Path.Combine(_storeRoot, ".staging-" + id);
@@ -168,22 +136,103 @@ public sealed class ModuleStore
         Directory.CreateDirectory(payload);
         try
         {
-            foreach (var file in files)
+            ModuleManifest? manifest = null;
+            string? primaryPath = null;
+            if (bareDll)
             {
-                var destination = GetContainedPath(payload, file.Relative);
-                Directory.CreateDirectory(Path.GetDirectoryName(destination)!);
-                using var input = file.Entry.Open();
-                using var output = new FileStream(destination, FileMode.CreateNew, FileAccess.Write, FileShare.None);
-                CopyBounded(input, output, file.Entry.Length);
+                var filename = ValidateDllFileName(Path.GetFileName(path));
+                primaryPath = GetContainedPath(payload, filename);
+                using var output = new FileStream(primaryPath, FileMode.CreateNew, FileAccess.Write, FileShare.None);
+                CopyBounded(source, output, source.Length);
             }
-            var moduleDirectory = GetContainedPath(payload, manifestDirectory);
-            ValidateAssembly(Path.Combine(moduleDirectory, manifest.DllFileName!), definition.AssemblyName);
-            var supports = definition.ModuleId == BaballoniaModuleId && HasHeadsetSupport(Path.Combine(moduleDirectory, manifest.DllFileName!));
+            else
+            {
+                using var archive = new ZipArchive(source, ZipArchiveMode.Read, leaveOpen: true);
+                if (archive.Entries.Count is 0 or > MaxEntries)
+                    throw new InvalidDataException("The module ZIP has no files or too many entries.");
+                var paths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                var files = new List<(ZipArchiveEntry Entry, string Relative)>();
+                long expanded = 0;
+                foreach (var entry in archive.Entries)
+                {
+                    var relative = ValidateArchivePath(entry);
+                    if (!paths.Add(relative.TrimEnd('/')))
+                        throw new InvalidDataException("The module ZIP contains duplicate paths.");
+                    if (entry.Length > MaxExpandedBytes - expanded)
+                        throw new InvalidDataException("The module ZIP expands beyond 512 MB.");
+                    expanded += entry.Length;
+                    if (!relative.EndsWith('/')) files.Add((entry, relative));
+                }
+                var manifests = files.Where(f => string.Equals(Path.GetFileName(f.Relative), "module.json", StringComparison.OrdinalIgnoreCase)).ToArray();
+                if (manifests.Length > 1) throw new InvalidDataException("The module ZIP contains multiple module.json manifests.");
+                if (manifests.Length == 1)
+                {
+                    if (manifests[0].Entry.Length > 1024 * 1024) throw new InvalidDataException("The module manifest is too large.");
+                    try
+                    {
+                        using var input = manifests[0].Entry.Open();
+                        manifest = JsonSerializer.Deserialize<ModuleManifest>(input, JsonOptions)
+                            ?? throw new InvalidDataException("The module manifest is empty.");
+                    }
+                    catch (JsonException error) { throw new InvalidDataException("The module manifest is not valid JSON.", error); }
+                    var declared = ValidateManifest(manifest);
+                    var manifestDirectory = Path.GetDirectoryName(manifests[0].Relative.Replace('/', Path.DirectorySeparatorChar)) ?? "";
+                    var expected = Path.Combine(manifestDirectory, manifest.DllFileName!).Replace('\\', '/');
+                    var matching = files.FirstOrDefault(f => string.Equals(f.Relative, expected, StringComparison.OrdinalIgnoreCase));
+                    if (matching.Entry == null)
+                        throw new InvalidDataException(declared.Kind == ModuleKind.VirtualDesktop
+                            ? "The Virtual Desktop module DLL is missing. Download the compiled module package, not GitHub's Source code ZIP: https://download.vrdesktop.net/files/VirtualDesktop.VRCFaceTracking.zip"
+                            : "The entry DLL named in module.json is missing beside the manifest. Import the compiled package or choose its module DLL directly.");
+                    primaryPath = GetContainedPath(payload, matching.Relative);
+                }
+                foreach (var file in files)
+                {
+                    var destination = GetContainedPath(payload, file.Relative);
+                    Directory.CreateDirectory(Path.GetDirectoryName(destination)!);
+                    using var input = file.Entry.Open();
+                    using var output = new FileStream(destination, FileMode.CreateNew, FileAccess.Write, FileShare.None);
+                    CopyBounded(input, output, file.Entry.Length);
+                }
+            }
+            primaryPath ??= SelectEntryDll(payload);
+            var identity = ReadAssemblyIdentity(primaryPath);
+            var knownAssembly = ModuleCatalog.All.FirstOrDefault(x => x.AssemblyName == identity.Name);
+            ModuleDefinition definition;
+            if (manifest != null)
+            {
+                definition = ValidateManifest(manifest);
+                if (definition.Kind != ModuleKind.Custom && definition.AssemblyName != identity.Name
+                    || knownAssembly != null && knownAssembly.ModuleId != definition.ModuleId)
+                    throw new InvalidDataException("The DLL does not match the module's declared identity.");
+            }
+            else if (knownAssembly != null)
+            {
+                definition = knownAssembly;
+                var canonical = Path.Combine(Path.GetDirectoryName(primaryPath)!, definition.DllFileName);
+                if (!string.Equals(primaryPath, canonical, StringComparison.OrdinalIgnoreCase))
+                {
+                    if (File.Exists(canonical)) throw new InvalidDataException("The ZIP has conflicting entry DLL names. Select the intended module DLL directly.");
+                    File.Move(primaryPath, canonical);
+                    primaryPath = canonical;
+                }
+            }
+            else
+            {
+                var moduleId = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes("BabbleBridge.Module|" + identity.StableIdentity)))[..32];
+                definition = ModuleCatalog.Identify(Guid.ParseExact(moduleId, "N").ToString("D"), Path.GetFileName(primaryPath));
+            }
+            var supports = definition.ModuleId == BaballoniaModuleId && identity.Name == "VRCFaceTracking.Baballonia" && HasHeadsetSupport(primaryPath);
             var kind = requestedKind ?? (definition.Kind == ModuleKind.BabbleHeadsetRuntime && !supports ? ModuleKind.BaballoniaDesktop : definition.Kind);
+            if (requestedKind is { } selected && (selected == ModuleKind.Custom
+                    ? definition.Kind != ModuleKind.Custom : ModuleCatalog.Get(selected).ModuleId != definition.ModuleId))
+                throw new InvalidDataException("The package does not match the selected module.");
             if (kind == ModuleKind.BabbleHeadsetRuntime && !supports)
                 throw new InvalidDataException("This Baballonia package supports desktop input only. Import a package with Babble Frame Runtime support.");
-            var release = new ModuleRelease(id, manifest.Version!, definition.ModuleId, manifest.DllFileName!,
-                DateTimeOffset.UtcNow, hash, Path.Combine(releaseRoot, "payload", manifestDirectory), manifest.ModuleName ?? definition.Name, kind, supports);
+            var version = manifest?.Version ?? identity.Version;
+            var name = manifest?.ModuleName ?? (kind == ModuleKind.Custom ? identity.Name : definition.Name);
+            var moduleDirectory = Path.GetDirectoryName(primaryPath)!;
+            var release = new ModuleRelease(id, version, definition.ModuleId, Path.GetFileName(primaryPath), DateTimeOffset.UtcNow,
+                hash, GetContainedPath(Path.Combine(releaseRoot, "payload"), Path.GetRelativePath(payload, moduleDirectory)), name, kind, supports, identity.Name);
             WriteAtomic(Path.Combine(staging, "release.json"), release, keepBackup: false);
             Directory.Move(staging, releaseRoot);
             return release;
@@ -203,7 +252,7 @@ public sealed class ModuleStore
         {
             var stored = ReadRelease(release.Id) ?? throw new InvalidDataException("The prepared module no longer exists.");
             if (stored != release) throw new InvalidDataException("The prepared module does not belong to this store.");
-            ValidateAssembly(Path.Combine(stored.DirectoryPath, stored.DllFileName), ModuleCatalog.Get(stored.Kind).AssemblyName);
+            ValidateAssembly(Path.Combine(stored.DirectoryPath, stored.DllFileName), stored.Kind == ModuleKind.Custom ? stored.AssemblyName! : ModuleCatalog.Get(stored.Kind).AssemblyName);
             if (_state.Current == stored.Id) return;
             var next = new StoreState(2, stored.Id, _state.Current, InstalledIds().Append(stored.Id).Distinct().ToArray());
             WriteAtomic(_statePath, next);
@@ -223,12 +272,144 @@ public sealed class ModuleStore
         lock (_gate)
         {
             var release = ReadRelease(_state.Previous) ?? throw new InvalidOperationException("There is no previous module to restore.");
-            ValidateAssembly(Path.Combine(release.DirectoryPath, release.DllFileName), ModuleCatalog.Get(release.Kind).AssemblyName);
+            ValidateAssembly(Path.Combine(release.DirectoryPath, release.DllFileName), release.Kind == ModuleKind.Custom ? release.AssemblyName! : ModuleCatalog.Get(release.Kind).AssemblyName);
             var next = new StoreState(2, _state.Previous, _state.Current, InstalledIds());
             WriteAtomic(_statePath, next);
             _state = next;
             return release;
         }
+    }
+
+    /// <summary>Removes one imported profile. The caller must stop its worker before removing an active profile.</summary>
+    public void Remove(ModuleRelease release)
+    {
+        ArgumentNullException.ThrowIfNull(release);
+        lock (_gate)
+        {
+            var stored = ReadRelease(release.Id);
+            if (stored != release || !InstalledIds().Contains(release.Id, StringComparer.Ordinal))
+                throw new InvalidDataException("The module does not belong to this library.");
+            var releaseRoot = Path.Combine(_releasesRoot, stored.Id);
+            var removedRoot = Path.Combine(_storeRoot, ".removed-" + stored.Id);
+            EnsureRemovalTree(releaseRoot);
+            EnsureNoReparsePoint(_statePath);
+            EnsureNoReparsePoint(_statePath + ".backup");
+            if (Directory.Exists(removedRoot) || File.Exists(removedRoot))
+                throw new IOException("A previous removal is still being cleaned up. Reopen the app and try again.");
+            var next = new StoreState(2, _state.Current == stored.Id ? null : _state.Current,
+                _state.Previous == stored.Id ? null : _state.Previous,
+                InstalledIds().Where(id => id != stored.Id).ToArray());
+            var backupPath = _statePath + ".backup";
+            var oldBackup = File.Exists(backupPath) ? File.ReadAllBytes(backupPath) : null;
+            var moved = false;
+            try
+            {
+                // Prepare safe recovery before moving any files: if the process stops between
+                // the move and main-state commit, this backup already excludes the removed ID.
+                WriteAtomic(backupPath, next, keepBackup: false);
+                Directory.Move(releaseRoot, removedRoot);
+                moved = true;
+                WriteAtomic(_statePath, next, keepBackup: false);
+                _state = next;
+            }
+            catch
+            {
+                if (moved)
+                {
+                    try { Directory.Move(removedRoot, releaseRoot); }
+                    catch (Exception restoreError) when (restoreError is IOException or UnauthorizedAccessException)
+                    {
+                        // Keep the sanitized backup valid if a concurrent file lock prevents
+                        // rollback. Reopening can finish recovery without losing another profile.
+                        _state = next;
+                        throw new IOException("Module removal was interrupted. Reopen the app to finish recovering the module library.", restoreError);
+                    }
+                }
+                try
+                {
+                    if (oldBackup != null) WriteAtomicContent(backupPath, stream => stream.Write(oldBackup), false);
+                    else if (File.Exists(backupPath)) File.Delete(backupPath);
+                }
+                catch (Exception restoreError) when (restoreError is IOException or UnauthorizedAccessException)
+                { /* The unchanged primary and restored payload still describe the old library. */ }
+                throw;
+            }
+            TryDeleteRemovedRelease(removedRoot, stored.Id);
+        }
+    }
+
+    private void CleanupRemovedReleases()
+    {
+        EnsureNoReparsePoint(_storeRoot);
+        var installed = InstalledIds();
+        foreach (var directory in Directory.EnumerateDirectories(_storeRoot, ".removed-*", SearchOption.TopDirectoryOnly))
+        {
+            var id = Path.GetFileName(directory)[".removed-".Length..];
+            if (Guid.TryParseExact(id, "N", out _) && !installed.Contains(id, StringComparer.Ordinal)
+                && !Directory.Exists(Path.Combine(_releasesRoot, id)))
+                TryDeleteRemovedRelease(directory, id);
+        }
+    }
+
+    private void TryDeleteRemovedRelease(string directory, string id)
+    {
+        try
+        {
+            EnsureRemovalTree(directory);
+            var metadata = JsonSerializer.Deserialize<ModuleRelease>(File.ReadAllText(Path.Combine(directory, "release.json")), JsonOptions);
+            if (metadata?.Id != id) return;
+            var originalPayload = Path.Combine(_releasesRoot, id, "payload");
+            _ = GetContainedPath(originalPayload, Path.GetRelativePath(originalPayload, metadata.DirectoryPath));
+            DeleteRemovedTree(directory, Path.Combine(directory, "release.json"));
+        }
+        catch (Exception error) when (error is IOException or UnauthorizedAccessException or InvalidDataException or JsonException or ArgumentException)
+        { /* Locked payloads stay quarantined and are retried when the library is reopened. */ }
+    }
+
+    private static void DeleteRemovedTree(string directory, string metadataPath)
+    {
+        foreach (var entry in Directory.EnumerateFileSystemEntries(directory))
+        {
+            if (string.Equals(entry, metadataPath, StringComparison.OrdinalIgnoreCase)) continue;
+            EnsureNoReparsePoint(entry);
+            if ((File.GetAttributes(entry) & FileAttributes.Directory) != 0) DeleteRemovedTree(entry, metadataPath);
+            else File.Delete(entry);
+        }
+        // Retain ownership metadata until every payload entry is gone, allowing
+        // a partially deleted, locked directory to be cleaned safely on reopen.
+        if (File.Exists(metadataPath) && Path.GetDirectoryName(metadataPath) == directory) File.Delete(metadataPath);
+        Directory.Delete(directory);
+    }
+
+    private void EnsureRemovalTree(string directory)
+    {
+        var root = Path.GetFullPath(directory);
+        _ = GetContainedPath(_storeRoot, Path.GetRelativePath(_storeRoot, root));
+        EnsureNoReparsePoint(Path.GetDirectoryName(_storeRoot)!);
+        EnsureNoReparsePoint(_storeRoot);
+        EnsureNoReparsePoint(_releasesRoot);
+        EnsureNoReparsePoint(root);
+        var pending = new Stack<string>();
+        pending.Push(root);
+        while (pending.TryPop(out var parent))
+        {
+            foreach (var entry in Directory.EnumerateFileSystemEntries(parent))
+            {
+                var attributes = File.GetAttributes(entry);
+                if ((attributes & FileAttributes.ReparsePoint) != 0)
+                    throw new InvalidDataException("Module removal cannot follow symbolic links or junctions.");
+                if ((attributes & FileAttributes.Directory) != 0) pending.Push(entry);
+            }
+        }
+    }
+
+    private static void EnsureNoReparsePoint(string path)
+    {
+        FileAttributes attributes;
+        try { attributes = File.GetAttributes(path); }
+        catch (Exception error) when (error is FileNotFoundException or DirectoryNotFoundException) { return; }
+        if ((attributes & FileAttributes.ReparsePoint) != 0)
+            throw new InvalidDataException("Module removal cannot follow symbolic links or junctions.");
     }
 
     private StoreState ReadState()
@@ -246,6 +427,16 @@ public sealed class ModuleStore
                 _ = ReadRelease(state.Current);
                 _ = ReadRelease(state.Previous);
                 foreach (var id in state.Installed ?? []) _ = ReadRelease(id);
+                // Repair the primary after recovery, so a later normal save cannot replace
+                // the valid backup with a corrupt or interrupted-removal manifest.
+                if (path != _statePath)
+                {
+                    EnsureNoReparsePoint(Path.GetDirectoryName(_storeRoot)!);
+                    EnsureNoReparsePoint(_storeRoot);
+                    EnsureNoReparsePoint(_statePath);
+                    EnsureNoReparsePoint(_statePath + ".backup");
+                    WriteAtomic(_statePath, state, keepBackup: false);
+                }
                 return state;
             }
             catch (Exception ex) when (ex is IOException or InvalidDataException or JsonException or ArgumentException)
@@ -264,10 +455,23 @@ public sealed class ModuleStore
         var payloadRoot = Path.Combine(releaseRoot, "payload");
         var directory = Path.GetFullPath(release.DirectoryPath);
         var definition = ModuleCatalog.Get(release.Kind);
-        if (release.Id != id || release.ModuleId != definition.ModuleId || release.DllFileName != definition.DllFileName ||
+        var custom = release.Kind == ModuleKind.Custom;
+        _ = ValidateDllFileName(release.DllFileName);
+        if (release.Id != id || !Guid.TryParse(release.ModuleId, out _)
+            || !custom && (release.ModuleId != definition.ModuleId || release.DllFileName != definition.DllFileName
+                || release.AssemblyName != null && release.AssemblyName != definition.AssemblyName)
+            || custom && string.IsNullOrWhiteSpace(release.AssemblyName)
+            ||
             !(directory.Equals(payloadRoot, StringComparison.OrdinalIgnoreCase) || directory.StartsWith(payloadRoot + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)) ||
             !File.Exists(Path.Combine(directory, release.DllFileName)))
             throw new InvalidDataException("The saved module release is invalid or missing.");
+        if (custom)
+        {
+            if (ModuleCatalog.Identify(release.ModuleId, release.DllFileName).Kind != ModuleKind.Custom
+                || ModuleCatalog.All.Any(x => x.AssemblyName == release.AssemblyName))
+                throw new InvalidDataException("The saved custom module conflicts with a known module identity.");
+            ValidateAssembly(Path.Combine(directory, release.DllFileName), release.AssemblyName!);
+        }
         return release;
     }
 
@@ -294,8 +498,9 @@ public sealed class ModuleStore
 
     private static ModuleDefinition ValidateManifest(ModuleManifest manifest)
     {
+        _ = ValidateDllFileName(manifest.DllFileName);
         var definition = ModuleCatalog.Identify(manifest.ModuleId, manifest.DllFileName);
-        if (string.IsNullOrWhiteSpace(manifest.Version) || manifest.Version.Length > 80 || manifest.Version.Any(char.IsControl))
+        if (manifest.Version != null && (string.IsNullOrWhiteSpace(manifest.Version) || manifest.Version.Length > 80 || manifest.Version.Any(char.IsControl)))
             throw new InvalidDataException("The module manifest must specify a valid version.");
         if (manifest.ModuleName?.Length > 200 || manifest.ModuleName?.Any(char.IsControl) == true)
             throw new InvalidDataException("The module name is invalid.");
@@ -304,14 +509,68 @@ public sealed class ModuleStore
 
     private static void ValidateAssembly(string path, string expectedName)
     {
+        if (ReadAssemblyIdentity(path).Name != expectedName)
+            throw new InvalidDataException("The DLL does not match the module's declared entry assembly.");
+    }
+
+    private static string ValidateDllFileName(string? name)
+    {
+        if (string.IsNullOrWhiteSpace(name) || name.Length > 200 || name.IndexOfAny(['/', '\\', ':', '<', '>', '"', '|', '?', '*']) >= 0
+            || name.Any(char.IsControl) || name.EndsWith(' ') || name.EndsWith('.') || !name.EndsWith(".dll", StringComparison.OrdinalIgnoreCase))
+            throw new InvalidDataException("The entry DLL must be a safe DLL filename without a folder path.");
+        var stem = name.Split('.')[0].ToUpperInvariant();
+        if (stem is "CON" or "PRN" or "AUX" or "NUL" || stem.Length == 4 && (stem.StartsWith("COM") || stem.StartsWith("LPT")) && stem[3] is >= '0' and <= '9')
+            throw new InvalidDataException("The entry DLL uses a reserved Windows filename.");
+        return name;
+    }
+
+    private static string SelectEntryDll(string payload)
+    {
+        var assemblies = new List<(string Path, AssemblyIdentity Identity)>();
+        foreach (var path in Directory.EnumerateFiles(payload, "*", SearchOption.AllDirectories)
+            .Where(path => path.EndsWith(".dll", StringComparison.OrdinalIgnoreCase)))
+        {
+            try { assemblies.Add((path, ReadAssemblyIdentity(path))); }
+            catch (InvalidDataException) { /* Native dependencies are allowed beside the managed entry DLL. */ }
+        }
+        var modules = assemblies.Where(x => x.Identity.TrackingModule).ToArray();
+        if (modules.Length == 1) return modules[0].Path;
+        if (modules.Length == 0 && assemblies.Count == 1) return assemblies[0].Path;
+        throw new InvalidDataException(assemblies.Count == 0
+            ? "No managed module DLL was found. Download a compiled module package instead of source code."
+            : "The ZIP has multiple possible module DLLs. Select the module DLL directly, or add module.json naming its entry DLL.");
+    }
+
+    private sealed record AssemblyIdentity(string Name, string Version, string StableIdentity, bool TrackingModule);
+    private static AssemblyIdentity ReadAssemblyIdentity(string path)
+    {
         try
         {
             using var stream = File.OpenRead(path);
             using var pe = new PEReader(stream);
             if (!pe.HasMetadata) throw new InvalidDataException("The module DLL is not a managed .NET assembly.");
             var metadata = pe.GetMetadataReader();
-            if (!metadata.IsAssembly || metadata.GetString(metadata.GetAssemblyDefinition().Name) != expectedName)
-                throw new InvalidDataException("The DLL does not match the module's declared entry assembly.");
+            if (!metadata.IsAssembly) throw new InvalidDataException("The module DLL is not a managed assembly.");
+            var assembly = metadata.GetAssemblyDefinition();
+            var name = metadata.GetString(assembly.Name);
+            if (string.IsNullOrWhiteSpace(name) || name.Length > 200 || name.Any(char.IsControl))
+                throw new InvalidDataException("The module assembly name is invalid.");
+            bool IsTrackingBase(EntityHandle handle, HashSet<EntityHandle> seen)
+            {
+                if (handle.IsNil || !seen.Add(handle)) return false;
+                if (handle.Kind == HandleKind.TypeReference)
+                {
+                    var reference = metadata.GetTypeReference((TypeReferenceHandle)handle);
+                    return metadata.GetString(reference.Name) == "ExtTrackingModule" && metadata.GetString(reference.Namespace) == "VRCFaceTracking";
+                }
+                return handle.Kind == HandleKind.TypeDefinition && IsTrackingBase(metadata.GetTypeDefinition((TypeDefinitionHandle)handle).BaseType, seen);
+            }
+            var tracking = metadata.TypeDefinitions.Any(handle =>
+            {
+                var type = metadata.GetTypeDefinition(handle);
+                return (type.Attributes & TypeAttributes.Abstract) == 0 && IsTrackingBase(type.BaseType, []);
+            });
+            return new(name, assembly.Version.ToString(), name + "|" + Convert.ToHexString(metadata.GetBlobBytes(assembly.PublicKey)), tracking);
         }
         catch (BadImageFormatException ex) { throw new InvalidDataException("The module DLL is not a valid .NET assembly.", ex); }
     }
@@ -349,6 +608,9 @@ public sealed class ModuleStore
     }
 
     internal static void WriteAtomic<T>(string path, T value, bool keepBackup = true)
+        => WriteAtomicContent(path, stream => JsonSerializer.Serialize(stream, value, JsonOptions), keepBackup);
+
+    private static void WriteAtomicContent(string path, Action<Stream> write, bool keepBackup)
     {
         Directory.CreateDirectory(Path.GetDirectoryName(path)!);
         var temporary = path + ".tmp-" + Guid.NewGuid().ToString("N");
@@ -356,7 +618,7 @@ public sealed class ModuleStore
         {
             using (var output = new FileStream(temporary, FileMode.CreateNew, FileAccess.Write, FileShare.None, 4096, FileOptions.WriteThrough))
             {
-                JsonSerializer.Serialize(output, value, JsonOptions);
+                write(output);
                 output.Flush(flushToDisk: true);
             }
             if (File.Exists(path) && keepBackup)

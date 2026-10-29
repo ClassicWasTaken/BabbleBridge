@@ -41,6 +41,15 @@ jobs:
       - name: Check settings persistence and source migration
         run: dotnet run --project tests/BabbleFrameBridge.Tests -c Release -- --settings-only
 
+      - name: Check module download validation and cancellation
+        run: dotnet run --project tests/BabbleFrameBridge.Download.Tests -c Release
+
+      - name: Build custom SDK module fixture
+        run: dotnet build tests/Fixtures/BabbleBridge.CustomModule.Fixture -c Release -o work/custom-fixture
+
+      - name: Check custom module hosting and dependency failures
+        run: python tests/custom_module_integration_test.py --worker dist/BabbleFrameBridge/runtime/BabbleFrameBridge.Worker.exe --module-dll work/custom-fixture/BabbleBridge.CustomModule.Fixture.dll
+
       - name: Check pupil normalization
         run: dotnet run --project tests/EyeData.Tests -c Release
 

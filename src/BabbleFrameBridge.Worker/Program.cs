@@ -45,35 +45,38 @@ internal static class Program
         Action<UnifiedTrackingData>? prepareEyes = null;
         try
         {
-            string Arg(string name, string? fallback = null)
-            {
-                var index = Array.IndexOf(args, name);
-                return index >= 0 && index + 1 < args.Length ? args[index + 1] : fallback ?? throw new ArgumentException($"Missing {name}");
-            }
+            var options = ParseArguments(args);
+            bool Has(string name) => options.ContainsKey(name);
+            string Arg(string name, string? fallback = null) => options.TryGetValue(name, out var value) && value != null
+                ? value : fallback ?? throw new ArgumentException($"Missing {name}");
             var modulePath = Path.GetFullPath(Arg("--module"));
             var dataRoot = Path.GetFullPath(Arg("--data"));
             if (!File.Exists(modulePath)) throw new FileNotFoundException("The selected module DLL was not found.", modulePath);
             Directory.CreateDirectory(dataRoot);
             var settings = AppSettings.Load(dataRoot);
             settings.Validate();
-            if (args.Contains("--output-port")) settings.OutputPort = int.Parse(Arg("--output-port"));
+            if (Has("--output-port")) settings.OutputPort = int.Parse(Arg("--output-port"));
             settings.Validate();
 
             var moduleDirectory = Path.GetDirectoryName(modulePath)!;
             Directory.SetCurrentDirectory(moduleDirectory);
-            var explicitKind = args.Contains("--kind");
+            var explicitKind = Has("--kind");
             var kind = settings.InputSource == TrackingInputSource.BaballoniaDesktop
                 ? ModuleKind.BaballoniaDesktop : ModuleKind.BabbleHeadsetRuntime;
             if (explicitKind && (!Enum.TryParse(Arg("--kind"), ignoreCase: true, out kind) || !Enum.IsDefined(kind)))
                 throw new ArgumentException("Choose a supported tracking module.");
             var provider = ModuleCatalog.Get(kind);
+            // This label never chooses a transport or changes module configuration.
+            var moduleName = Arg("--module-name", provider.Name).Trim();
+            if (moduleName.Length is 0 or > 200 || moduleName.Any(char.IsControl))
+                throw new ArgumentException("The module display name must be between 1 and 200 characters.");
             var babbleModule = kind is ModuleKind.BabbleHeadsetRuntime or ModuleKind.BaballoniaDesktop;
             var headsetSource = kind == ModuleKind.BabbleHeadsetRuntime;
             var desktopSource = kind == ModuleKind.BaballoniaDesktop;
             var inputPort = !explicitKind && headsetSource ? settings.LinkPort : provider.InputPort;
-            if (args.Contains("--input-port"))
+            if (Has("--input-port"))
             {
-                if (!babbleModule) throw new ArgumentException($"{provider.Name} manages its tracking input automatically.");
+                if (!babbleModule) throw new ArgumentException($"{moduleName} manages its tracking input automatically.");
                 inputPort = int.Parse(Arg("--input-port"));
             }
             if (inputPort is < 0 or > 65535 || (babbleModule && inputPort == 0))
@@ -94,7 +97,7 @@ internal static class Program
                     // Legacy ZIPs can default to face only; this profile owns both tracking channels.
                     config["IsEyeSupported"] = true;
                     config["IsFaceSupported"] = true;
-                    if (explicitKind || args.Contains("--input-port")) config["Port"] = inputPort;
+                    if (explicitKind || Has("--input-port")) config["Port"] = inputPort;
                     else inputPort = config["Port"]!.GetValue<int>();
                 }
                 else
@@ -126,7 +129,7 @@ internal static class Program
                 }
                 catch (OperationCanceledException) { }
             });
-            if (args.Contains("--parent"))
+            if (Has("--parent"))
             {
                 int parent = int.Parse(Arg("--parent"));
                 _ = Task.Run(async () =>
@@ -162,18 +165,15 @@ internal static class Program
                 var dependency = Path.Combine(moduleDirectory, name.Name + ".dll");
                 return File.Exists(dependency) ? AssemblyLoadContext.Default.LoadFromAssemblyPath(dependency) : null;
             };
-            var assembly = AssemblyLoadContext.Default.LoadFromAssemblyPath(modulePath);
-            var types = assembly.GetTypes().Where(t => !t.IsAbstract && typeof(ExtTrackingModule).IsAssignableFrom(t)).ToArray();
-            if (types.Length != 1) throw new InvalidDataException("The package must contain exactly one VRCFaceTracking module.");
-            module = (ExtTrackingModule)Activator.CreateInstance(types[0])!;
-            module.Logger = logs.CreateLogger(provider.Name);
+            module = LoadModule(modulePath);
+            module.Logger = logs.CreateLogger(moduleName);
             var claims = module.Initialize(true, true);
             // A headset can have both channels disabled in its saved configuration. Its
             // live BFR Link still needs to negotiate the next headset session's claims.
             if (!claims.eyeSuccess && !claims.expressionSuccess && !headsetSource)
                 throw new InvalidOperationException(kind == ModuleKind.VirtualDesktop
                     ? "Virtual Desktop could not initialize. Start Virtual Desktop Streamer 1.30 or later, enable 'Forward tracking data to PC', and connect your headset before starting the bridge."
-                    : $"{provider.Name} did not enable eye or face tracking. Check the module's tracking settings and start its tracking software before trying again.");
+                    : $"{moduleName} did not enable eye or face tracking. Check the module's tracking settings and start its tracking software before trying again.");
             module.Status = ModuleState.Active;
             // The VRCFT mapping exposes these static status values to EyeTrackingActive / ExpressionTrackingActive.
             SetCoreStatus("EyeStatus", claims.eyeSuccess);
@@ -191,7 +191,7 @@ internal static class Program
             {
                 Emit(new { type = "restart", message = headsetSource
                     ? "The headset changed its eye or mouth tracking mode."
-                    : $"{provider.Name} changed its eye or mouth tracking mode." });
+                    : $"{moduleName} changed its eye or mouth tracking mode." });
                 stop.Cancel();
             };
             if (reinitEvent?.EventHandlerType == typeof(Action)) reinitEvent.AddEventHandler(module, requestRestart);
@@ -205,7 +205,7 @@ internal static class Program
             }
             nativeFace = new NativeFaceSender(target, logs.CreateLogger<NativeFaceSender>());
             nativeFace.Start();
-            router = new AvatarRouter(logs, target, sender, settings, args.Contains("--all-parameters"), nativeFace, args.Contains("--no-discovery"));
+            router = new AvatarRouter(logs, target, sender, settings, Has("--all-parameters"), nativeFace, Has("--no-discovery"));
             await router.StartAsync(stop.Token);
             await sender.StartAsync(stop.Token);
             Emit(new
@@ -217,7 +217,8 @@ internal static class Program
                     ModuleKind.BabbleHeadsetRuntime => "Module initialized; waiting for the headset.",
                     ModuleKind.BaballoniaDesktop => $"Module initialized; listening for Baballonia desktop OSC on UDP {inputPort}.",
                     ModuleKind.VirtualDesktop => "Module initialized; connected to Virtual Desktop Streamer.",
-                    _ => $"Module initialized; listening for Steam Link OSC on UDP {inputPort}."
+                    ModuleKind.SteamLink => $"Module initialized; listening for Steam Link OSC on UDP {inputPort}.",
+                    _ => $"{moduleName} initialized; its tracking input is managed by the module."
                 }
             });
             var clock = Stopwatch.StartNew();
@@ -228,7 +229,12 @@ internal static class Program
             double lastStatus = -1;
             while (!stop.IsCancellationRequested)
             {
+                var updateStarted = Stopwatch.GetTimestamp();
                 module.Update();
+                // Standard SDK modules may return immediately. Cooperate with the OS
+                // rather than busy-spinning a CPU core; existing providers keep their pacing.
+                if (kind == ModuleKind.Custom && Stopwatch.GetElapsedTime(updateStarted) < TimeSpan.FromMilliseconds(1))
+                    Thread.Sleep(1);
                 if (clock.Elapsed.TotalSeconds - lastStatus < .25) continue;
                 var elapsed = clock.Elapsed.TotalSeconds - Math.Max(0, lastStatus);
                 lastStatus = clock.Elapsed.TotalSeconds;
@@ -236,7 +242,7 @@ internal static class Program
                 var sid = GetField(link, "_sid") as string;
                 var lastSeen = GetField(link, "_lastSeen") is DateTime date ? date : DateTime.MinValue;
                 var packetCount = GetField(link, "_rx") is long rx ? rx : 0;
-                var connected = headsetSource ? sid != null && DateTime.UtcNow - lastSeen < TimeSpan.FromSeconds(3.5) : true;
+                var connected = headsetSource ? sid != null && DateTime.UtcNow - lastSeen < TimeSpan.FromSeconds(3.5) : kind != ModuleKind.Custom;
                 if (packetCount != lastPackets) { lastDataAt = DateTime.UtcNow; lastPackets = packetCount; }
                 var dataAge = lastDataAt == DateTime.MinValue ? -1 : Math.Max(0, (DateTime.UtcNow - lastDataAt).TotalSeconds);
                 var eyeInputs = babbleModule ? GetHeadsetEyeInputs(module) : (NormalizedDilation: false, Pupil: false, Widen: claims.eyeSuccess);
@@ -269,7 +275,8 @@ internal static class Program
                 });
                 lastMessages = total;
                 lastFrames = frames;
-                var restartMethod = module.GetType().GetMethod("RestartNeeded", BindingFlags.Instance | BindingFlags.NonPublic);
+                var restartMethod = kind == ModuleKind.Custom ? null
+                    : module.GetType().GetMethod("RestartNeeded", BindingFlags.Instance | BindingFlags.NonPublic);
                 if (restartMethod?.Invoke(module, null) is true)
                 {
                     requestRestart();
@@ -282,7 +289,7 @@ internal static class Program
         catch (Exception e)
         {
             while (e is TargetInvocationException && e.InnerException != null) e = e.InnerException;
-            Emit(new { type = "fatal", message = e.Message });
+            Emit(new { type = "fatal", message = DescribeModuleFailure(e) });
             return 1;
         }
         finally
@@ -295,6 +302,58 @@ internal static class Program
             send?.Dispose();
             if (module != null) { try { module.Teardown(); } catch (Exception e) { Emit(new { type = "log", message = "Module shutdown: " + e.Message }); } }
         }
+    }
+
+    private static Dictionary<string, string?> ParseArguments(string[] args)
+    {
+        var options = new Dictionary<string, string?>(StringComparer.Ordinal);
+        for (var index = 0; index < args.Length; index++)
+        {
+            var name = args[index];
+            string? value = null;
+            switch (name)
+            {
+                case "--no-discovery": case "--all-parameters": break;
+                case "--module": case "--data": case "--kind": case "--module-name":
+                case "--input-port": case "--output-port": case "--parent":
+                    if (++index >= args.Length) throw new ArgumentException($"Missing value for {name}.");
+                    value = args[index];
+                    break;
+                default: throw new ArgumentException($"Unknown runtime option: {name}");
+            }
+            if (!options.TryAdd(name, value)) throw new ArgumentException($"Duplicate runtime option: {name}");
+        }
+        return options;
+    }
+
+    private static ExtTrackingModule LoadModule(string modulePath)
+    {
+        var assembly = AssemblyLoadContext.Default.LoadFromAssemblyPath(modulePath);
+        var types = assembly.GetTypes().Where(type => !type.IsAbstract && typeof(ExtTrackingModule).IsAssignableFrom(type)).ToArray();
+        if (types.Length != 1)
+            throw new InvalidDataException("Choose the tracking module entry DLL containing exactly one concrete VRCFaceTracking ExtTrackingModule. If the download contains several DLLs, import the author's complete module ZIP. This build supports the VRCFaceTracking 5.4.1 SDK API.");
+        if (types[0].GetConstructor(Type.EmptyTypes) == null)
+            throw new InvalidDataException("The VRCFaceTracking module must have a public parameterless constructor. Obtain a standard compiled module package from its author.");
+        return (ExtTrackingModule)Activator.CreateInstance(types[0])!;
+    }
+
+    private static string DescribeModuleFailure(Exception error)
+    {
+        while (error is TargetInvocationException && error.InnerException != null) error = error.InnerException;
+        if (error is ReflectionTypeLoadException types)
+        {
+            var details = string.Join(" ", types.LoaderExceptions.Where(item => item != null).Select(item => DescribeModuleFailure(item!)).Distinct());
+            return "The module could not load its tracking types. " + details;
+        }
+        if (error is DllNotFoundException)
+            return "A native module dependency or headset driver is missing. Import the author's complete Windows x64 module ZIP and install its required drivers or runtimes. " + error.Message;
+        if (error is FileNotFoundException or FileLoadException)
+            return "A module dependency could not be loaded. A standalone DLL may need other files; import the author's complete module ZIP with its dependencies. " + error.Message;
+        if (error is MissingMethodException or MissingFieldException or TypeLoadException)
+            return "The module or one of its dependencies requires an SDK API this build does not provide. Use a module compatible with the VRCFaceTracking 5.4.1 SDK, or update Babble Bridge. " + error.Message;
+        if (error is BadImageFormatException)
+            return "The selected module or a dependency is not a compatible Windows x64 .NET assembly. Import the author's compiled Windows x64 VRCFaceTracking module package. " + error.Message;
+        return error.Message;
     }
 
     private static float Finite(float value) => float.IsFinite(value) ? value : 0;

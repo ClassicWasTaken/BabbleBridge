@@ -18,6 +18,7 @@ From the repository root:
 ```powershell
 .\build.ps1
 dotnet run --project tests/BabbleFrameBridge.Tests -c Release -- --settings-only
+dotnet run --project tests/BabbleFrameBridge.Download.Tests -c Release
 dotnet run --project tests/EyeData.Tests -c Release
 dotnet run --project tests/BabbleBridge.Sending.Tests -c Release
 dotnet run --project tests/BabbleFrameBridge.NativeFace.Tests -c Release

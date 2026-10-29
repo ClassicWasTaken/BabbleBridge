@@ -26,6 +26,7 @@
  <SolidColorBrush x:Key="NoticeInk" Color="#365F48"/>
  <SolidColorBrush x:Key="ErrorBackground" Color="#FCEAE6"/>
  <SolidColorBrush x:Key="ErrorBorder" Color="#E5BAB2"/>
+ <SolidColorBrush x:Key="DangerInk" Color="#B23D36"/>
  <SolidColorBrush x:Key="ErrorInk" Color="#8D3E35"/>
  <SolidColorBrush x:Key="HeroBackground" Color="#347A66"/>
  <SolidColorBrush x:Key="HeroInk" Color="#FFFFFF"/>

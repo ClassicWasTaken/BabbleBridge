@@ -14,13 +14,15 @@ A Windows app that bridges eye and face tracking to VRChat through compatible **
 
 ## Get started
 
-1. Install the app and import your **VRCFaceTracking module ZIP**. Modules are supplied separately.
+1. Install the app and download a **VRCFaceTracking module** from Modules, or import a module DLL or ZIP.
 2. Select your module and start its **headset runtime or desktop tracking app**.
 3. Enable **OSC** in VRChat and select a face-tracking avatar.
 
-Your selected module is remembered, with its own connection settings. Jerry’s templates are supported.
+Downloads come from the module authors; modules are never bundled. Your selected module is remembered, with its own connection settings. Remove imported modules with the trash button. Jerry’s templates are supported.
 
-Only import ZIPs from publishers you trust: modules run code on your PC under their own licenses.
+Other compatible VRCFaceTracking SDK modules work too. `module.json` is optional; use a ZIP if a module needs supporting files.
+
+Only import modules from publishers you trust: they run code on your PC under their own licenses.
 
 Windows 10/11 x64. [Setup & requirements](START-HERE.txt) · [Build from source](BUILD.txt)
 

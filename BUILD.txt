@@ -78,7 +78,10 @@ module archive/DLL, obsolete official artwork, or an app-local vcruntime140.dll.
 The .NET runtime's own vcruntime140_cor3.dll is a separate file and is preserved.
 The isolated installer smoke test also requires -ModuleZip with an external fixture.
 
-ADDITIONAL PROVIDER / SEND TESTS
+ADDITIONAL MODULE DOWNLOAD / PROVIDER / SEND TESTS
+  dotnet run --project tests/BabbleFrameBridge.Download.Tests -c Release
+  dotnet build tests/Fixtures/BabbleBridge.CustomModule.Fixture -c Release -o work/custom-fixture
+  python tests/custom_module_integration_test.py --worker dist/BabbleFrameBridge/runtime/BabbleFrameBridge.Worker.exe --module-dll work/custom-fixture/BabbleBridge.CustomModule.Fixture.dll
   dotnet run --project tests/BabbleBridge.Sending.Tests -c Release
   python tests/provider_integration_test.py --worker dist/BabbleFrameBridge/runtime/BabbleFrameBridge.Worker.exe --babble-zip "path/to/Baballonia.zip" --virtual-desktop-zip "path/to/VirtualDesktop.VRCFaceTracking.zip" --steam-link-zip "path/to/LinkFTModule.zip"
 

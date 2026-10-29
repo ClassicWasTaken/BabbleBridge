@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 using System.IO.Compression;
+using System.Diagnostics;
 using System.Text;
 using System.Text.Json;
 using BabbleFrameBridge.Shared;
@@ -126,6 +127,152 @@ try
             Check(store.Installed.Count == 2, "Migration did not add a separate headset profile.");
             Check(new ModuleStore(dataRoot).Current?.Kind == ModuleKind.BaballoniaDesktop, "Migrated selection did not persist.");
         });
+        Test("removing an inactive imported profile preserves active and previous selections", () =>
+        {
+            var store = NewStore("remove-inactive");
+            var inactive = store.Install(suppliedZip);
+            var previous = store.Install(suppliedZip);
+            var current = store.Install(suppliedZip);
+            store.Remove(inactive);
+            Check(store.Current == current && store.Previous == previous && store.Installed.Count == 2, "Inactive removal changed another selection.");
+            Check(!Directory.Exists(Path.GetDirectoryName(inactive.DirectoryPath)!), "Removed managed payload remains in releases.");
+        });
+        Test("removing the previous profile clears only the rollback reference", () =>
+        {
+            var store = NewStore("remove-previous");
+            var previous = store.Install(suppliedZip);
+            var current = store.Install(suppliedZip);
+            store.Remove(previous);
+            Check(store.Current == current && store.Previous is null && store.Installed.Single() == current, "Previous removal changed the current profile.");
+            ExpectFailure(() => store.Rollback(), "removed-rollback-target");
+        });
+        Test("removing the selected profile leaves selection empty and preserves its companion", () =>
+        {
+            var dataRoot = Path.Combine(root, "remove-companion");
+            var store = new ModuleStore(dataRoot);
+            var headset = store.Prepare(suppliedZip);
+            var desktop = store.CreateCompanion(headset);
+            store.Register(headset); store.Register(desktop); store.Activate(desktop); store.Activate(headset);
+            var desktopDll = Path.Combine(desktop.DirectoryPath, desktop.DllFileName);
+            var retainedBytes = File.ReadAllBytes(desktopDll);
+            var zipBytes = File.ReadAllBytes(suppliedZip);
+            store.Remove(headset);
+            Check(store.Current is null && store.Previous == desktop && store.Installed.Single() == desktop, "Active removal selected another profile or removed its companion.");
+            Check(File.ReadAllBytes(desktopDll).SequenceEqual(retainedBytes), "Companion payload changed.");
+            Check(File.ReadAllBytes(suppliedZip).SequenceEqual(zipBytes), "The user's original ZIP was changed.");
+            store = new ModuleStore(dataRoot);
+            Check(store.Current is null && store.Previous == desktop && store.Installed.Single() == desktop, "Removal did not survive reopening.");
+        });
+        Test("removing the final profile persists an empty library without backup resurrection", () =>
+        {
+            var dataRoot = Path.Combine(root, "remove-last");
+            var store = new ModuleStore(dataRoot);
+            var release = store.Install(suppliedZip);
+            store.Remove(release);
+            Check(store.Current is null && store.Previous is null && store.Installed.Count == 0, "Removing the last profile left a reference.");
+            var statePath = Path.Combine(dataRoot, "modules", "module-state.json");
+            Check(!File.ReadAllText(statePath + ".backup").Contains(release.Id), "Backup still references the removed profile.");
+            File.WriteAllText(statePath, "broken");
+            store = new ModuleStore(dataRoot);
+            Check(store.Current is null && store.Previous is null && store.Installed.Count == 0, "Backup recovery resurrected a removed profile.");
+        });
+        Test("removal rejects foreign, tampered and unregistered releases before changing files", () =>
+        {
+            var store = NewStore("remove-validation");
+            var release = store.Install(suppliedZip);
+            var other = NewStore("remove-foreign");
+            ExpectFailure(() => other.Remove(release), "foreign-removal");
+            ExpectFailure(() => store.Remove(release with { DirectoryPath = root }), "tampered-removal");
+            var staged = store.Prepare(suppliedZip);
+            ExpectFailure(() => store.Remove(staged), "unregistered-removal");
+            Check(store.Current == release && store.Installed.Single() == release, "Rejected removal changed the library.");
+            Check(File.Exists(Path.Combine(release.DirectoryPath, release.DllFileName)) && File.Exists(Path.Combine(staged.DirectoryPath, staged.DllFileName)), "Rejected removal deleted payload files.");
+        });
+        Test("failed removal state commits restore the payload and original state backup", () =>
+        {
+            var dataRoot = Path.Combine(root, "remove-commit-failure");
+            var store = new ModuleStore(dataRoot);
+            var previous = store.Install(suppliedZip);
+            var current = store.Install(suppliedZip);
+            var statePath = Path.Combine(dataRoot, "modules", "module-state.json");
+            var primary = File.ReadAllBytes(statePath);
+            var backup = File.ReadAllBytes(statePath + ".backup");
+            foreach (var lockedPath in new[] { statePath, statePath + ".backup" })
+            {
+                using (var held = new FileStream(lockedPath, FileMode.Open, FileAccess.Read, FileShare.Read))
+                    ExpectFailure(() => store.Remove(current), "locked-state-commit");
+                Check(store.Current == current && store.Previous == previous && store.Installed.Count == 2, "A failed removal changed selection.");
+                Check(File.Exists(Path.Combine(current.DirectoryPath, current.DllFileName)), "A failed commit lost its payload.");
+                Check(File.ReadAllBytes(statePath).SequenceEqual(primary) && File.ReadAllBytes(statePath + ".backup").SequenceEqual(backup), "A failed removal changed persisted state.");
+                Check(!Directory.EnumerateDirectories(Path.Combine(dataRoot, "modules"), ".removed-*").Any(), "A failed commit left a tombstone.");
+            }
+            Check(new ModuleStore(dataRoot).Current == current, "The restored library cannot be reopened.");
+        });
+        Test("locked removal cleanup is deferred and safely retried when the library reopens", () =>
+        {
+            var dataRoot = Path.Combine(root, "remove-deferred");
+            var store = new ModuleStore(dataRoot);
+            var release = store.Install(suppliedZip);
+            var marker = Path.Combine(release.DirectoryPath, "locked-removal.txt");
+            File.WriteAllText(marker, "retry cleanup");
+            File.SetAttributes(marker, FileAttributes.ReadOnly);
+            try
+            {
+                store.Remove(release);
+                var tombstone = Path.Combine(dataRoot, "modules", ".removed-" + release.Id);
+                Check(store.Installed.Count == 0 && Directory.Exists(tombstone), "Deferred cleanup did not commit the removal.");
+                Check(File.Exists(Path.Combine(tombstone, "release.json")), "Deferred cleanup lost its ownership metadata.");
+                File.SetAttributes(Path.Combine(tombstone, "payload", "locked-removal.txt"), FileAttributes.Normal);
+                Check(new ModuleStore(dataRoot).Installed.Count == 0 && !Directory.Exists(tombstone), "Deferred cleanup was not completed on reopen.");
+            }
+            finally
+            {
+                foreach (var candidate in Directory.EnumerateFiles(dataRoot, "locked-removal.txt", SearchOption.AllDirectories))
+                    File.SetAttributes(candidate, FileAttributes.Normal);
+            }
+        });
+        Test("interrupted removal recovers the sanitized backup and finishes owned cleanup", () =>
+        {
+            var dataRoot = Path.Combine(root, "remove-interrupted");
+            var store = new ModuleStore(dataRoot);
+            var retained = store.Install(suppliedZip);
+            var removed = store.Install(suppliedZip);
+            var modules = Path.Combine(dataRoot, "modules");
+            var statePath = Path.Combine(modules, "module-state.json");
+            File.WriteAllText(statePath + ".backup", JsonSerializer.Serialize(new { Schema = 2, Current = (string?)null, Previous = retained.Id, Installed = new[] { retained.Id } }));
+            Directory.Move(Path.Combine(modules, "releases", removed.Id), Path.Combine(modules, ".removed-" + removed.Id));
+            store = new ModuleStore(dataRoot);
+            Check(store.Current is null && store.Installed.Single() == retained, "Interrupted removal resurrected its target or lost another profile.");
+            Check(!Directory.EnumerateDirectories(modules, ".removed-*").Any(), "Interrupted removal payload was not cleaned.");
+            Check(!File.ReadAllText(statePath).Contains(removed.Id), "Recovery did not repair the interrupted primary state.");
+        });
+        Test("removal refuses payload junctions and preserves the external target", () =>
+        {
+            var store = NewStore("remove-junction");
+            var release = store.Install(suppliedZip);
+            var target = Path.Combine(root, "foreign-junction-target");
+            Directory.CreateDirectory(target);
+            var sentinel = Path.Combine(target, "keep.txt");
+            File.WriteAllText(sentinel, "keep external data");
+            var link = Path.Combine(release.DirectoryPath, "foreign-link");
+            if (OperatingSystem.IsWindows())
+            {
+                var script = Path.Combine(root, "create-test-junction.ps1");
+                File.WriteAllText(script, "param([string]$Link, [string]$Target)\n$ErrorActionPreference='Stop'\nNew-Item -ItemType Junction -Path $Link -Target $Target | Out-Null\n");
+                var start = new ProcessStartInfo("pwsh") { UseShellExecute = false, CreateNoWindow = true };
+                foreach (var argument in new[] { "-NoProfile", "-NonInteractive", "-File", script, "-Link", link, "-Target", target }) start.ArgumentList.Add(argument);
+                using var process = Process.Start(start)!;
+                Check(process.WaitForExit(10000) && process.ExitCode == 0, "Could not create the isolated junction fixture.");
+            }
+            else Directory.CreateSymbolicLink(link, target);
+            try
+            {
+                ExpectFailure(() => store.Remove(release), "payload-junction-removal");
+                Check(store.Current == release && store.Installed.Single() == release, "Rejected junction removal changed the library.");
+                Check(File.ReadAllText(sentinel) == "keep external data", "Removal followed a junction into external data.");
+            }
+            finally { Directory.Delete(link); }
+        });
         Test("prepared releases cannot be activated in another store", () =>
         {
             var a = NewStore("store-a");
@@ -135,6 +282,40 @@ try
             Check(b.Current is null, "Foreign release changed state.");
             ExpectFailure(() => a.Activate(release with { DirectoryPath = root }), "tampered-release");
             Check(a.Current is null, "Tampered release changed state.");
+        });
+        Test("known profiles written before assembly identity metadata remain readable", () =>
+        {
+            var dataRoot = Path.Combine(root, "legacy-assembly-identity");
+            var store = new ModuleStore(dataRoot);
+            var release = store.Install(suppliedZip);
+            var path = Path.Combine(dataRoot, "modules", "releases", release.Id, "release.json");
+            var metadata = JsonSerializer.Deserialize<Dictionary<string, JsonElement>>(File.ReadAllText(path))!;
+            metadata.Remove("AssemblyName");
+            File.WriteAllText(path, JsonSerializer.Serialize(metadata));
+            store = new ModuleStore(dataRoot);
+            var legacy = store.Current!;
+            Check(legacy.Id == release.Id && legacy.AssemblyName is null, "An older profile did not reopen with optional assembly metadata.");
+            store.Activate(legacy);
+            Check(store.Current == legacy, "Known identity was not derived from its legacy catalog entry.");
+        });
+        Test("manifest-free SDK packages identify their tracking entry among managed dependencies", () =>
+        {
+            var zip = Path.Combine(root, "known-sdk-no-manifest.zip");
+            WriteZip(zip, fixtureEntries.Where(entry => entry.Name != "module.json").Concat(new[] {
+                new FixtureEntry("ManagedDependency.dll", File.ReadAllBytes(typeof(ModuleStore).Assembly.Location)),
+                new FixtureEntry("NativeDependency.dll", [0x4d, 0x5a, 1]) }));
+            var release = NewStore("known-sdk-no-manifest").Prepare(zip);
+            Check(release.Kind == ModuleKind.BabbleHeadsetRuntime && release.SupportsHeadset
+                && release.AssemblyName == "VRCFaceTracking.Baballonia", "Tracking inheritance metadata did not identify the known module.");
+        });
+        Test("custom manifests cannot disguise a known module assembly under another identity", () =>
+        {
+            var dll = fixtureEntries.Single(entry => entry.Name == ModuleStore.BaballoniaDll);
+            var zip = Path.Combine(root, "forged-known-custom.zip");
+            WriteZip(zip, new[] { new FixtureEntry("module.json", JsonSerializer.SerializeToUtf8Bytes(new {
+                ModuleId = Guid.NewGuid().ToString(), DllFileName = "Community.dll", Version = "1.0.0", ModuleName = "Community" })),
+                dll with { Name = "Community.dll" } });
+            ExpectFailure(() => NewStore("forged-known-custom").Prepare(zip), "known-assembly-disguised-as-custom");
         });
         Test("semantically invalid saved state recovers its valid atomic backup", () =>
         {
@@ -159,13 +340,135 @@ try
             Check(store.Current == first, "State backup recovery did not restore the previous valid manifest.");
         });
     }
+    Test("a single custom DLL stages only its selected file and derives stable metadata", () =>
+    {
+        var sourceDirectory = Path.Combine(root, "bare-source");
+        Directory.CreateDirectory(sourceDirectory);
+        var source = Path.Combine(sourceDirectory, "MyTracking.dll");
+        var original = File.ReadAllBytes(typeof(ModuleStore).Assembly.Location);
+        File.WriteAllBytes(source, original);
+        File.WriteAllBytes(Path.Combine(sourceDirectory, "UnrelatedDownloaded.dll"), [1, 2, 3]);
+        var store = NewStore("bare-custom");
+        var first = store.Prepare(source);
+        var second = store.Prepare(source);
+        Check(first.Kind == ModuleKind.Custom && first.AssemblyName == typeof(ModuleStore).Assembly.GetName().Name, "Custom assembly identity was not recorded.");
+        Check(first.ModuleName == first.AssemblyName && first.Version == typeof(ModuleStore).Assembly.GetName().Version!.ToString(), "Missing manifest metadata did not use the assembly.");
+        Check(Guid.TryParse(first.ModuleId, out _) && first.ModuleId == second.ModuleId, "Bare DLL imports did not derive a stable module ID.");
+        Check(Directory.EnumerateFiles(first.DirectoryPath).Count() == 1 && !File.Exists(Path.Combine(first.DirectoryPath, "UnrelatedDownloaded.dll")), "Import copied unrelated neighboring DLLs.");
+        Check(File.ReadAllBytes(source).SequenceEqual(original), "Import changed the selected original DLL.");
+        store.Register(first); store.Activate(first);
+        Check(store.Current == first, "Custom assembly identity could not be activated.");
+    });
+    Test("ZIPs without manifests can contain one managed entry with native dependencies", () =>
+    {
+        var zip = Path.Combine(root, "custom-no-manifest.zip");
+        WriteZip(zip, new[] {
+            new FixtureEntry("module/MyTracking.dll", File.ReadAllBytes(typeof(ModuleStore).Assembly.Location)),
+            new FixtureEntry("module/native-helper.dll", [0x4d, 0x5a, 1, 2, 3]),
+            new FixtureEntry("module/runtime-data.dat", [4, 5, 6]) });
+        var store = NewStore("custom-no-manifest");
+        var release = store.Prepare(zip);
+        Check(release.Kind == ModuleKind.Custom && release.DllFileName == "MyTracking.dll", "Manifest-free custom entry was not identified.");
+        Check(File.Exists(Path.Combine(release.DirectoryPath, "native-helper.dll")), "Native dependencies were not preserved.");
+    });
+    Test("custom manifests preserve author identity and reject entry filename escapes", () =>
+    {
+        var moduleId = Guid.NewGuid().ToString();
+        var manifest = new Dictionary<string, object> { ["ModuleId"] = moduleId, ["DllFileName"] = "MyTracking.dll",
+            ["Version"] = "9.2.1-preview", ["ModuleName"] = "Community Tracker" };
+        string BuildCustom(string name)
+        {
+            var zip = Path.Combine(root, name + ".zip");
+            WriteZip(zip, new[] { new FixtureEntry("package/module.json", JsonSerializer.SerializeToUtf8Bytes(manifest)),
+                new FixtureEntry("package/MyTracking.dll", File.ReadAllBytes(typeof(ModuleStore).Assembly.Location)) });
+            return zip;
+        }
+        var store = NewStore("custom-manifest");
+        var release = store.Prepare(BuildCustom("custom-authored"), ModuleKind.Custom);
+        Check(release.Kind == ModuleKind.Custom && release.ModuleId == moduleId && release.Version == "9.2.1-preview" && release.ModuleName == "Community Tracker", "Custom manifest metadata was lost.");
+        foreach (var (index, filename) in new[] { "../MyTracking.dll", "..\\MyTracking.dll", "C:\\MyTracking.dll", "nested/MyTracking.dll", "MyTracking.dll:payload", "CON.dll" }.Select((filename, index) => (index, filename)))
+        {
+            manifest["DllFileName"] = filename;
+            ExpectFailure(() => store.Prepare(BuildCustom("custom-escape-" + index)), "custom-entry-escape");
+        }
+        Check(store.Current is null && store.Installed.Count == 0, "Staging or rejection activated a custom module.");
+    });
+    Test("ambiguous manifest-free ZIPs ask for an entry DLL or optional manifest", () =>
+    {
+        var zip = Path.Combine(root, "custom-ambiguous.zip");
+        WriteZip(zip, new[] { new FixtureEntry("One.dll", File.ReadAllBytes(typeof(ModuleStore).Assembly.Location)),
+            new FixtureEntry("Two.dll", File.ReadAllBytes(typeof(JsonSerializer).Assembly.Location)) });
+        var store = NewStore("custom-ambiguous");
+        try { store.Prepare(zip); throw new Exception("Ambiguous module ZIP was accepted."); }
+        catch (InvalidDataException error)
+        { Check(error.Message.Contains("multiple") && error.Message.Contains("DLL directly") && error.Message.Contains("module.json"), "Ambiguity error does not explain how to select the entry."); }
+    });
+    Test("custom selection and removal survive reopening and backup recovery", () =>
+    {
+        var dataRoot = Path.Combine(root, "custom-removal");
+        var store = new ModuleStore(dataRoot);
+        var release = store.Prepare(typeof(ModuleStore).Assembly.Location);
+        store.Register(release); store.Activate(release);
+        store = new ModuleStore(dataRoot);
+        Check(store.Current == release && store.Installed.Single() == release, "Custom release could not reopen.");
+        store.Remove(release);
+        File.WriteAllText(Path.Combine(dataRoot, "modules", "module-state.json"), "broken");
+        store = new ModuleStore(dataRoot);
+        Check(store.Current is null && store.Installed.Count == 0, "Backup recovery resurrected a removed custom module.");
+    });
+    Test("custom SDK inheritance selects the entry while keeping its managed dependency", () =>
+    {
+        var fixture = Path.Combine(AppContext.BaseDirectory, "Fixtures", "BabbleBridge.CustomModule.Fixture.dll");
+        var dependency = Path.Combine(AppContext.BaseDirectory, "Fixtures", "BabbleBridge.CustomModule.Dependency.dll");
+        var zip = Path.Combine(root, "real-custom-sdk.zip");
+        WriteZip(zip, new[] { new FixtureEntry("package/BabbleBridge.CustomModule.Fixture.dll", File.ReadAllBytes(fixture)),
+            new FixtureEntry("package/BabbleBridge.CustomModule.Dependency.dll", File.ReadAllBytes(dependency)),
+            new FixtureEntry("package/native-helper.dll", [0x4d, 0x5a, 0]) });
+        var store = NewStore("real-custom-sdk");
+        var release = store.Prepare(zip);
+        Check(release.Kind == ModuleKind.Custom && release.AssemblyName == "BabbleBridge.CustomModule.Fixture"
+            && release.DllFileName == "BabbleBridge.CustomModule.Fixture.dll", "SDK inheritance metadata selected the dependency instead of the module.");
+        Check(File.Exists(Path.Combine(release.DirectoryPath, "BabbleBridge.CustomModule.Dependency.dll")), "The managed module dependency was lost.");
+        Check(store.Current is null && store.Installed.Count == 0, "Preparing the SDK fixture activated it.");
+    });
+    Test("a bare SDK module stages without copying neighboring dependencies", () =>
+    {
+        var fixture = Path.Combine(AppContext.BaseDirectory, "Fixtures", "BabbleBridge.CustomModule.Fixture.dll");
+        var store = NewStore("bare-sdk-fixture");
+        var release = store.Prepare(fixture);
+        Check(release.Kind == ModuleKind.Custom && release.AssemblyName == "BabbleBridge.CustomModule.Fixture", "Bare SDK module was not accepted.");
+        Check(Directory.EnumerateFiles(release.DirectoryPath).Single() == Path.Combine(release.DirectoryPath, release.DllFileName), "Bare import copied its neighbor DLLs without being selected.");
+    });
+    Test("Virtual Desktop source archives point users to the official compiled module", () =>
+    {
+        var path = Path.Combine(root, "virtual-desktop-source.zip");
+        var manifest = JsonSerializer.SerializeToUtf8Bytes(new
+        {
+            ModuleId = "91a90618-b020-4064-8832-809b2ca2b3bc", DllFileName = "VirtualDesktop.FaceTracking.dll",
+            ModuleName = "Virtual Desktop", Version = "1.5", DownloadUrl = "https://untrusted.example/ignore-this"
+        });
+        WriteZip(path, new[] { new FixtureEntry("VirtualDesktop.VRCFaceTracking-main/module.json", manifest),
+            new FixtureEntry("VirtualDesktop.VRCFaceTracking-main/TrackingModule.cs", Encoding.UTF8.GetBytes("// source fixture")) });
+        var store = NewStore("virtual-desktop-source");
+        try { store.Prepare(path); throw new Exception("Source archive was accepted without a compiled DLL."); }
+        catch (InvalidDataException error)
+        {
+            Check(error.Message.Contains("compiled module") && error.Message.Contains("Source code ZIP")
+                && error.Message.Contains("https://download.vrdesktop.net/files/VirtualDesktop.VRCFaceTracking.zip"), "Missing actionable official compiled download link.");
+            Check(!error.Message.Contains("untrusted.example"), "The error trusted a manifest-supplied URL.");
+        }
+        Check(store.Installed.Count == 0 && store.Current is null, "Rejected source archive changed the library.");
+    });
     Test("provider transports have distinct automatic inputs", () =>
     {
         Check(ModuleCatalog.Get(ModuleKind.BabbleHeadsetRuntime).InputPort == 6767, "Wrong headset input.");
         Check(ModuleCatalog.Get(ModuleKind.BaballoniaDesktop).InputPort == 8888, "Wrong desktop input.");
         Check(ModuleCatalog.Get(ModuleKind.VirtualDesktop).InputPort == 0, "Virtual Desktop must not open a UDP input.");
         Check(ModuleCatalog.Get(ModuleKind.SteamLink).InputPort == 9015, "Wrong LinkFT input.");
-        ExpectFailure(() => ModuleCatalog.Identify(Guid.NewGuid().ToString(), "Other.dll"), "unknown-provider");
+        Check(ModuleCatalog.Identify(Guid.NewGuid().ToString(), "Other.dll").Kind == ModuleKind.Custom, "Unknown valid module identity was not accepted as custom.");
+        ExpectFailure(() => ModuleCatalog.Identify("not-a-guid", "Other.dll"), "invalid-custom-identity");
+        Check((int)ModuleKind.Custom == 4 && ModuleCatalog.Get(ModuleKind.Custom).InputPort == 0
+            && ModuleCatalog.Get(ModuleKind.Custom).Connection == "Module-managed input", "Custom module transport did not preserve the enum/port contract.");
         ExpectFailure(() => ModuleCatalog.Get((ModuleKind)999), "unknown-kind");
     });
     Test("settings persist and validation rejects conflicting listening ports", () =>
@@ -284,7 +587,7 @@ static void Check(bool condition, string message)
 static void ExpectFailure(Action action, string context)
 {
     try { action(); }
-    catch (Exception ex) when (ex is InvalidDataException or IOException or ArgumentException or InvalidOperationException or JsonException) { return; }
+    catch (Exception ex) when (ex is InvalidDataException or IOException or UnauthorizedAccessException or ArgumentException or InvalidOperationException or JsonException) { return; }
     throw new Exception("Expected rejection: " + context);
 }
 static List<FixtureEntry> ReadZip(string path)
