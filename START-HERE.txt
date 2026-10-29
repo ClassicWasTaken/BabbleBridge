@@ -1,4 +1,4 @@
-STEAM FRAME BABBLE BRIDGE 1.5.0 — WINDOWS x64
+STEAM FRAME BABBLE BRIDGE 1.5.1 — WINDOWS x64
 
 PREREQUISITE
 Install the Microsoft Visual C++ v14 Redistributable (x64) from Microsoft:
@@ -8,7 +8,7 @@ setup does not download or install this prerequisite automatically. The packaged
 application includes its separate .NET runtime and its accompanying notices.
 
 GET STARTED
-1. Run FrameBridge-Setup-1.5.0.exe and follow the setup wizard. It installs for
+1. Run FrameBridge-Setup-1.5.1.exe and follow the setup wizard. It installs for
    your Windows account and adds Frame Bridge to the Start menu. An optional
    desktop shortcut is available. The portable ZIP is also supported: extract
    the entire folder and keep its runtime and Assets folders.

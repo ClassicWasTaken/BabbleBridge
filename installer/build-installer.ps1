@@ -40,6 +40,7 @@ if (!(Test-Path -LiteralPath $payloadPath -PathType Container)) { throw 'Payload
 $requiredFiles = @(
     'BabbleFrameBridge.exe',
     'runtime/BabbleFrameBridge.Worker.exe',
+    'Assets/Brand/FrameBridge-headset-v1.ico',
     'START-HERE.txt',
     'LICENSE',
     'NOTICE.txt',

@@ -6,7 +6,7 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <AssemblyName>BabbleFrameBridge</AssemblyName>
-    <Version>1.5.0</Version>
+    <Version>1.5.1</Version>
     <Product>Steam Frame Babble Bridge</Product>
     <Authors>Frame Bridge contributors</Authors>
     <Copyright>Copyright © 2026 Frame Bridge contributors. Third-party copyrights remain with their respective owners.</Copyright>
@@ -17,6 +17,7 @@
     <ProjectReference Include="..\BabbleFrameBridge.Shared\BabbleFrameBridge.Shared.csproj" />
     <Resource Include="Assets\Brand\*.ttf" />
     <Resource Include="Assets\Brand\bridge-logo.png" />
+    <Content Include="Assets\Bridge.ico" Link="Assets\Brand\FrameBridge-headset-v1.ico" TargetPath="Assets\Brand\FrameBridge-headset-v1.ico" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
     <Content Include="Assets\Brand\*.txt" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
   </ItemGroup>
 </Project>

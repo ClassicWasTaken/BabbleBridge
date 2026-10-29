@@ -16,6 +16,8 @@ public partial class App : Application
     private SystemThemeManager? _theme;
     [DllImport("kernel32.dll", CharSet = CharSet.Unicode)]
     private static extern int RegisterApplicationRestart(string commandLine, uint flags);
+    [DllImport("shell32.dll", CharSet = CharSet.Unicode)]
+    private static extern int SetCurrentProcessExplicitAppUserModelID(string appId);
     protected override void OnStartup(StartupEventArgs e)
     {
         base.OnStartup(e);
@@ -28,6 +30,9 @@ public partial class App : Application
         // Stable presence marker lets future installers detect even portable copies.
         // Profile mutexes continue to keep normal and diagnostic data isolated.
         if (dataIndex < 0) {
+            // Match the installer shortcuts so Windows groups the running app with
+            // the shortcut that carries its explicit, current headset icon.
+            SetCurrentProcessExplicitAppUserModelID("FrameBridge.Desktop");
             _installerPresence = new Mutex(false, "Local\\FrameBridge.Desktop");
             // Allow Restart Manager to reopen the app after a software update;
             // do not register automatic crash, hang, or system-reboot relaunches.

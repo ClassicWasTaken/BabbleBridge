@@ -7,7 +7,7 @@
   #define AppPayload "..\dist\BabbleFrameBridge"
 #endif
 #ifndef AppVersion
-  #define AppVersion "1.5.0"
+  #define AppVersion "1.5.1"
 #endif
 #ifndef BuildIdentity
   #define BuildIdentity "FrameBridge.Desktop.8E250247-8BA9-42B7-A698-94D2A52E880A"
@@ -21,6 +21,7 @@
 #ifndef AppMutexName
   #define AppMutexName "Local\FrameBridge.Desktop"
 #endif
+#define HeadsetIconPath "Assets\Brand\FrameBridge-headset-v1.ico"
 
 [Setup]
 AppId={#BuildIdentity}
@@ -45,7 +46,7 @@ AllowNoIcons=yes
 Uninstallable=yes
 UninstallLogMode=append
 UninstallDisplayName={#DisplayName}
-UninstallDisplayIcon={app}\BabbleFrameBridge.exe
+UninstallDisplayIcon={app}\{#HeadsetIconPath}
 AppMutex={#AppMutexName}
 CloseApplications=yes
 CloseApplicationsFilter=*.exe,*.dll
@@ -100,9 +101,9 @@ Type: files; Name: "{app}\Assets\Brand\Babble-Brand-LICENSE.txt"
 Type: files; Name: "{app}\Assets\Brand\SOURCE.txt"
 
 [Icons]
-Name: "{group}\{#ProductName}"; Filename: "{app}\BabbleFrameBridge.exe"; WorkingDir: "{app}"; AppUserModelID: "FrameBridge.Desktop"
+Name: "{group}\{#ProductName}"; Filename: "{app}\BabbleFrameBridge.exe"; WorkingDir: "{app}"; IconFilename: "{app}\{#HeadsetIconPath}"; IconIndex: 0; AppUserModelID: "FrameBridge.Desktop"
 Name: "{group}\Setup guide"; Filename: "{app}\START-HERE.txt"
-Name: "{autodesktop}\{#ProductName}"; Filename: "{app}\BabbleFrameBridge.exe"; WorkingDir: "{app}"; Tasks: desktopicon; AppUserModelID: "FrameBridge.Desktop"
+Name: "{autodesktop}\{#ProductName}"; Filename: "{app}\BabbleFrameBridge.exe"; WorkingDir: "{app}"; IconFilename: "{app}\{#HeadsetIconPath}"; IconIndex: 0; Check: ShouldHaveDesktopShortcut; AppUserModelID: "FrameBridge.Desktop"
 
 [Run]
 Filename: "{app}\BabbleFrameBridge.exe"; Description: "Open &Frame Bridge"; WorkingDir: "{app}"; Flags: nowait postinstall skipifsilent
@@ -115,6 +116,35 @@ FinishedLabel=Frame Bridge is installed.%n%nOpen Frame Bridge and add your own B
 BeveledLabel=Independent runtime bridge
 
 [Code]
+procedure SHChangeNotify(EventId: Integer; Flags: Cardinal; Item1: String; Item2: UINT_PTR);
+  external 'SHChangeNotify@shell32.dll stdcall';
+
+function ShouldHaveDesktopShortcut: Boolean;
+begin
+  { Refresh an existing app shortcut even if an older setup did not record the
+    optional task. Do not create a new desktop shortcut unless it was selected. }
+  Result := WizardIsTaskSelected('desktopicon') or
+    FileExists(ExpandConstant('{autodesktop}\{#ProductName}.lnk'));
+end;
+
+procedure RefreshShellItem(const Filename: String);
+begin
+  if FileExists(Filename) then
+    { SHCNE_UPDATEITEM, SHCNF_PATHW | SHCNF_FLUSH. This refresh is limited to
+      this application's item; no global icon cache or Explorer restart. }
+    SHChangeNotify($00002000, $00001005, Filename, 0);
+end;
+
+procedure CurStepChanged(CurStep: TSetupStep);
+begin
+  if CurStep = ssPostInstall then begin
+    RefreshShellItem(ExpandConstant('{app}\{#HeadsetIconPath}'));
+    RefreshShellItem(ExpandConstant('{app}\BabbleFrameBridge.exe'));
+    RefreshShellItem(ExpandConstant('{group}\{#ProductName}.lnk'));
+    RefreshShellItem(ExpandConstant('{autodesktop}\{#ProductName}.lnk'));
+  end;
+end;
+
 function NextVersionPart(var Remaining: String): Integer;
 var
   Dot: Integer;

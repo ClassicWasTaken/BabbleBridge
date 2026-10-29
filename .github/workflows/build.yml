@@ -53,7 +53,7 @@ jobs:
       - name: Verify distribution notices and separate-module packaging
         run: |
           $payload = Join-Path $PWD 'dist/BabbleFrameBridge'
-          foreach ($file in @('BabbleFrameBridge.exe', 'runtime/BabbleFrameBridge.Worker.exe', 'START-HERE.txt', 'LICENSE', 'NOTICE.txt', 'THIRD_PARTY_NOTICES.md', 'licenses/VRCFaceTracking-LICENSE.txt')) {
+          foreach ($file in @('BabbleFrameBridge.exe', 'runtime/BabbleFrameBridge.Worker.exe', 'Assets/Brand/FrameBridge-headset-v1.ico', 'START-HERE.txt', 'LICENSE', 'NOTICE.txt', 'THIRD_PARTY_NOTICES.md', 'licenses/VRCFaceTracking-LICENSE.txt')) {
             if (!(Test-Path -LiteralPath (Join-Path $payload $file) -PathType Leaf)) {
               throw "Missing distribution file: $file"
             }

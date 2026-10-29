@@ -7,6 +7,10 @@ The tracking module is separate: users import their own Baballonia ZIP after
 opening the app. Existing imported modules stay available through upgrades.
 The setup wizard and uninstaller also follow Windows light/dark preferences.
 
+Windows shortcuts and Installed Apps use the original headset icon stored at
+Assets\Brand\FrameBridge-headset-v1.ico. A separate icon path lets upgrades
+refresh the desktop and Start menu icon without resetting Windows' icon cache.
+
 BUILD AN INSTALLER
 Requirements: Windows x64, .NET 10 SDK, and Inno Setup Compiler. Inno Setup 7.1.1
 is the tested compiler; obtain it from https://jrsoftware.org/isdl.php.
