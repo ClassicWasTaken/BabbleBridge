@@ -1,4 +1,4 @@
-STEAM FRAME BABBLE BRIDGE 1.0.1 — WINDOWS x64
+STEAM FRAME BABBLE BRIDGE 1.0.2 — WINDOWS x64
 
 PREREQUISITE
 Install the Microsoft Visual C++ v14 Redistributable (x64) from Microsoft:
@@ -66,6 +66,11 @@ Output counts are sent OSC messages, not confirmation that VRChat has applied th
 In Frame Runtime mode, eyes and face follow the headset's settings. The module saves those choices;
 the bridge restarts it automatically when the claimed tracking mode changes.
 Connection settings let you change the VRChat IPv4 address and send/receive ports.
+The tracking input port appears beside the selected source and updates automatically:
+Frame Runtime uses BFR Link (normally 6767), and desktop Baballonia uses the module's
+OSC port (normally 8888). VRChat send/feedback ports are labeled separately.
+Success notifications fade away after four seconds. Use the close button to dismiss
+any notification; error notifications remain visible until dismissed or a new action.
 Default output is 127.0.0.1:9000; avatar-change input is 127.0.0.1:9001.
 When defaults are used, OSCQuery can negotiate VRChat's actual output port.
 Automatic avatar discovery is intended for VRChat running on this PC.

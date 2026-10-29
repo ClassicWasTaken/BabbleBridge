@@ -5,6 +5,7 @@ using System.Diagnostics;
 using System.IO;
 using System.Reflection;
 using System.Runtime.InteropServices;
+using System.Text.Json.Nodes;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
@@ -121,6 +122,55 @@ internal static class Program
                     "Displayed window did not follow the restored automatic palette.");
             });
 
+            Test("source selection previews its tracking port without changing the VRChat connection", () =>
+            {
+                var send = Named<TextBox>(window, "PortBox").Text;
+                var receive = Named<TextBox>(window, "ReceiveBox").Text;
+                Check(Named<TextBlock>(window, "TrackingInputPort").Text.Contains("6767"), "Frame input port was not shown.");
+                Named<RadioButton>(window, "DesktopSourceButton").IsChecked = true;
+                Pump();
+                Check(Named<TextBlock>(window, "TrackingInputPort").Text.Contains("8888"), "Desktop selection did not show its input port.");
+                Named<RadioButton>(window, "FrameSourceButton").IsChecked = true;
+                Pump();
+                Check(Named<TextBlock>(window, "TrackingInputPort").Text.Contains("6767"), "Returning to Frame did not restore its input port.");
+                Check(Named<TextBox>(window, "PortBox").Text == send && Named<TextBox>(window, "ReceiveBox").Text == receive,
+                    "Choosing a tracking source changed the separate VRChat send/receive ports.");
+                Check(AppSettings.Load(emptyProfile).InputSource == TrackingInputSource.SteamFrameRuntime,
+                    "Previewing a source saved it before Save connection.");
+            });
+
+            Test("Save connection confirmation dismisses itself after its readable display time", () =>
+            {
+                Method(window, "Save_Click").Invoke(window, [window, new RoutedEventArgs()]);
+                PumpUntil(() => !Field<bool>(window, "_busy"), "connection save completed");
+                Check(Named<Border>(window, "GlobalNotice").Visibility == Visibility.Visible,
+                    "Saving did not show its confirmation.");
+                Check(Named<TextBlock>(window, "GlobalNoticeText").Text.Contains("saved", StringComparison.OrdinalIgnoreCase),
+                    "The save confirmation was replaced by an unexpected message.");
+                PumpUntil(() => Named<Border>(window, "GlobalNotice").Visibility == Visibility.Collapsed,
+                    "save confirmation automatically dismissed", TimeSpan.FromSeconds(6));
+            });
+
+            Test("new notices survive an older timeout and errors remain until dismissed", () =>
+            {
+                Method(window, "ShowNotice").Invoke(window, ["Old confirmation", false]);
+                Field<DispatcherTimer>(window, "_noticeTimer").Interval = TimeSpan.FromMilliseconds(60);
+                Method(window, "ShowNotice").Invoke(window, ["New confirmation", false]);
+                PumpFor(TimeSpan.FromMilliseconds(250));
+                Check(Named<Border>(window, "GlobalNotice").Visibility == Visibility.Visible
+                    && Named<TextBlock>(window, "GlobalNoticeText").Text == "New confirmation",
+                    "The earlier timeout dismissed a newer confirmation.");
+                Field<DispatcherTimer>(window, "_noticeTimer").Interval = TimeSpan.FromMilliseconds(60);
+                Method(window, "ShowNotice").Invoke(window, ["New error", true]);
+                PumpFor(TimeSpan.FromSeconds(4.4));
+                Check(Named<Border>(window, "GlobalNotice").Visibility == Visibility.Visible
+                    && Named<TextBlock>(window, "GlobalNoticeText").Text == "New error",
+                    "A success timeout dismissed the newer error.");
+                Named<Button>(window, "GlobalNoticeDismiss").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                PumpUntil(() => Named<Border>(window, "GlobalNotice").Visibility == Visibility.Collapsed,
+                    "manual notification dismissal");
+            });
+
             Test("desktop source selection is saved and restored without launching a worker", () =>
             {
                 Check(Named<RadioButton>(window, "FrameSourceButton").IsChecked == true,
@@ -131,7 +181,9 @@ internal static class Program
                 PumpUntil(() => !Field<bool>(window, "_busy"), "desktop source saved");
                 Check(AppSettings.Load(emptyProfile).InputSource == TrackingInputSource.BaballoniaDesktop,
                     "Save connection did not persist desktop input.");
+                var noticeTimer = Field<DispatcherTimer>(window, "_noticeTimer");
                 CloseWindow();
+                Check(!noticeTimer.IsEnabled, "Closing the window left its notification timer running.");
                 window = CreateWindow(emptyProfile);
                 themes.AttachWindow(window);
                 window.Show();
@@ -152,8 +204,12 @@ internal static class Program
                 {
                     Check(File.Exists(suppliedZip), "The explicit module fixture does not exist.");
                     var profile = Path.Combine(root, "existing-profile");
-                    new AppSettings { AutoStart = false }.Save(profile);
+                    new AppSettings { AutoStart = false, LinkPort = 23456 }.Save(profile);
                     var expected = new ModuleStore(profile).Install(suppliedZip);
+                    var configPath = Path.Combine(expected.DirectoryPath, "BabbleConfig.json");
+                    var moduleConfig = JsonNode.Parse(File.ReadAllText(configPath))!.AsObject();
+                    moduleConfig["Port"] = 42424;
+                    File.WriteAllText(configPath, moduleConfig.ToJsonString());
                     window = CreateWindow(profile);
                     themes.AttachWindow(window);
                     window.Show();
@@ -163,6 +219,12 @@ internal static class Program
                     Check(Named<Button>(window, "StartButton").IsEnabled, "Imported module did not enable Start.");
                     Check(Named<Button>(window, "ImportButton").IsEnabled, "Imported module disabled future imports.");
                     Check(Field<object?>(window, "_worker") is null, "AutoStart=false launched a worker.");
+                    Check(Named<TextBlock>(window, "TrackingInputPort").Text.Contains("23456"), "Custom Frame Link port was not shown.");
+                    Named<RadioButton>(window, "DesktopSourceButton").IsChecked = true;
+                    Pump();
+                    Check(Named<TextBlock>(window, "TrackingInputPort").Text.Contains("42424"), "Custom module desktop input port was not shown.");
+                    Check(JsonNode.Parse(File.ReadAllText(configPath))!["Port"]!.GetValue<int>() == 42424,
+                        "Previewing the desktop source overwrote its configured module port.");
                     CloseWindow();
                 });
             }
@@ -296,15 +358,25 @@ internal static class Program
     {
         Application.Current.Dispatcher.Invoke(() => { }, DispatcherPriority.ApplicationIdle);
     }
-    private static void PumpUntil(Func<bool> predicate, string description)
+    private static void PumpUntil(Func<bool> predicate, string description, TimeSpan? timeout = null)
     {
         var clock = Stopwatch.StartNew();
         while (!predicate())
         {
             Pump();
-            if (clock.Elapsed > TimeSpan.FromSeconds(5)) throw new TimeoutException(description);
+            if (clock.Elapsed > (timeout ?? TimeSpan.FromSeconds(5))) throw new TimeoutException(description);
+            System.Threading.Thread.Sleep(1);
         }
         Pump();
+    }
+    private static void PumpFor(TimeSpan duration)
+    {
+        var clock = Stopwatch.StartNew();
+        while (clock.Elapsed < duration)
+        {
+            Pump();
+            System.Threading.Thread.Sleep(5);
+        }
     }
     private static void CloseWindow()
     {

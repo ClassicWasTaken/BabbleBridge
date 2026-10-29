@@ -1,7 +1,7 @@
 # Steam Frame Babble Bridge
 
 <h2 align="center">
-  <a href="https://github.com/ClassicWasTaken/Steam-Frame-Babble-Bridge/releases/latest/download/Steam-Frame-Babble-Bridge-Setup.exe">⬇ Download for Windows (.exe)</a>
+  <a href="https://github.com/ClassicWasTaken/SteamFrameBabbleBridge/releases/latest/download/Steam-Frame-Babble-Bridge-Setup.exe">⬇ Download for Windows (.exe)</a>
 </h2>
 
 <p align="center">

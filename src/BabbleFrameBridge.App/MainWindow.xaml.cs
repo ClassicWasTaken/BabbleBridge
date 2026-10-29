@@ -8,6 +8,8 @@ using System.IO;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
+using System.Windows.Media.Animation;
+using System.Windows.Threading;
 using BabbleFrameBridge.Shared;
 using Microsoft.Win32;
 
@@ -27,10 +29,14 @@ public partial class MainWindow : Window
     private DateTime _restartWindow = DateTime.UtcNow;
     private FrameworkElement? _currentPage;
     private bool _motionEnabled;
+    private readonly DispatcherTimer _noticeTimer;
+    private bool _noticeFading;
 
     public MainWindow(string root)
     {
         InitializeComponent();
+        _noticeTimer = new DispatcherTimer(DispatcherPriority.Background, Dispatcher);
+        _noticeTimer.Tick += NoticeTimer_Tick;
         BuildLabel.Text = "INDEPENDENT BUILD  /  v" + typeof(App).Assembly.GetName().Version?.ToString(3);
         SelectPage("overview");
         _root = root;
@@ -45,11 +51,12 @@ public partial class MainWindow : Window
         ReceiveBox.Text = _settings.ReceivePort.ToString();
         DesktopSourceButton.IsChecked = DesktopSource;
         FrameSourceButton.IsChecked = !DesktopSource;
+        UpdateTrackingInput();
         UpdateSourceLabels();
         AutoStartBox.IsChecked = _settings.AutoStart;
         ApplyMotionPreference();
         SystemParameters.StaticPropertyChanged += MotionPreference_Changed;
-        Closed += (_, _) => SystemParameters.StaticPropertyChanged -= MotionPreference_Changed;
+        Closed += (_, _) => { SystemParameters.StaticPropertyChanged -= MotionPreference_Changed; _noticeTimer.Stop(); };
         Loaded += async (_, _) => await RunOperation(async () => {
             _initialized = true;
             Motion.Transition(_currentPage ?? OverviewPage, _motionEnabled);
@@ -73,7 +80,7 @@ public partial class MainWindow : Window
     private async Task RunOperation(Func<Task> action)
     {
         if (_busy || _closing) return;
-        GlobalNotice.Visibility = Visibility.Collapsed;
+        DismissNotice();
         _busy = true; RefreshButtons();
         try { await action(); }
         catch (Exception ex) { Log("ERROR: " + ex.Message); SetState("Needs attention", ex.Message, false, true); ShowNotice(ex.Message, true); }
@@ -99,6 +106,7 @@ public partial class MainWindow : Window
             ? "Provide your own Baballonia ZIP. Choose a file or drop it onto this window."
             : _store.Previous is null ? "Ready for updates. Import a new ZIP or drop it onto this window."
             : $"Previous version {_store.Previous.Version} is saved and ready to restore.";
+        UpdateTrackingInput();
         RefreshButtons();
     }
 
@@ -126,17 +134,68 @@ public partial class MainWindow : Window
     }
 
     private void SetListeningState() => SetState(DesktopSource ? "Baballonia desktop input" : "Listening for Steam Frame", DesktopSource
-        ? "Send Baballonia’s VRCFaceTracking output to this computer on port 8888."
+        ? $"Send Baballonia’s VRCFaceTracking output to this computer on port {ConfiguredDesktopPort()}."
         : "Start Babble Frame Runtime on the headset. Discovery is automatic.", true);
 
     private void ShowNotice(string message, bool error = false)
     {
+        DismissNotice();
         GlobalNoticeText.Text = message;
         GlobalNotice.SetResourceReference(Border.BackgroundProperty, error ? "ErrorBackground" : "NoticeBackground");
         GlobalNotice.SetResourceReference(Border.BorderBrushProperty, error ? "ErrorBorder" : "NoticeBorder");
         GlobalNoticeText.SetResourceReference(TextBlock.ForegroundProperty, error ? "ErrorInk" : "NoticeInk");
         GlobalNotice.Visibility = Visibility.Visible;
         Motion.Transition(GlobalNotice, _motionEnabled);
+        if (!error) { _noticeTimer.Interval = TimeSpan.FromSeconds(4); _noticeTimer.Start(); }
+    }
+
+    private void NoticeTimer_Tick(object? sender, EventArgs e)
+    {
+        if (_noticeFading || !_motionEnabled) { DismissNotice(); return; }
+        _noticeFading = true;
+        _noticeTimer.Interval = TimeSpan.FromMilliseconds(180);
+        GlobalNotice.BeginAnimation(OpacityProperty, new DoubleAnimation(0, _noticeTimer.Interval));
+    }
+
+    private void DismissNotice()
+    {
+        _noticeTimer.Stop();
+        _noticeFading = false;
+        GlobalNotice.Visibility = Visibility.Collapsed;
+        Motion.Transition(GlobalNotice, false);
+    }
+
+    private void DismissNotice_Click(object sender, RoutedEventArgs e) => DismissNotice();
+
+    private int ConfiguredDesktopPort()
+    {
+        if (_store.Current is not { } current) return 8888;
+        try
+        {
+            using var config = JsonDocument.Parse(File.ReadAllText(Path.Combine(current.DirectoryPath, "BabbleConfig.json")));
+            if (config.RootElement.ValueKind == JsonValueKind.Object && config.RootElement.TryGetProperty("Port", out var port)
+                && port.ValueKind == JsonValueKind.Number && port.TryGetInt32(out var value) && value is > 0 and <= 65535)
+                return value;
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException or JsonException) { }
+        return 8888;
+    }
+
+    private void UpdateTrackingInput()
+    {
+        var desktop = DesktopSourceButton.IsChecked == true;
+        var port = desktop ? ConfiguredDesktopPort() : _settings.LinkPort;
+        TrackingInputPort.Text = $"UDP {port}";
+        TrackingInputHint.Text = desktop
+            ? $"Enable Baballonia’s VRCFaceTracking output to 127.0.0.1:{port}."
+            : "Babble Frame Runtime discovers this computer automatically on your local network.";
+    }
+
+    private void TrackingSource_Changed(object sender, RoutedEventArgs e)
+    {
+        if (_settings is null) return;
+        UpdateTrackingInput();
+        DismissNotice();
     }
 
     private void Log(string message)
@@ -349,6 +408,7 @@ public partial class MainWindow : Window
             InputSource = DesktopSourceButton.IsChecked == true ? TrackingInputSource.BaballoniaDesktop : TrackingInputSource.SteamFrameRuntime,
             AutoStart = AutoStartBox.IsChecked == true };
         updated.Validate(); updated.Save(_root); _settings = updated;
+        UpdateTrackingInput();
         TargetLabel.Text = $"{updated.OutputHost} : {updated.OutputPort}";
         Log("Connection settings saved.");
         if (_running) { await StopWorker(); await StartWorker(_store.Current!); }
@@ -413,7 +473,7 @@ public partial class MainWindow : Window
         var notices = Path.Combine(AppContext.BaseDirectory, "NOTICE.txt");
         if (File.Exists(notices)) Process.Start(new ProcessStartInfo(notices) { UseShellExecute = true });
     }
-    private void Website_Click(object sender, RoutedEventArgs e) => OpenLink("https://github.com/ClassicWasTaken/Steam-Frame-Babble-Bridge");
+    private void Website_Click(object sender, RoutedEventArgs e) => OpenLink("https://github.com/ClassicWasTaken/SteamFrameBabbleBridge");
     private static void OpenLink(string url) => Process.Start(new ProcessStartInfo(url) { UseShellExecute = true });
     private async void ClosingAsync(object? sender, CancelEventArgs e) {
         if (_allowClose) return;
