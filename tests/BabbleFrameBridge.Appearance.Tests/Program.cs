@@ -350,10 +350,13 @@ internal static class Program
                     CheckLibraryLayout();
                     SavePreview(window, renderDirectory, "modules.png");
                     var desktopConfig = Path.Combine(desktop.DirectoryPath, "BabbleConfig.json");
-                    File.WriteAllText(desktopConfig, "42");
-                    Method(window, "RefreshModule").Invoke(window, []);
-                    Check(Named<TextBlock>(window, "PackageDetail").Text.Contains("8888"),
-                        "Scalar module settings crashed library refresh or failed to use the fallback input port.");
+                    foreach (var malformed in new[] { "42", "null", "[]", "{\"Port\":\"8888\"}", "{\"Port\":null}", "{\"Port\":true}", "{\"Port\":-1}", "{\"Port\":65536}" })
+                    {
+                        File.WriteAllText(desktopConfig, malformed);
+                        Method(window, "RefreshModule").Invoke(window, []);
+                        Check(Named<TextBlock>(window, "PackageDetail").Text.Contains("8888"),
+                            "Malformed module settings crashed library refresh or failed to use the fallback input port: " + malformed);
+                    }
                     CloseWindow();
                 });
             }
