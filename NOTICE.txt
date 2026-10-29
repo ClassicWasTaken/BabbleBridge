@@ -1,4 +1,4 @@
-STEAM FRAME BABBLE BRIDGE 1.5.1 — COPYRIGHT AND LICENSE NOTICES
+STEAM FRAME BABBLE BRIDGE 1.0.0 — COPYRIGHT AND LICENSE NOTICES
 
 Original bridge code, original bridge artwork, and original particle effect
 Copyright (c) 2026 Frame Bridge contributors.
