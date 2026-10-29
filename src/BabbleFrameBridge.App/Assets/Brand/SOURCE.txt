@@ -1,6 +1,6 @@
-Frame Bridge original artwork and third-party typography
+Babble Bridge original artwork and third-party typography
 
-ORIGINAL FRAME BRIDGE ARTWORK (2026)
+ORIGINAL BABBLE BRIDGE ARTWORK (2026)
 bridge-logo.svg is the original generic VR headset mark. bridge-logo.png and
 ../Bridge.ico are raster/icon renderings of that mark; BridgeMarks.xaml provides
 its white WPF vector form. Rebuild the generated assets with:
@@ -15,9 +15,9 @@ compatibility; the current artwork depicts a headset rather than an architectura
 
 ParticleField.cs independently implements a changing closed Catmull-Rom loop,
 per-particle speeds and a damped cursor force. Its control points and parameters
-are original to Frame Bridge. Spline interpolation is standard mathematics.
+are original to Babble Bridge. Spline interpolation is standard mathematics.
 The installer uses the project's own spline motif, not a website-derived pattern.
-These original code/art assets follow the Frame Bridge project license.
+These original code/art assets follow the Babble Bridge project license.
 
 THIRD-PARTY TYPOGRAPHY
 IBM Plex Sans static TrueType files are from the official IBM font repository:
@@ -29,4 +29,4 @@ IBM-Plex-OFL.txt (from https://github.com/google/fonts/tree/main/ofl/ibmplexsans
 
 Copyright: 2017 IBM Corp.; Reserved Font Name: Plex.
 The font files remain unmodified and under OFL1.1. Their license is independent
-of the Frame Bridge code/art license; IBM does not endorse this application.
+of the Babble Bridge code/art license; IBM does not endorse this application.

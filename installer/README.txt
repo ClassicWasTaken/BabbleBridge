@@ -1,6 +1,6 @@
-FRAME BRIDGE INSTALLER
+BABBLE BRIDGE INSTALLER
 
-The Windows installer installs Frame Bridge for the current user, creates its
+The Windows installer installs Babble Bridge for the current user, creates its
 Start menu shortcut, offers a desktop shortcut, and adds an uninstaller to
 Windows Installed Apps. The application and its .NET runtime are included.
 The tracking module is separate: users import their own Baballonia ZIP after
@@ -10,6 +10,9 @@ The setup wizard and uninstaller also follow Windows light/dark preferences.
 Windows shortcuts and Installed Apps use the original headset icon stored at
 Assets\Brand\FrameBridge-headset-v1.ico. A separate icon path lets upgrades
 refresh the desktop and Start menu icon without resetting Windows' icon cache.
+Upgrades replace former Frame Bridge shortcuts only when their targets match
+this installation. The previous installation path and application identity stay
+stable so existing settings and imported modules continue to work.
 
 BUILD AN INSTALLER
 Requirements: Windows x64, .NET 10 SDK, and Inno Setup Compiler. Inno Setup 7.1.1
@@ -40,7 +43,7 @@ RELEASE A FUTURE UPDATE
 1. Increase Version in src\BabbleFrameBridge.App\BabbleFrameBridge.App.csproj.
 2. Publish the new app with build.ps1.
 3. Run installer\build-installer.ps1 and distribute the resulting setup file.
-4. Run that newer installer on a computer with Frame Bridge already installed.
+4. Run that newer installer on a computer with Babble Bridge already installed.
    It upgrades the existing installation; uninstalling first is unnecessary.
 
 Keep the production AppId in FrameBridge.iss unchanged across releases. Keep the

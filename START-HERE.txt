@@ -1,4 +1,4 @@
-STEAM FRAME BABBLE BRIDGE 1.0.2 — WINDOWS x64
+BABBLE BRIDGE 1.0.3 — WINDOWS x64
 
 PREREQUISITE
 Install the Microsoft Visual C++ v14 Redistributable (x64) from Microsoft:
@@ -9,10 +9,10 @@ application includes its separate .NET runtime and its accompanying notices.
 
 GET STARTED
 1. Run Steam-Frame-Babble-Bridge-Setup.exe and follow the setup wizard. It installs for
-   your Windows account and adds Frame Bridge to the Start menu. An optional
+   your Windows account and adds Babble Bridge to the Start menu. An optional
    desktop shortcut is available. The portable ZIP is also supported: extract
    the entire folder and keep its runtime and Assets folders.
-2. Close VRCFaceTracking on this PC, then open Frame Bridge from Start, or run
+2. Close VRCFaceTracking on this PC, then open Babble Bridge from Start, or run
    BabbleFrameBridge.exe from a portable folder.
 3. Add your own VRCFaceTracking.Baballonia module ZIP using 'Add module ZIP',
    or drop the ZIP onto the app. No module is included or installed automatically.
@@ -33,6 +33,8 @@ This independent app is based on VRCFaceTracking. The Baballonia module is a
 separate download that you supply. It is not an official Project Babble release.
 
 DESKTOP BABALLONIA INPUT
+The first launch selects Steam Frame Runtime. After you choose a source and click
+'Save connection', the app restores that saved selection on future launches.
 If your tracking comes from the Baballonia desktop app instead of Frame Runtime,
 open Connection, choose 'Baballonia desktop', and click 'Save connection'. Enable
 Baballonia's VRCFaceTracking output to 127.0.0.1:8888. Keep Baballonia running and
@@ -133,8 +135,8 @@ preferences. Particle drawing pauses on other pages and while minimized.
 
 
 UPDATE OR REMOVE THE APP
-Run a newer Frame Bridge setup file to update the existing installation.
-You do not need to uninstall first. Close Frame Bridge before starting setup.
+Run a newer Babble Bridge setup file to update the existing installation.
+You do not need to uninstall first. Close Babble Bridge before starting setup.
 The setup reuses the existing installation directory and preserves settings,
 logs, imported module versions and rollback data in %LOCALAPPDATA%\BabbleFrameBridge.
 Older setup files cannot replace a newer installed app version.

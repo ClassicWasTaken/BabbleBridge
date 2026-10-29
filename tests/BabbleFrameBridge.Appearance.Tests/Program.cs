@@ -55,6 +55,11 @@ internal static class Program
             Test("fresh profile requires an imported module even when auto-start is enabled", () =>
             {
                 Check(AppSettings.Load(emptyProfile).AutoStart, "Fixture did not exercise default auto-start.");
+                Check(AppSettings.Load(emptyProfile).InputSource == TrackingInputSource.SteamFrameRuntime,
+                    "First launch did not save Frame Runtime as the initial source.");
+                Check(Named<RadioButton>(window, "FrameSourceButton").IsChecked == true
+                    && Named<RadioButton>(window, "DesktopSourceButton").IsChecked == false,
+                    "First launch did not select Frame Runtime in the interface.");
                 Check(new ModuleStore(emptyProfile).Current is null, "First run installed a module.");
                 Check(!Directory.EnumerateFiles(emptyProfile, "*.dll", SearchOption.AllDirectories).Any(),
                     "First run copied module payload into the profile.");
@@ -171,12 +176,15 @@ internal static class Program
                     "manual notification dismissal");
             });
 
-            Test("desktop source selection is saved and restored without launching a worker", () =>
+            Test("a later launch restores the saved source and connection preferences", () =>
             {
                 Check(Named<RadioButton>(window, "FrameSourceButton").IsChecked == true,
                     "An existing/default profile changed away from Frame Runtime.");
                 Named<RadioButton>(window, "DesktopSourceButton").IsChecked = true;
                 Named<CheckBox>(window, "AutoStartBox").IsChecked = false;
+                Named<TextBox>(window, "HostBox").Text = "127.0.0.2";
+                Named<TextBox>(window, "PortBox").Text = "19000";
+                Named<TextBox>(window, "ReceiveBox").Text = "19001";
                 Method(window, "Save_Click").Invoke(window, [window, new RoutedEventArgs()]);
                 PumpUntil(() => !Field<bool>(window, "_busy"), "desktop source saved");
                 Check(AppSettings.Load(emptyProfile).InputSource == TrackingInputSource.BaballoniaDesktop,
@@ -190,6 +198,23 @@ internal static class Program
                 PumpUntil(() => Field<bool>(window, "_initialized") && !Field<bool>(window, "_busy"), "desktop profile reopened");
                 Check(Named<RadioButton>(window, "DesktopSourceButton").IsChecked == true,
                     "Reopening did not restore desktop source selection.");
+                Check(Named<TextBlock>(window, "TrackingInputPort").Text.Contains("8888"),
+                    "Reopening did not restore the desktop input port display.");
+                var restored = AppSettings.Load(emptyProfile);
+                Check(restored.OutputHost == "127.0.0.2" && restored.OutputPort == 19000
+                    && restored.ReceivePort == 19001 && !restored.AutoStart,
+                    "Reopening changed other saved connection preferences.");
+                Named<RadioButton>(window, "FrameSourceButton").IsChecked = true;
+                Method(window, "Save_Click").Invoke(window, [window, new RoutedEventArgs()]);
+                PumpUntil(() => !Field<bool>(window, "_busy"), "Frame source saved");
+                CloseWindow();
+                window = CreateWindow(emptyProfile);
+                themes.AttachWindow(window);
+                window.Show();
+                PumpUntil(() => Field<bool>(window, "_initialized") && !Field<bool>(window, "_busy"), "Frame profile reopened");
+                Check(Named<RadioButton>(window, "FrameSourceButton").IsChecked == true
+                    && AppSettings.Load(emptyProfile).InputSource == TrackingInputSource.SteamFrameRuntime,
+                    "A later launch did not restore the explicitly saved Frame source.");
                 Check(Field<object?>(window, "_worker") is null, "Changing source launched a worker without a module.");
                 Method(window, "SelectPage").Invoke(window, ["settings"]);
                 Named<StackPanel>(window, "SettingsPage").Opacity = 1;
@@ -220,6 +245,9 @@ internal static class Program
                     Check(Named<Button>(window, "ImportButton").IsEnabled, "Imported module disabled future imports.");
                     Check(Field<object?>(window, "_worker") is null, "AutoStart=false launched a worker.");
                     Check(Named<TextBlock>(window, "TrackingInputPort").Text.Contains("23456"), "Custom Frame Link port was not shown.");
+                    PumpUntil(() => Named<StackPanel>(window, "OverviewPage").Opacity >= .999,
+                        "module overview entrance finished before preview capture");
+                    SavePreview(window, renderDirectory, "module-ready.png");
                     Named<RadioButton>(window, "DesktopSourceButton").IsChecked = true;
                     Pump();
                     Check(Named<TextBlock>(window, "TrackingInputPort").Text.Contains("42424"), "Custom module desktop input port was not shown.");

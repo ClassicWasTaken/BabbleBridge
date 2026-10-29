@@ -103,6 +103,7 @@ function Invoke-TestSetup([string]$SetupPath, [string]$LogLabel, [bool]$FirstIns
 function Read-TestRegistration {
     Assert-True (Test-Path -LiteralPath $registryKey) 'The isolated test uninstall entry was not created.'
     $registration = Get-ItemProperty -LiteralPath $registryKey
+    Assert-True ($registration.DisplayName -eq 'Babble Bridge') 'Installed Apps did not use the Babble Bridge name.'
     Assert-True ([IO.Path]::GetFullPath($registration.InstallLocation).TrimEnd('\') -eq $installPath.TrimEnd('\')) 'Installer registration points outside the expected test install directory.'
     $matches = @(Get-ChildItem -LiteralPath 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall' | Where-Object PSChildName -EQ "${testId}_is1")
     Assert-True ($matches.Count -eq 1) 'Expected exactly one uninstall entry for the isolated test AppId.'
@@ -237,7 +238,7 @@ finally {
     }
     $json = ConvertTo-Json $report -Depth 6
     [IO.File]::WriteAllText((Join-Path $runRoot 'report.json'), $json)
-    $summary = @('FRAME BRIDGE INSTALLER VALIDATION', '', "Result: $result", '', 'Isolated per-user install, reinstall, upgrade, downgrade rejection and uninstall.', 'The test used a separate random application identity and a workspace install folder.', 'The synthetic newer installer tested upgrade behavior without changing production version.', 'Installed-worker mapping used the existing --all-parameters diagnostic mode.', 'VRChat avatar discovery was excluded to avoid interference with a running local game.', '')
+    $summary = @('BABBLE BRIDGE INSTALLER VALIDATION', '', "Result: $result", '', 'Isolated per-user install, reinstall, upgrade, downgrade rejection and uninstall.', 'The test used a separate random application identity and a workspace install folder.', 'The synthetic newer installer tested upgrade behavior without changing production version.', 'Installed-worker mapping used the existing --all-parameters diagnostic mode.', 'VRChat avatar discovery was excluded to avoid interference with a running local game.', '')
     $summary += $checks | ForEach-Object { '- ' + $_ }
     if ($failure) { $summary += @('', 'Failure: ' + $failure) }
     $summaryText = $summary -join [Environment]::NewLine

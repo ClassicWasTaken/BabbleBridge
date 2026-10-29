@@ -1,10 +1,10 @@
 # Copyright (c) 2026 Frame Bridge contributors.
 # SPDX-License-Identifier: Apache-2.0
 
-"""Generate original Frame Bridge artwork. Requires Python3 and Pillow.
+"""Generate original Babble Bridge artwork. Requires Python3 and Pillow.
 
 The headset mark, closed spline motif, layout and colors below are original
-Frame Bridge assets. No Project Babble logo or website drawing is used.
+Babble Bridge assets. No Project Babble logo or website drawing is used.
 IBM Plex Sans is an unmodified OFL1.1 font; its license stays with the app.
 """
 from pathlib import Path
@@ -102,7 +102,7 @@ def main():
     panel=Image.alpha_composite(panel,flow)
     panel.alpha_composite(logo.resize((100,100),Image.Resampling.LANCZOS),(32,39))
     text=ImageDraw.Draw(panel)
-    text.text((30,171),'Frame Bridge',font=font('BoldItalic',36),fill='#F2FCF5')
+    text.text((30,171),'Babble Bridge',font=font('BoldItalic',36),fill='#F2FCF5')
     text.multiline_text((32,230),'Steam Frame tracking.\nYour module, your setup.',font=font('Regular',16),fill='#C7DFD0',spacing=6)
     text.line((32,294,86,294),fill='#80BDA6',width=2)
     text.line((32,553,296,553),fill='#385D4A',width=1)

@@ -44,6 +44,7 @@ public partial class MainWindow : Window
         Directory.CreateDirectory(Path.Combine(root, "logs"));
         _logPath = Path.Combine(root, "logs", $"bridge-{DateTime.Now:yyyy-MM-dd}.log");
         _store = new ModuleStore(root);
+        // A new profile defaults to Frame Runtime; existing profiles retain their saved source.
         _settings = AppSettings.Load(root);
         if (!File.Exists(Path.Combine(root, "settings.json"))) { _settings.AutoStart = true; _settings.Save(root); }
         HostBox.Text = _settings.OutputHost;
@@ -464,7 +465,7 @@ public partial class MainWindow : Window
             "modules" => ("Module & updates", "A fresh module, whenever you’re ready."),
             "settings" => ("Connection", "Keep your expressions flowing."),
             "activity" => ("Activity log", "A clear view of your tracking session."),
-            _ => ("Frame Bridge", "A little more you, in VR.")
+            _ => ("Babble Bridge", "A little more you, in VR.")
         };
     }
 

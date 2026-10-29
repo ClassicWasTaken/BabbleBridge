@@ -1,22 +1,22 @@
 ; Copyright (c) 2026 Frame Bridge contributors.
 ; SPDX-License-Identifier: Apache-2.0
 
-; Frame Bridge per-user installer. Keep BuildIdentity stable for every release.
+; Babble Bridge per-user installer. Keep BuildIdentity stable for every release.
 ; Settings and module releases live outside {app} and are never removed here.
 #ifndef AppPayload
   #define AppPayload "..\dist\BabbleFrameBridge"
 #endif
 #ifndef AppVersion
-  #define AppVersion "1.0.2"
+  #define AppVersion "1.0.3"
 #endif
 #ifndef BuildIdentity
   #define BuildIdentity "FrameBridge.Desktop.8E250247-8BA9-42B7-A698-94D2A52E880A"
 #endif
 #ifndef ProductName
-  #define ProductName "Frame Bridge"
+  #define ProductName "Babble Bridge"
 #endif
 #ifndef DisplayName
-  #define DisplayName "Steam Frame Babble Bridge"
+  #define DisplayName "Babble Bridge"
 #endif
 #ifndef AppMutexName
   #define AppMutexName "Local\FrameBridge.Desktop"
@@ -28,7 +28,7 @@ AppId={#BuildIdentity}
 AppName={#DisplayName}
 AppVersion={#AppVersion}
 AppVerName={#DisplayName} {#AppVersion}
-AppPublisher=Steam Frame Babble Bridge contributors
+AppPublisher=Babble Bridge contributors
 AppComments=Independent bridge for Babble Frame Runtime and VRChat.
 AppCopyright=Independent application. See LICENSE and NOTICE.txt.
 DefaultDirName={localappdata}\Programs\Frame Bridge
@@ -38,7 +38,7 @@ ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 MinVersion=10.0.19041
 UsePreviousAppDir=yes
-UsePreviousGroup=yes
+UsePreviousGroup=no
 UsePreviousTasks=yes
 DisableProgramGroupPage=yes
 DisableWelcomePage=no
@@ -72,7 +72,7 @@ VersionInfoVersion={#AppVersion}
 VersionInfoProductName={#DisplayName}
 VersionInfoProductVersion={#AppVersion}
 VersionInfoDescription={#DisplayName} Installer
-VersionInfoCompany=Steam Frame Babble Bridge contributors
+VersionInfoCompany=Babble Bridge contributors
 
 [Languages]
 Name: "english"; MessagesFile: "compiler:Default.isl"
@@ -106,25 +106,51 @@ Name: "{group}\Setup guide"; Filename: "{app}\START-HERE.txt"
 Name: "{autodesktop}\{#ProductName}"; Filename: "{app}\BabbleFrameBridge.exe"; WorkingDir: "{app}"; IconFilename: "{app}\{#HeadsetIconPath}"; IconIndex: 0; Check: ShouldHaveDesktopShortcut; AppUserModelID: "FrameBridge.Desktop"
 
 [Run]
-Filename: "{app}\BabbleFrameBridge.exe"; Description: "Open &Frame Bridge"; WorkingDir: "{app}"; Flags: nowait postinstall skipifsilent
+Filename: "{app}\BabbleFrameBridge.exe"; Description: "Open &Babble Bridge"; WorkingDir: "{app}"; Flags: nowait postinstall skipifsilent
 
 [Messages]
-WelcomeLabel1=Meet Steam Frame Babble Bridge.
+WelcomeLabel1=Meet Babble Bridge.
 WelcomeLabel2=Your Steam Frame expressions, connected to VRChat.%n%nSetup will install this independent bridge for your Windows account.%n%nThe Microsoft Visual C++ v14 Redistributable (x64) must be installed separately from Microsoft.%n%nFuture versions can be installed over this one. Your settings and Baballonia modules stay in place.
 FinishedHeadingLabel=You’re ready to express yourself.
-FinishedLabel=Frame Bridge is installed.%n%nOpen Frame Bridge and add your own Baballonia module ZIP, then start Babble Frame Runtime on your headset.%n%nExisting imported modules are preserved. To update the app later, run its newer setup file. To update only the module, import a new ZIP inside the app.
+FinishedLabel=Babble Bridge is installed.%n%nOpen Babble Bridge and add your own Baballonia module ZIP, then start Babble Frame Runtime on your headset.%n%nExisting imported modules are preserved. To update the app later, run its newer setup file. To update only the module, import a new ZIP inside the app.
 BeveledLabel=Independent runtime bridge
 
 [Code]
 procedure SHChangeNotify(EventId: Integer; Flags: Cardinal; Item1: String; Item2: UINT_PTR);
   external 'SHChangeNotify@shell32.dll stdcall';
 
+function IsAppShortcut(const Filename, Target: String): Boolean;
+var
+  Shell, Shortcut: Variant;
+begin
+  Result := False;
+  if not FileExists(Filename) then Exit;
+  try
+    Shell := CreateOleObject('WScript.Shell');
+    Shortcut := Shell.CreateShortcut(Filename);
+    Result := CompareText(ExpandFileName(Shortcut.TargetPath), ExpandFileName(Target)) = 0;
+  except
+    Log('Could not inspect a former app shortcut: ' + Filename);
+  end;
+end;
+
+procedure RetireShortcut(const Filename, Target: String);
+begin
+  { Only this app's exact former shortcut names, with this installation's
+    actual target, are eligible for cleanup. Other files are left alone. }
+  if ('{#BuildIdentity}' = 'FrameBridge.Desktop.8E250247-8BA9-42B7-A698-94D2A52E880A')
+    and IsAppShortcut(Filename, Target) then DeleteFile(Filename);
+end;
+
 function ShouldHaveDesktopShortcut: Boolean;
 begin
   { Refresh an existing app shortcut even if an older setup did not record the
     optional task. Do not create a new desktop shortcut unless it was selected. }
   Result := WizardIsTaskSelected('desktopicon') or
-    FileExists(ExpandConstant('{autodesktop}\{#ProductName}.lnk'));
+    FileExists(ExpandConstant('{autodesktop}\{#ProductName}.lnk')) or
+    (('{#BuildIdentity}' = 'FrameBridge.Desktop.8E250247-8BA9-42B7-A698-94D2A52E880A')
+      and IsAppShortcut(ExpandConstant('{autodesktop}\Frame Bridge.lnk'),
+        ExpandConstant('{app}\BabbleFrameBridge.exe')));
 end;
 
 procedure RefreshShellItem(const Filename: String);
@@ -136,8 +162,18 @@ begin
 end;
 
 procedure CurStepChanged(CurStep: TSetupStep);
+var
+  OldGroup: String;
 begin
   if CurStep = ssPostInstall then begin
+    if '{#BuildIdentity}' = 'FrameBridge.Desktop.8E250247-8BA9-42B7-A698-94D2A52E880A' then begin
+      RetireShortcut(ExpandConstant('{autodesktop}\Frame Bridge.lnk'),
+        ExpandConstant('{app}\BabbleFrameBridge.exe'));
+      OldGroup := ExpandConstant('{autoprograms}\Frame Bridge');
+      RetireShortcut(OldGroup + '\Frame Bridge.lnk', ExpandConstant('{app}\BabbleFrameBridge.exe'));
+      RetireShortcut(OldGroup + '\Setup guide.lnk', ExpandConstant('{app}\START-HERE.txt'));
+      RemoveDir(OldGroup); { Nonrecursive: preserve the folder if it has any other files. }
+    end;
     RefreshShellItem(ExpandConstant('{app}\{#HeadsetIconPath}'));
     RefreshShellItem(ExpandConstant('{app}\BabbleFrameBridge.exe'));
     RefreshShellItem(ExpandConstant('{group}\{#ProductName}.lnk'));
@@ -180,7 +216,7 @@ end;
 function IsKnownDevelopmentBuild(const Version: String): Boolean;
 begin
   { The first stable release resets the development numbering. Only these
-    exact development versions may transition to 1.0.0, 1.0.1 or 1.0.2; future stable
+    exact development versions may transition to 1.0.0 through 1.0.3; future stable
     versions still use the normal downgrade guard. }
   Result := (Version = '1.2.0') or (Version = '1.3.0') or
     (Version = '1.4.0') or (Version = '1.4.1') or (Version = '1.4.2') or
@@ -196,11 +232,11 @@ begin
     'Software\Microsoft\Windows\CurrentVersion\Uninstall\{#BuildIdentity}_is1',
     'DisplayVersion', InstalledVersion) then begin
     if VersionIsNewer(InstalledVersion, '{#AppVersion}') then begin
-      if (('{#AppVersion}' = '1.0.0') or ('{#AppVersion}' = '1.0.1') or ('{#AppVersion}' = '1.0.2')) and IsKnownDevelopmentBuild(InstalledVersion) then begin
+      if (('{#AppVersion}' = '1.0.0') or ('{#AppVersion}' = '1.0.1') or ('{#AppVersion}' = '1.0.2') or ('{#AppVersion}' = '1.0.3')) and IsKnownDevelopmentBuild(InstalledVersion) then begin
         Log('Transitioning a known development installation to the first stable release.');
         Exit;
       end;
-      SuppressibleMsgBox('Frame Bridge ' + InstalledVersion +
+      SuppressibleMsgBox('Babble Bridge ' + InstalledVersion +
         ' is already installed. Use the same or a newer setup file to keep your app up to date.',
         mbInformation, MB_OK, IDOK);
       Result := False;

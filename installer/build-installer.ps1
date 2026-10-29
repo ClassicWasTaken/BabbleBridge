@@ -126,7 +126,7 @@ else {
     )
 }
 
-Write-Output "Building Frame Bridge $appVersion installer..."
+Write-Output "Building Babble Bridge $appVersion installer..."
 & $compilerPath @compilerArguments
 if ($LASTEXITCODE -ne 0) { throw "Inno Setup compilation failed with exit code $LASTEXITCODE." }
 

@@ -26,7 +26,7 @@ public partial class App : Application
         if (dataIndex >= 0 && dataIndex + 1 < e.Args.Length) root = Path.GetFullPath(e.Args[dataIndex + 1]);
         var key = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(root.ToUpperInvariant())))[..20];
         _instance = new Mutex(true, "Local\\BabbleFrameBridge-" + key, out var first);
-        if (!first) { MessageBox.Show("Frame Bridge is already open.", "Frame Bridge"); Shutdown(); return; }
+        if (!first) { MessageBox.Show("Babble Bridge is already open.", "Babble Bridge"); Shutdown(); return; }
         // Stable presence marker lets future installers detect even portable copies.
         // Profile mutexes continue to keep normal and diagnostic data isolated.
         if (dataIndex < 0) {
@@ -39,7 +39,7 @@ public partial class App : Application
             RegisterApplicationRestart("", 1 | 2 | 8);
         }
         DispatcherUnhandledException += (_, error) => {
-            MessageBox.Show(error.Exception.Message, "Babble Frame Bridge", MessageBoxButton.OK, MessageBoxImage.Error);
+            MessageBox.Show(error.Exception.Message, "Babble Bridge", MessageBoxButton.OK, MessageBoxImage.Error);
             error.Handled = true;
         };
         _theme = new SystemThemeManager(this);

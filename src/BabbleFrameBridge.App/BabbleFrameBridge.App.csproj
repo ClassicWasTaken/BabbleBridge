@@ -6,8 +6,8 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <AssemblyName>BabbleFrameBridge</AssemblyName>
-    <Version>1.0.2</Version>
-    <Product>Steam Frame Babble Bridge</Product>
+    <Version>1.0.3</Version>
+    <Product>Babble Bridge</Product>
     <Authors>Frame Bridge contributors</Authors>
     <Copyright>Copyright © 2026 Frame Bridge contributors. Third-party copyrights remain with their respective owners.</Copyright>
     <Description>Independent Windows bridge for Babble Frame Runtime and VRChat face tracking.</Description>

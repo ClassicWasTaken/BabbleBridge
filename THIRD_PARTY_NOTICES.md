@@ -1,6 +1,6 @@
 # Third-party copyrights and licenses
 
-The original Steam Frame Babble Bridge code and original bridge artwork are
+The original Babble Bridge (previously Steam Frame Babble Bridge) code and original bridge artwork are
 Copyright (c) 2026 Frame Bridge contributors, licensed under [Apache 2.0](LICENSE).
 Third-party works retain their own copyrights and terms. This file maps those
 works to the full notices preserved in the repository and distribution.
