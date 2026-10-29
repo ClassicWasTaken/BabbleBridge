@@ -1,4 +1,4 @@
-BABBLE BRIDGE 1.0.1 — WINDOWS x64
+BABBLE BRIDGE 1.0.2 — WINDOWS x64
 
 PREREQUISITE
 Install the Microsoft Visual C++ v14 Redistributable (x64) from Microsoft:
@@ -141,3 +141,19 @@ needs supporting DLLs, native libraries or configuration files, place them
 together in a ZIP. Ambiguous ZIPs need an optional manifest naming the entry DLL,
 or you can import the entry DLL directly when it has no separate dependencies.
 Custom modules manage their own inputs and ports. Follow their setup instructions.
+
+VIRTUAL DESKTOP WAITING STATE
+If the headset is not connected through Virtual Desktop, selecting its module
+shows Waiting for Virtual Desktop. This is normal and does not mean the module
+is broken. Start the Streamer, enable Forward tracking data to PC and connect
+your headset; the selected worker connects automatically when the IPC is ready.
+Installed provider downloads are hidden from Add a module. Removing a provider
+profile makes its download available again; manual DLL/ZIP import stays available.
+
+STARTUP RECOVERY
+If connection settings are damaged, a valid saved backup is recovered and the
+original damaged file is retained for inspection. Missing imported DLLs remain
+listed as unavailable so other modules can still be used; restore, re-import or
+remove the affected profile. Missing provider files make its download available
+again. Unrecoverable startup errors show the recovery folder and close the app
+instead of leaving an invisible instance running.

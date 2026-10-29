@@ -137,6 +137,55 @@ try
             Check(store.Current == current && store.Previous == previous && store.Installed.Count == 2, "Inactive removal changed another selection.");
             Check(!Directory.Exists(Path.GetDirectoryName(inactive.DirectoryPath)!), "Removed managed payload remains in releases.");
         });
+        Test("a missing inactive DLL does not block the selected module or its library", () =>
+        {
+            var dataRoot = Path.Combine(root, "missing-inactive-dll");
+            var store = new ModuleStore(dataRoot);
+            var missing = store.Install(suppliedZip);
+            var previous = store.Install(suppliedZip);
+            var current = store.Install(suppliedZip);
+            File.Delete(Path.Combine(missing.DirectoryPath, missing.DllFileName));
+            store = new ModuleStore(dataRoot);
+            Check(store.Current == current && store.Previous == previous && store.Installed.Count == 3, "A missing inactive DLL blocked or discarded the valid library.");
+            var unavailable = store.Installed.Single(item => item.Id == missing.Id);
+            Check(!unavailable.IsAvailable && current.IsAvailable && previous.IsAvailable, "Availability does not reflect the actual entry DLLs.");
+            Check(!JsonSerializer.Serialize(unavailable).Contains("IsAvailable"), "Computed availability was persisted as stale metadata.");
+            ExpectFailure(() => store.Activate(unavailable), "missing-module-activation");
+            Check(store.Current == current && store.Previous == previous, "Rejected missing-module activation changed selection.");
+            store.Remove(unavailable);
+            store = new ModuleStore(dataRoot);
+            Check(store.Current == current && store.Installed.Count == 2 && store.Installed.All(item => item.Id != missing.Id), "Unavailable-profile removal did not persist.");
+        });
+        Test("a missing selected DLL remains visible and becomes available after repair", () =>
+        {
+            var dataRoot = Path.Combine(root, "missing-active-dll");
+            var store = new ModuleStore(dataRoot);
+            var current = store.Install(suppliedZip);
+            var path = Path.Combine(current.DirectoryPath, current.DllFileName);
+            var original = File.ReadAllBytes(path);
+            File.Delete(path);
+            store = new ModuleStore(dataRoot);
+            var unavailable = store.Current!;
+            Check(unavailable.Id == current.Id && !unavailable.IsAvailable && store.Installed.Single().Id == current.Id, "A missing selected DLL prevented the library from loading.");
+            ExpectFailure(() => store.Activate(unavailable), "missing-selected-module-activation");
+            File.WriteAllBytes(path, original);
+            Check(unavailable.IsAvailable && store.Current!.IsAvailable, "Availability remained stale after repairing the DLL.");
+            store.Activate(unavailable);
+            Check(store.Current == unavailable, "A repaired profile could not be activated.");
+        });
+        Test("legacy profile migration keeps unavailable modules visible without probing missing DLLs", () =>
+        {
+            var dataRoot = Path.Combine(root, "missing-legacy-dll");
+            var store = new ModuleStore(dataRoot);
+            var current = store.Install(suppliedZip);
+            File.Delete(Path.Combine(current.DirectoryPath, current.DllFileName));
+            File.WriteAllText(Path.Combine(dataRoot, "modules", "module-state.json"), JsonSerializer.Serialize(new { Schema = 1, Current = current.Id, Previous = (string?)null }));
+            store = new ModuleStore(dataRoot);
+            store.MigrateLegacyProfiles(TrackingInputSource.BaballoniaDesktop);
+            Check(store.Current?.Id == current.Id && store.Current.Kind == ModuleKind.BaballoniaDesktop
+                && !store.Current.IsAvailable && store.Installed.Count == 1, "Legacy migration discarded an unavailable profile or created a broken companion.");
+            Check(new ModuleStore(dataRoot).Current?.Id == current.Id, "Migrated unavailable profile could not reopen.");
+        });
         Test("removing the previous profile clears only the rollback reference", () =>
         {
             var store = NewStore("remove-previous");
@@ -255,16 +304,7 @@ try
             var sentinel = Path.Combine(target, "keep.txt");
             File.WriteAllText(sentinel, "keep external data");
             var link = Path.Combine(release.DirectoryPath, "foreign-link");
-            if (OperatingSystem.IsWindows())
-            {
-                var script = Path.Combine(root, "create-test-junction.ps1");
-                File.WriteAllText(script, "param([string]$Link, [string]$Target)\n$ErrorActionPreference='Stop'\nNew-Item -ItemType Junction -Path $Link -Target $Target | Out-Null\n");
-                var start = new ProcessStartInfo("pwsh") { UseShellExecute = false, CreateNoWindow = true };
-                foreach (var argument in new[] { "-NoProfile", "-NonInteractive", "-File", script, "-Link", link, "-Target", target }) start.ArgumentList.Add(argument);
-                using var process = Process.Start(start)!;
-                Check(process.WaitForExit(10000) && process.ExitCode == 0, "Could not create the isolated junction fixture.");
-            }
-            else Directory.CreateSymbolicLink(link, target);
+            CreateDirectoryLink(link, target, root);
             try
             {
                 ExpectFailure(() => store.Remove(release), "payload-junction-removal");
@@ -416,6 +456,20 @@ try
         store = new ModuleStore(dataRoot);
         Check(store.Current is null && store.Installed.Count == 0, "Backup recovery resurrected a removed custom module.");
     });
+    Test("a missing custom entry retains strict metadata and can be removed after reopening", () =>
+    {
+        var dataRoot = Path.Combine(root, "missing-custom-dll");
+        var store = new ModuleStore(dataRoot);
+        var current = store.Prepare(typeof(ModuleStore).Assembly.Location);
+        store.Register(current); store.Activate(current);
+        File.Delete(Path.Combine(current.DirectoryPath, current.DllFileName));
+        store = new ModuleStore(dataRoot);
+        Check(store.Current == current && !store.Current.IsAvailable && store.Installed.Count == 1, "A missing custom entry blocked the library.");
+        ExpectFailure(() => store.Activate(current), "missing-custom-activation");
+        store.Remove(current);
+        File.WriteAllText(Path.Combine(dataRoot, "modules", "module-state.json"), "broken");
+        Check(new ModuleStore(dataRoot).Installed.Count == 0, "Unavailable custom removal was undone by backup recovery.");
+    });
     Test("custom SDK inheritance selects the entry while keeping its managed dependency", () =>
     {
         var fixture = Path.Combine(AppContext.BaseDirectory, "Fixtures", "BabbleBridge.CustomModule.Fixture.dll");
@@ -507,6 +561,91 @@ try
         ExpectFailure(settings.Validate, "invalid-tracking-source");
         Check(AppSettings.Load(dataRoot).InputSource == TrackingInputSource.BaballoniaDesktop, "Rejected source overwrote valid settings.");
     });
+    Test("corrupt primary settings recover their valid backup without replacing that backup", () =>
+    {
+        var data = Path.Combine(root, "settings-json-recovery");
+        var saved = new AppSettings { OutputPort = 19000, ReceivePort = 19001, AutoStart = true };
+        saved.Save(data);
+        saved.OutputPort = 19002; saved.Save(data);
+        var path = Path.Combine(data, "settings.json");
+        var backup = File.ReadAllBytes(path + ".backup");
+        File.WriteAllText(path, "{broken-primary");
+        var recovered = AppSettings.Load(data);
+        Check(recovered.OutputPort == 19000 && recovered.ReceivePort == 19001 && recovered.AutoStart, "The valid settings backup was not recovered.");
+        Check(File.ReadAllBytes(path + ".backup").SequenceEqual(backup), "Repair replaced the valid backup with corrupt settings.");
+        Check(AppSettings.Load(data).OutputPort == 19000, "The repaired primary cannot be reopened.");
+        Check(File.ReadAllText(Directory.EnumerateFiles(data, "settings.json.corrupt-*").Single()) == "{broken-primary", "The invalid original was not retained.");
+    });
+    Test("semantically invalid settings recover valid saved connection preferences", () =>
+    {
+        var data = Path.Combine(root, "settings-validation-recovery");
+        var saved = new AppSettings { OutputPort = 19100, ReceivePort = 19101, InputSource = TrackingInputSource.BaballoniaDesktop };
+        saved.Save(data); saved.OutputPort = 19102; saved.Save(data);
+        var path = Path.Combine(data, "settings.json");
+        File.WriteAllText(path, "{\"OutputPort\":9001,\"ReceivePort\":9001}");
+        var recovered = AppSettings.Load(data);
+        Check(recovered.OutputPort == 19100 && recovered.ReceivePort == 19101 && recovered.InputSource == TrackingInputSource.BaballoniaDesktop, "Validation failure did not recover saved preferences.");
+    });
+    Test("a missing primary settings file recovers its existing backup instead of defaults", () =>
+    {
+        var data = Path.Combine(root, "settings-missing-primary");
+        var saved = new AppSettings { OutputPort = 19200 };
+        saved.Save(data); saved.OutputPort = 19202; saved.Save(data);
+        var path = Path.Combine(data, "settings.json");
+        var backup = File.ReadAllBytes(path + ".backup");
+        File.Delete(path);
+        Check(AppSettings.Load(data).OutputPort == 19200 && File.Exists(path), "A missing primary caused a silent settings reset.");
+        Check(File.ReadAllBytes(path + ".backup").SequenceEqual(backup), "Missing-primary recovery changed the valid backup.");
+    });
+    Test("unrecoverable saved settings fail clearly while retaining both original files", () =>
+    {
+        var data = Path.Combine(root, "settings-both-invalid");
+        Directory.CreateDirectory(data);
+        var path = Path.Combine(data, "settings.json");
+        File.WriteAllText(path, "broken primary");
+        File.WriteAllText(path + ".backup", "{\"OutputPort\":0}");
+        foreach (var backupExists in new[] { true, false })
+        {
+            if (!backupExists) File.Delete(path + ".backup");
+            try { AppSettings.Load(data); throw new Exception("Invalid saved settings silently reset to defaults."); }
+            catch (InvalidDataException error) { Check(error.Message.Contains("preserved") && error.Message.Contains("settings.json"), "Startup recovery failure is not actionable."); }
+            Check(File.ReadAllText(path) == "broken primary", "Unrecoverable primary settings changed.");
+            if (backupExists) Check(File.ReadAllText(path + ".backup") == "{\"OutputPort\":0}", "An invalid backup was overwritten.");
+            Check(!Directory.EnumerateFiles(data, "settings.json.corrupt-*").Any(), "Invalid settings were moved before a valid recovery candidate existed.");
+        }
+    });
+    Test("failed settings repair preserves the corrupt primary and known-good backup", () =>
+    {
+        var data = Path.Combine(root, "settings-repair-locked");
+        var saved = new AppSettings { OutputPort = 19300 };
+        saved.Save(data); saved.OutputPort = 19302; saved.Save(data);
+        var path = Path.Combine(data, "settings.json");
+        File.WriteAllText(path, "broken locked primary");
+        var backup = File.ReadAllBytes(path + ".backup");
+        using (var held = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read))
+            ExpectFailure(() => AppSettings.Load(data), "locked-settings-repair");
+        Check(File.ReadAllText(path) == "broken locked primary" && File.ReadAllBytes(path + ".backup").SequenceEqual(backup), "A failed repair damaged the saved files.");
+        Check(AppSettings.Load(data).OutputPort == 19300, "Settings could not recover after the file lock was released.");
+    });
+    Test("settings recovery and saving refuse junction paths without modifying external files", () =>
+    {
+        var target = Path.Combine(root, "external-settings-profile");
+        var saved = new AppSettings { OutputPort = 19400 };
+        saved.Save(target); saved.OutputPort = 19402; saved.Save(target);
+        var path = Path.Combine(target, "settings.json");
+        File.WriteAllText(path, "broken external primary");
+        var backup = File.ReadAllBytes(path + ".backup");
+        var link = Path.Combine(root, "settings-profile-junction");
+        CreateDirectoryLink(link, target, root);
+        try
+        {
+            ExpectFailure(() => AppSettings.Load(link), "junction-settings-repair");
+            ExpectFailure(() => saved.Save(link), "junction-settings-save");
+            Check(File.ReadAllText(path) == "broken external primary" && File.ReadAllBytes(path + ".backup").SequenceEqual(backup), "Settings repair or saving followed the junction.");
+            Check(!Directory.EnumerateFiles(target, "settings.json.corrupt-*").Any(), "Repair wrote an external corrupt-file archive through the junction.");
+        }
+        finally { Directory.Delete(link); }
+    });
     Test("the old runtime source name migrates without resetting connection preferences", () =>
     {
         var dataRoot = Path.Combine(root, "source-migration");
@@ -550,6 +689,9 @@ try
             Check(canonical.RootElement.GetProperty("InputSource").GetString() == expected.ToString(),
                 "Saving did not canonicalize the source value: " + json);
         }
+        // This case checks rejection when no valid recovery candidate exists;
+        // valid-backup recovery is exercised separately above.
+        File.Delete(path + ".backup");
         foreach (var json in new[] { "2", "-1", "1.5", "null", "true", "\"2\"", "\"unknown\"" })
         {
             File.WriteAllText(path, "{\"InputSource\":" + json + "}");
@@ -583,6 +725,16 @@ string Package(string name, Action<List<FixtureEntry>> mutate)
 static void Check(bool condition, string message)
 {
     if (!condition) throw new Exception(message);
+}
+static void CreateDirectoryLink(string link, string target, string fixtureRoot)
+{
+    if (!OperatingSystem.IsWindows()) { Directory.CreateSymbolicLink(link, target); return; }
+    var script = Path.Combine(fixtureRoot, "create-test-junction-" + Guid.NewGuid().ToString("N") + ".ps1");
+    File.WriteAllText(script, "param([string]$Link, [string]$Target)\n$ErrorActionPreference='Stop'\nNew-Item -ItemType Junction -Path $Link -Target $Target | Out-Null\n");
+    var start = new ProcessStartInfo("pwsh") { UseShellExecute = false, CreateNoWindow = true };
+    foreach (var argument in new[] { "-NoProfile", "-NonInteractive", "-File", script, "-Link", link, "-Target", target }) start.ArgumentList.Add(argument);
+    using var process = Process.Start(start)!;
+    Check(process.WaitForExit(10000) && process.ExitCode == 0, "Could not create the isolated junction fixture.");
 }
 static void ExpectFailure(Action action, string context)
 {

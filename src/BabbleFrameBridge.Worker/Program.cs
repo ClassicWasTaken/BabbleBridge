@@ -6,12 +6,14 @@ using System.Diagnostics;
 using System.Net;
 using System.Net.Sockets;
 using System.Reflection;
+using System.Runtime.InteropServices;
 using System.Runtime.Loader;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using BabbleFrameBridge.Shared;
 using Microsoft.Extensions.Logging;
+using Microsoft.Win32.SafeHandles;
 using VRCFaceTracking;
 using VRCFaceTracking.Core.Contracts;
 using VRCFaceTracking.Core.Contracts.Services;
@@ -38,6 +40,7 @@ internal static class Program
     {
         using var stop = new CancellationTokenSource();
         ExtTrackingModule? module = null;
+        var moduleNeedsTeardown = false;
         OscSendService? send = null;
         ParameterSenderService? sender = null;
         AvatarRouter? router = null;
@@ -167,6 +170,15 @@ internal static class Program
             };
             module = LoadModule(modulePath);
             module.Logger = logs.CreateLogger(moduleName);
+            moduleNeedsTeardown = kind != ModuleKind.VirtualDesktop;
+            if (kind == ModuleKind.VirtualDesktop)
+            {
+                // Its upstream Initialize returns no claims when the Streamer's IPC
+                // objects do not exist yet. Keep selection alive without opening OSC
+                // ports or sending neutral tracking until a session becomes available.
+                await WaitForVirtualDesktop(stop.Token);
+                moduleNeedsTeardown = true;
+            }
             var claims = module.Initialize(true, true);
             // A headset can have both channels disabled in its saved configuration. Its
             // live BFR Link still needs to negotiate the next headset session's claims.
@@ -300,9 +312,46 @@ internal static class Program
             if (sender != null) { try { await sender.StopAsync(CancellationToken.None).WaitAsync(TimeSpan.FromSeconds(2)); } catch { } }
             if (router != null) await router.DisposeAsync();
             send?.Dispose();
-            if (module != null) { try { module.Teardown(); } catch (Exception e) { Emit(new { type = "log", message = "Module shutdown: " + e.Message }); } }
+            if (module != null && moduleNeedsTeardown) { try { module.Teardown(); } catch (Exception e) { Emit(new { type = "log", message = "Module shutdown: " + e.Message }); } }
         }
     }
+
+    private static async Task WaitForVirtualDesktop(CancellationToken cancellationToken)
+    {
+        var announced = false;
+        while (!VirtualDesktopObjectsAvailable())
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            if (!announced)
+            {
+                Emit(new
+                {
+                    type = "waiting", source = ModuleKind.VirtualDesktop.ToString(), inputPort = 0,
+                    eye = false, face = false, connected = false, receiving = false,
+                    message = "Waiting for Virtual Desktop. Start Streamer, enable 'Forward tracking data to PC', and connect your headset. The bridge will connect automatically."
+                });
+                announced = true;
+            }
+            await Task.Delay(TimeSpan.FromSeconds(1), cancellationToken);
+        }
+        cancellationToken.ThrowIfCancellationRequested();
+    }
+
+    private static bool VirtualDesktopObjectsAvailable()
+    {
+        if (!OperatingSystem.IsWindows()) throw new PlatformNotSupportedException("Virtual Desktop tracking requires Windows.");
+        // Match the access required by the upstream module. Opening these existing
+        // handles never creates IPC objects, maps their contents, or signals the event.
+        using var memory = OpenFileMappingW(0x0006, false, "VirtualDesktop.BodyState");
+        if (memory.IsInvalid) return false;
+        using var changed = OpenEventW(0x00100002, false, "VirtualDesktop.BodyStateEvent");
+        return !changed.IsInvalid;
+    }
+
+    [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+    private static extern SafeFileHandle OpenFileMappingW(uint access, [MarshalAs(UnmanagedType.Bool)] bool inheritHandle, string name);
+    [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+    private static extern SafeWaitHandle OpenEventW(uint access, [MarshalAs(UnmanagedType.Bool)] bool inheritHandle, string name);
 
     private static Dictionary<string, string?> ParseArguments(string[] args)
     {

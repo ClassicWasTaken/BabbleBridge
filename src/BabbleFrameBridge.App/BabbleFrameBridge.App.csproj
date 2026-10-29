@@ -6,7 +6,7 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <AssemblyName>BabbleFrameBridge</AssemblyName>
-    <Version>1.0.1</Version>
+    <Version>1.0.2</Version>
     <Product>Babble Bridge</Product>
     <Authors>Frame Bridge contributors</Authors>
     <Copyright>Copyright Ã‚Â© 2026 Frame Bridge contributors. Third-party copyrights remain with their respective owners.</Copyright>

@@ -22,6 +22,22 @@ public partial class App : Application
     {
         base.OnStartup(e);
         var root = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "BabbleFrameBridge");
+        try { StartApplication(e, ref root); }
+        catch (Exception error)
+        {
+            // Constructor failures happen before the window is shown. Handling them
+            // only through DispatcherUnhandledException leaves an invisible instance
+            // holding the single-instance and installer mutexes.
+            MessageBox.Show("Babble Bridge could not start.\n\n" + error.Message
+                + "\n\nYour settings and imported module files have been preserved. Check the saved settings and module files in:\n"
+                + root + "\n\nRestore a valid saved backup or correct the reported file problem, then open Babble Bridge again.",
+                "Babble Bridge startup", MessageBoxButton.OK, MessageBoxImage.Error);
+            Shutdown(1);
+        }
+    }
+
+    private void StartApplication(StartupEventArgs e, ref string root)
+    {
         var dataIndex = Array.IndexOf(e.Args, "--data");
         if (dataIndex >= 0 && dataIndex + 1 < e.Args.Length) root = Path.GetFullPath(e.Args[dataIndex + 1]);
         var key = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(root.ToUpperInvariant())))[..20];

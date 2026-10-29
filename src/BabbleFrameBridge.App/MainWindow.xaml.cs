@@ -41,6 +41,7 @@ public partial class MainWindow : Window
     private bool _motionEnabled;
     private readonly DispatcherTimer _noticeTimer;
     private bool _noticeFading;
+    private bool _awaitingVirtualDesktop;
 
     public MainWindow(string root, bool useDiscovery = true, string? workerExecutable = null, ModuleDownloader? moduleDownloader = null)
     {
@@ -78,7 +79,7 @@ public partial class MainWindow : Window
             if (_store.Current is { } current)
             {
                 SetStoppedState();
-                if (_settings.AutoStart) await StartWorker(current);
+                if (_settings.AutoStart && current.IsAvailable) await StartWorker(current);
             }
             else
             {
@@ -102,9 +103,9 @@ public partial class MainWindow : Window
 
     private void RefreshButtons()
     {
-        StartButton.IsEnabled = !_busy && _initialized && (_running || _store.Current is not null);
+        StartButton.IsEnabled = !_busy && _initialized && (_running || _store.Current is { IsAvailable: true });
         ImportButton.IsEnabled = !_busy && _initialized;
-        RollbackButton.IsEnabled = !_busy && _store.Previous is not null;
+        RollbackButton.IsEnabled = !_busy && _store.Previous is { IsAvailable: true };
         SaveButton.IsEnabled = !_busy && _initialized;
         AutoStartBox.IsEnabled = !_busy && _initialized;
         StartButton.Content = _running ? "Stop bridge" : "Start bridge";
@@ -119,6 +120,7 @@ public partial class MainWindow : Window
         HashLabel.Text = "";
         ImportButton.Content = current is null ? "Add a module →" : "Manage modules →";
         PackageDetail.Text = current is null ? _store.Installed.Count > 0 ? "Choose an installed module in Modules." : "Open Modules to download a module or import a DLL or ZIP."
+            : !current.IsAvailable ? "Module files are missing. Restore or re-import the module, or remove this profile."
             : current.Kind == ModuleKind.Custom ? "Module-managed input · follow this module’s setup instructions."
             : $"{ConnectionFor(current)} · input selected automatically";
         ProviderTag.Text = current is null ? "MODULES" : NameFor(current).ToUpperInvariant();
@@ -131,10 +133,10 @@ public partial class MainWindow : Window
         ModuleLibrary.ItemsSource = _store.Installed.OrderBy(release => release.Kind switch {
             ModuleKind.BabbleHeadsetRuntime => 0, ModuleKind.BaballoniaDesktop => 1, ModuleKind.SteamLink => 2, _ => 3
         }).Select(release => new ModuleCard(release,
-            NameFor(release), $"Version {release.Version} · {ConnectionFor(release)}",
-            InstructionsFor(release),
-            release.Id == _store.Current?.Id ? "Selected ✓" : "Use module",
-            !_busy && _initialized && release.Id != _store.Current?.Id,
+            NameFor(release), release.IsAvailable ? $"Version {release.Version} · {ConnectionFor(release)}" : "Module files missing",
+            release.IsAvailable ? InstructionsFor(release) : "Restore or re-import this module, or remove its profile. Your other modules are available.",
+            !release.IsAvailable ? "Unavailable" : release.Id == _store.Current?.Id ? "Selected ✓" : "Use module",
+            !_busy && _initialized && release.IsAvailable && release.Id != _store.Current?.Id,
             !_busy && _initialized,
             release.Id == _pendingRemovalId ? Visibility.Visible : Visibility.Collapsed,
             release.Id == _store.Current?.Id ? "Remove this profile and its module settings? The bridge will stop." : "Remove this profile and its module settings?")).ToArray();
@@ -147,12 +149,15 @@ public partial class MainWindow : Window
     private void RefreshDownloadChoices()
     {
         var available = !_busy && _initialized;
-        DownloadChoices.ItemsSource = new[] {
+        var installedKinds = _store.Installed.Where(release => release.IsAvailable).Select(release => release.Kind).ToHashSet();
+        var choices = new[] {
             new DownloadCard(ModuleKind.BabbleHeadsetRuntime, "Headset Runtime / BFR", "Baballonia module 4.0.0 · headset input", "https://github.com/Project-Babble/Baballonia/releases/tag/vrcft-module-4.0.0", available),
             new DownloadCard(ModuleKind.BaballoniaDesktop, "Baballonia", "VRCFaceTracking module · desktop input", "https://github.com/Project-Babble/Baballonia", available),
             new DownloadCard(ModuleKind.SteamLink, "Steam Link", "LinkFT module 1.0.6", "https://github.com/ykeara/LinkFT/releases/tag/1.0.6", available),
             new DownloadCard(ModuleKind.VirtualDesktop, "Virtual Desktop", "Official compiled module ZIP", "https://download.vrdesktop.net/files/VirtualDesktop.VRCFaceTracking.zip", available)
-        };
+        }.Where(choice => !installedKinds.Contains(choice.Kind)).ToArray();
+        DownloadChoices.ItemsSource = choices;
+        DownloadChoicesEmptyText.Visibility = choices.Length == 0 ? Visibility.Visible : Visibility.Collapsed;
     }
 
     private async void DownloadModule_Click(object sender, RoutedEventArgs e)
@@ -317,8 +322,12 @@ public partial class MainWindow : Window
         StateDot.Fill = new SolidColorBrush((Color)ColorConverter.ConvertFromString(error ? "#F4C2C2" : live ? "#BDE5D1" : "#A6C5B8"));
     }
 
-    private void UpdateSourceLabels() => HeadsetState.Text = _sessionRelease is null && _store.Current is null
-        ? _store.Installed.Count > 0 ? "Choose a module" : "Waiting for module" : ProviderName + " · ready";
+    private void UpdateSourceLabels()
+    {
+        if (!_running && _store.Current is { IsAvailable: false }) HeadsetState.Text = ProviderName + " · unavailable";
+        else HeadsetState.Text = _sessionRelease is null && _store.Current is null
+            ? _store.Installed.Count > 0 ? "Choose a module" : "Waiting for module" : ProviderName + " · ready";
+    }
 
     private void SetNoModuleState()
     {
@@ -332,10 +341,32 @@ public partial class MainWindow : Window
     {
         UpdateSourceLabels();
         if (_store.Current is null) SetNoModuleState();
+        else if (_store.Current is { IsAvailable: false })
+            SetState("Module files missing", "Open Modules to restore, re-import, or remove this profile. Your other modules are available.", false, true);
         else SetState("Bridge stopped", "Start the bridge with " + ProviderName + ".", false);
     }
 
-    private void SetListeningState() => SetState(ProviderName, ProviderInstructions, true);
+    private void SetListeningState()
+    {
+        if (Provider.Kind == ModuleKind.VirtualDesktop)
+        {
+            SetVirtualDesktopWaitingState();
+            return;
+        }
+        SetState(ProviderName, ProviderInstructions, true);
+    }
+
+    private void SetVirtualDesktopWaitingState()
+    {
+        SetState(_awaitingVirtualDesktop ? "Waiting for Virtual Desktop" : "Waiting for tracking data",
+            "Open Virtual Desktop Streamer, connect your headset through Virtual Desktop, and enable Forward tracking data to PC. The bridge will connect automatically.", false);
+        HeadsetState.Text = "Virtual Desktop · waiting";
+        if (_awaitingVirtualDesktop)
+        {
+            SenderCadence.Text = "Waiting for tracking source";
+            TrackingRoute.Text = "Waiting for Virtual Desktop tracking data";
+        }
+    }
 
     private void ShowNotice(string message, bool error = false)
     {
@@ -386,8 +417,10 @@ public partial class MainWindow : Window
     private async Task StartWorker(ModuleRelease release)
     {
         if (_closing) throw new OperationCanceledException("The app is closing.");
+        if (!release.IsAvailable) throw new InvalidOperationException("This module’s DLL is missing. Restore or re-import it, or select another installed module.");
         if (_worker is not null) await StopWorker();
         _sessionRelease = release;
+        _awaitingVirtualDesktop = false;
         var inputPort = InputPortFor(release);
         ValidateConnection(_settings, release);
         var executable = _workerExecutable;
@@ -416,6 +449,7 @@ public partial class MainWindow : Window
         process.Exited += (_, _) => Dispatcher.BeginInvoke(new Action(() => {
             if (_worker != process) return;
             _running = false;
+            _awaitingVirtualDesktop = false;
             _ready?.TrySetException(new InvalidOperationException("The tracking runtime exited. Check the activity log for details."));
             SetState("Runtime stopped", "Check the activity log, then start the bridge again.", false, true);
             ShowNotice("The runtime stopped. Check the activity log, then start the bridge again.", true);
@@ -448,6 +482,7 @@ public partial class MainWindow : Window
         var process = _worker;
         var wasRunning = _running;
         var session = _sessionRelease;
+        var wasAwaiting = _awaitingVirtualDesktop;
         _worker = null; _running = false;
         if (_closing) _ready?.TrySetCanceled();
         if (process is not null)
@@ -470,13 +505,14 @@ public partial class MainWindow : Window
                 {
                     // Keep ownership if Windows could not confirm shutdown. Changing or
                     // deleting a module must not strand a worker that still holds its ports.
-                    _worker = process; _running = wasRunning; _sessionRelease = session;
+                    _worker = process; _running = wasRunning; _sessionRelease = session; _awaitingVirtualDesktop = wasAwaiting;
                     throw new InvalidOperationException("The tracking runtime could not stop. Try stopping the bridge again before changing modules.", failure);
                 }
             }
             finally { if (_worker != process) process.Dispose(); }
         }
         _sessionRelease = null;
+        _awaitingVirtualDesktop = false;
         OutputRate.Text = "0 msgs/s"; SenderCadence.Text = "Bridge idle";
         UpdateSourceLabels();
         TrackingRoute.Text = "Bridge stopped";
@@ -489,15 +525,28 @@ public partial class MainWindow : Window
 
     private static string Str(JsonElement e, string name, string fallback = "") => e.TryGetProperty(name, out var x) ? x.ToString() : fallback;
     private static bool Bool(JsonElement e, string name) => e.TryGetProperty(name, out var x) && x.ValueKind == JsonValueKind.True;
-    private static double Number(JsonElement e, string name) => e.TryGetProperty(name, out var x) && x.TryGetDouble(out var value) && double.IsFinite(value) ? value : 0;
+    private static double Number(JsonElement e, string name) => e.TryGetProperty(name, out var x) && x.ValueKind == JsonValueKind.Number && x.TryGetDouble(out var value) && double.IsFinite(value) ? value : 0;
 
     private void HandleWorkerLine(string line)
     {
         try {
             using var document = JsonDocument.Parse(line);
             var item = document.RootElement;
+            if (item.ValueKind != JsonValueKind.Object) { Log(line); return; }
             switch (Str(item, "type")) {
-                case "ready": _ready?.TrySetResult(true); Log(ProviderName + " loaded. " + ProviderInstructions); break;
+                case "waiting":
+                    if (Provider.Kind != ModuleKind.VirtualDesktop || Str(item, "source") != "VirtualDesktop") break;
+                    _awaitingVirtualDesktop = true;
+                    _ready?.TrySetResult(true);
+                    Log(Str(item, "message", "Waiting for Virtual Desktop tracking data."));
+                    SetVirtualDesktopWaitingState();
+                    break;
+                case "ready":
+                    _awaitingVirtualDesktop = false;
+                    _ready?.TrySetResult(true);
+                    Log(ProviderName + " loaded. " + ProviderInstructions);
+                    if (_running) SetListeningState();
+                    break;
                 case "fatal":
                     var message = Str(item, "message", "Tracking runtime failed."); Log("ERROR: " + message);
                     _ready?.TrySetException(new InvalidOperationException(message));
@@ -532,6 +581,11 @@ public partial class MainWindow : Window
             if (Provider.Kind == ModuleKind.BabbleHeadsetRuntime)
                 SetState(linked ? "Headset connected" : "Listening for headset",
                     receiving ? "Receiving expressions from the headset runtime." : linked ? "Connected. Waiting for expression data from the headset." : ProviderInstructions, true);
+            else if (Provider.Kind == ModuleKind.VirtualDesktop)
+            {
+                if (_awaitingVirtualDesktop || !receiving) SetVirtualDesktopWaitingState();
+                else SetState("Virtual Desktop connected", "Receiving tracking data from Virtual Desktop.", true);
+            }
             else SetState(ProviderName, Bool(item, "receivingKnown") && receiving ? "Receiving tracking data. Your expressions are connected." : ProviderInstructions, true);
         }
     }
@@ -569,7 +623,7 @@ public partial class MainWindow : Window
             // should not clutter the library or replace the user's configured copy.
             using var archive = File.OpenRead(zipPath);
             var hash = Convert.ToHexString(await SHA256.HashDataAsync(archive)).ToLowerInvariant();
-            if (_store.Installed.Any(item => item.Kind == kind && item.Sha256 == hash))
+            if (_store.Installed.Any(item => item.IsAvailable && item.Kind == kind && item.Sha256 == hash))
             {
                 ShowNotice(ModuleCatalog.Get(kind).Name + " is already in your library.");
                 return;
@@ -578,7 +632,7 @@ public partial class MainWindow : Window
         var release = await Task.Run(() => _store.Prepare(zipPath, requestedKind));
         if (_closing) return;
         _store.Register(release);
-        if (release.SupportsHeadset && (activate || !_store.Installed.Any(item => item.Sha256 == release.Sha256 && item.Kind != release.Kind)))
+        if (release.SupportsHeadset && (activate || !_store.Installed.Any(item => item.IsAvailable && item.Sha256 == release.Sha256 && item.Kind != release.Kind)))
         {
             var companion = await Task.Run(() => _store.CreateCompanion(release));
             _store.Register(companion);
@@ -598,6 +652,7 @@ public partial class MainWindow : Window
 
     private async Task SwitchModule(ModuleRelease release)
     {
+        if (!release.IsAvailable) throw new InvalidOperationException("This module’s DLL is missing. Restore or re-import it, or select another installed module.");
         var old = _store.Current;
         var wasRunning = _running;
         _pendingRestart = false;
@@ -606,7 +661,8 @@ public partial class MainWindow : Window
             await StartWorker(release);
             _store.Activate(release);
             RefreshModule();
-            var activated = old is null ? $"Module {release.Version} is active. Your tracking source is ready."
+            var activated = _awaitingVirtualDesktop ? "Virtual Desktop selected. Waiting for your headset connection."
+                : old is null ? $"Module {release.Version} is active. Your tracking source is ready."
                 : $"Module {release.Version} is active. Your previous module is saved.";
             Log(activated);
             ShowNotice(activated);
@@ -698,6 +754,7 @@ public partial class MainWindow : Window
     private void SelectPage(string page)
     {
         if (_pendingRemovalId is not null) { _pendingRemovalId = null; RefreshLibrary(); }
+        if (_initialized) RefreshModule();
         OverviewPage.Visibility = page == "overview" ? Visibility.Visible : Visibility.Collapsed;
         ModulesPage.Visibility = page == "modules" ? Visibility.Visible : Visibility.Collapsed;
         SettingsPage.Visibility = page == "settings" ? Visibility.Visible : Visibility.Collapsed;

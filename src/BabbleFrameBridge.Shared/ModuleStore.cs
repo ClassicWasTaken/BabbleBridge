@@ -8,6 +8,7 @@ using System.Security.Cryptography;
 using System.Text.Json;
 using System.Text;
 using System.Reflection;
+using System.Text.Json.Serialization;
 
 namespace BabbleFrameBridge.Shared;
 
@@ -22,7 +23,11 @@ public sealed record ModuleRelease(
     string ModuleName,
     ModuleKind Kind = ModuleKind.BabbleHeadsetRuntime,
     bool SupportsHeadset = false,
-    string? AssemblyName = null);
+    string? AssemblyName = null)
+{
+    [JsonIgnore]
+    public bool IsAvailable => File.Exists(Path.Combine(DirectoryPath, DllFileName));
+}
 
 /// <summary>
 /// Stages packages without loading code, then switches the active release with an atomic
@@ -74,7 +79,7 @@ public sealed class ModuleStore
     {
         lock (_gate)
         {
-            if (ReadRelease(release.Id) != release || release.ModuleId != BaballoniaModuleId || !release.SupportsHeadset)
+            if (ReadRelease(release.Id) != release || release.ModuleId != BaballoniaModuleId || !release.SupportsHeadset || !release.IsAvailable)
                 throw new InvalidDataException("This package does not support both Babble inputs.");
             var id = Guid.NewGuid().ToString("N");
             var source = Path.Combine(_releasesRoot, release.Id, "payload");
@@ -105,13 +110,13 @@ public sealed class ModuleStore
             foreach (var id in ids)
             {
                 var release = ReadRelease(id)!;
-                var supports = HasHeadsetSupport(Path.Combine(release.DirectoryPath, release.DllFileName));
+                var supports = release.IsAvailable && HasHeadsetSupport(Path.Combine(release.DirectoryPath, release.DllFileName));
                 release = release with { Kind = source == TrackingInputSource.BaballoniaDesktop ? ModuleKind.BaballoniaDesktop : ModuleKind.BabbleHeadsetRuntime, SupportsHeadset = supports };
                 WriteAtomic(Path.Combine(_releasesRoot, id, "release.json"), release);
             }
             var next = new StoreState(2, _state.Current, _state.Previous, ids);
             WriteAtomic(_statePath, next); _state = next;
-            if (Current is { SupportsHeadset: true } current)
+            if (Current is { SupportsHeadset: true, IsAvailable: true } current)
                 Register(CreateCompanion(current));
         }
     }
@@ -460,17 +465,16 @@ public sealed class ModuleStore
         if (release.Id != id || !Guid.TryParse(release.ModuleId, out _)
             || !custom && (release.ModuleId != definition.ModuleId || release.DllFileName != definition.DllFileName
                 || release.AssemblyName != null && release.AssemblyName != definition.AssemblyName)
-            || custom && string.IsNullOrWhiteSpace(release.AssemblyName)
+            || custom && (string.IsNullOrWhiteSpace(release.AssemblyName) || release.AssemblyName.Length > 200 || release.AssemblyName.Any(char.IsControl))
             ||
-            !(directory.Equals(payloadRoot, StringComparison.OrdinalIgnoreCase) || directory.StartsWith(payloadRoot + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)) ||
-            !File.Exists(Path.Combine(directory, release.DllFileName)))
+            !(directory.Equals(payloadRoot, StringComparison.OrdinalIgnoreCase) || directory.StartsWith(payloadRoot + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)))
             throw new InvalidDataException("The saved module release is invalid or missing.");
         if (custom)
         {
             if (ModuleCatalog.Identify(release.ModuleId, release.DllFileName).Kind != ModuleKind.Custom
                 || ModuleCatalog.All.Any(x => x.AssemblyName == release.AssemblyName))
                 throw new InvalidDataException("The saved custom module conflicts with a known module identity.");
-            ValidateAssembly(Path.Combine(directory, release.DllFileName), release.AssemblyName!);
+            if (release.IsAvailable) ValidateAssembly(Path.Combine(directory, release.DllFileName), release.AssemblyName!);
         }
         return release;
     }

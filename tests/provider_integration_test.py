@@ -261,7 +261,7 @@ def steam_link(executable, archive, root):
 
 class SyntheticVirtualDesktop:
     """Create the documented provider objects only when the real Streamer is absent."""
-    def __init__(self):
+    def __init__(self, create_event=True):
         self.kernel = ctypes.WinDLL("kernel32", use_last_error=True)
         self.kernel.CreateFileMappingW.argtypes = [wintypes.HANDLE, ctypes.c_void_p, wintypes.DWORD,
                                                    wintypes.DWORD, wintypes.DWORD, wintypes.LPCWSTR]
@@ -282,10 +282,11 @@ class SyntheticVirtualDesktop:
         if ctypes.get_last_error() == 183:
             self.close()
             raise FileExistsError("The real Virtual Desktop Streamer is running")
-        self.event = self.kernel.CreateEventW(None, False, False, "VirtualDesktop.BodyStateEvent")
-        if not self.event or ctypes.get_last_error() == 183:
-            self.close()
-            raise FileExistsError("The real Virtual Desktop event already exists")
+        if create_event:
+            self.event = self.kernel.CreateEventW(None, False, False, "VirtualDesktop.BodyStateEvent")
+            if not self.event or ctypes.get_last_error() == 183:
+                self.close()
+                raise FileExistsError("The real Virtual Desktop event already exists")
         self.view = self.kernel.MapViewOfFile(self.mapping, 6, 0, 0, 65536)
         if not self.view:
             self.close()
@@ -324,16 +325,47 @@ def virtual_desktop(executable, archive, root):
     fixture = Fixture(root, archive)
     worker = fixture.worker(executable, "VirtualDesktop")
     try:
-        wait_for(worker, "Virtual Desktop missing-Streamer failure", lambda: worker.any(
-            lambda record: record.get("type") == "fatal" and "Streamer" in record.get("message", "")),
-                 fatal_expected=True)
+        wait_for(worker, "Virtual Desktop waiting acknowledgement", lambda: worker.any(
+            lambda record: record.get("type") == "waiting" and record.get("source") == "VirtualDesktop"
+            and record.get("inputPort") == 0 and "automatically" in record.get("message", "")))
+        # Waiting must not start the sender or reserve the game's OSC feedback port.
+        feedback = exclusive_socket(fixture.receive_port)
+        assert feedback is not None, "Waiting VD worker already bound the VRChat feedback port"
+        feedback.close()
+        time.sleep(1.1)
         assert not worker.any(lambda record: record.get("type") == "ready"), worker.diagnostics()
+        assert not worker.any(lambda record: record.get("type") in ("fatal", "status")), worker.diagnostics()
+        try:
+            fixture.capture.recvfrom(65535)
+        except BlockingIOError:
+            pass
+        else:
+            raise AssertionError("Virtual Desktop emitted OSC before a tracking session was available")
         assert not (fixture.module_dir / "BabbleConfig.json").exists(), "Worker created Babble configuration for VD"
     finally:
+        started = time.monotonic()
         worker.close()
-    synthetic = SyntheticVirtualDesktop()
+        assert time.monotonic() - started < 2.5, "Stopping a waiting VD worker was not prompt"
+    assert worker.process.returncode == 0, worker.diagnostics()
+
+    # Keep the same second worker alive while the fixture session appears later.
     worker = fixture.worker(executable, "VirtualDesktop")
+    synthetic = None
     try:
+        wait_for(worker, "Virtual Desktop remains selected while offline", lambda: worker.any(
+            lambda record: record.get("type") == "waiting" and record.get("source") == "VirtualDesktop"))
+        time.sleep(1.1)
+        with worker.lock:
+            waiting = [row for row in worker.records if row.get("type") == "waiting"]
+        assert len(waiting) == 1, "Waiting acknowledgement spammed every poll"
+        assert worker.process.poll() is None, worker.diagnostics()
+        # A half-created Streamer session must not trigger failed initialization.
+        synthetic = SyntheticVirtualDesktop(create_event=False)
+        time.sleep(1.1)
+        assert not worker.any(lambda record: record.get("type") in ("ready", "fatal")), worker.diagnostics()
+        synthetic.close()
+        # This succeeds only if the worker's preflight did not create either object.
+        synthetic = SyntheticVirtualDesktop()
         wait_for(worker, "Virtual Desktop shared-memory readiness", lambda: ready(worker, "VirtualDesktop", 0), synthetic.tick)
         last_event = 0
 
@@ -355,10 +387,11 @@ def virtual_desktop(executable, archive, root):
         wait_for(worker, "independent 90 Hz sender with a slower blocking VD input", lambda: worker.any(
             lambda item: item.get("type") == "status" and item.get("targetRate") == 90
             and 75 <= item.get("trackingRate", 0) <= 110), tick)
-        return "PASS: VD fails clearly without Streamer, maps eyes plus face from shared memory, and keeps its 90 Hz sender independent of a slow input"
+        return "PASS: VD acknowledges offline waiting without OSC/port claims, stops promptly, auto-connects when Streamer appears, maps eyes plus face, and keeps its independent 90 Hz sender"
     finally:
         worker.close()
-        synthetic.close()
+        if synthetic is not None:
+            synthetic.close()
         fixture.close()
 
 

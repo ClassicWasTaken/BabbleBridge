@@ -60,18 +60,54 @@ public sealed class AppSettings
 
     public static AppSettings Load(string root)
     {
-        var path = Path.Combine(root, "settings.json");
-        if (!File.Exists(path)) return new AppSettings();
-        var settings = JsonSerializer.Deserialize<AppSettings>(File.ReadAllText(path))
-            ?? throw new InvalidDataException("The saved settings are empty.");
-        settings.Validate();
-        return settings;
+        var directory = Path.GetFullPath(root);
+        var path = Path.Combine(directory, "settings.json");
+        var backupPath = path + ".backup";
+        if (!File.Exists(path) && !File.Exists(backupPath)) return new AppSettings();
+        Exception? firstError = null;
+        foreach (var candidate in new[] { path, backupPath })
+        {
+            if (!File.Exists(candidate)) continue;
+            try
+            {
+                var settings = JsonSerializer.Deserialize<AppSettings>(File.ReadAllText(candidate))
+                    ?? throw new InvalidDataException("The saved settings are empty.");
+                settings.Validate();
+                if (candidate == backupPath)
+                {
+                    EnsureSafeWritePaths(directory, path, backupPath);
+                    // Keep both the known-good backup and the invalid original. Do not
+                    // let File.Replace copy the corrupt primary over the valid backup.
+                    if (File.Exists(path)) File.Copy(path, path + ".corrupt-" + Guid.NewGuid().ToString("N"));
+                    ModuleStore.WriteAtomic(path, settings, keepBackup: false);
+                }
+                return settings;
+            }
+            catch (Exception error) when (error is IOException or UnauthorizedAccessException or JsonException or InvalidDataException or ArgumentException)
+            { firstError ??= error; }
+        }
+        throw new InvalidDataException("The saved connection settings could not be loaded or recovered. Your settings file and backup have been preserved. Restore a valid settings.json or settings.json.backup in the app data folder, then reopen the app.", firstError);
     }
 
     public void Save(string root)
     {
         Validate();
-        ModuleStore.WriteAtomic(Path.Combine(Path.GetFullPath(root), "settings.json"), this);
+        var directory = Path.GetFullPath(root);
+        var path = Path.Combine(directory, "settings.json");
+        EnsureSafeWritePaths(directory, path, path + ".backup");
+        ModuleStore.WriteAtomic(path, this);
+    }
+
+    private static void EnsureSafeWritePaths(params string[] paths)
+    {
+        foreach (var path in paths)
+        {
+            FileAttributes attributes;
+            try { attributes = File.GetAttributes(path); }
+            catch (Exception error) when (error is FileNotFoundException or DirectoryNotFoundException) { continue; }
+            if ((attributes & FileAttributes.ReparsePoint) != 0)
+                throw new InvalidDataException("Saved settings cannot be repaired or written through symbolic links or junctions.");
+        }
     }
 
     public void Validate()

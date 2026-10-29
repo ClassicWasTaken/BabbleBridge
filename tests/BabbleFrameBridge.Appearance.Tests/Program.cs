@@ -23,11 +23,14 @@ using System.Windows.Threading;
 using System.Xml.Linq;
 using BabbleFrameBridge.App;
 using BabbleFrameBridge.Shared;
+using Microsoft.Win32.SafeHandles;
 
 internal static class Program
 {
     private static int passed, failed;
     private static MainWindow? window;
+    private static readonly ModuleKind[] DownloadOrder =
+        [ModuleKind.BabbleHeadsetRuntime, ModuleKind.BaballoniaDesktop, ModuleKind.SteamLink, ModuleKind.VirtualDesktop];
 
     [STAThread]
     public static int Main(string[] args)
@@ -40,10 +43,16 @@ internal static class Program
 
         var suppliedZip = Argument("--module-zip");
         var published = Argument("--publish-dir");
+        var workerExecutable = Argument("--worker-exe") ?? (published is null ? null : Path.Combine(published, "runtime", "BabbleFrameBridge.Worker.exe"));
         var virtualDesktopZip = Argument("--virtual-desktop-zip");
         var steamLinkZip = Argument("--steam-link-zip");
         var customModuleDll = Argument("--custom-module-dll");
         var renderDirectory = Argument("--render-dir");
+        if (workerExecutable is not null && !File.Exists(workerExecutable))
+        {
+            Console.Error.WriteLine("The explicitly supplied worker executable does not exist: " + workerExecutable);
+            return 2;
+        }
         var testParent = Path.GetFullPath(Path.Combine(Environment.CurrentDirectory, "work", "appearance-tests"));
         Directory.CreateDirectory(testParent);
         var root = Path.Combine(testParent, Guid.NewGuid().ToString("N"));
@@ -280,6 +289,36 @@ internal static class Program
                 finally { particles.AnimationsEnabled = preference; }
             });
 
+            Test("module JSON log values and malformed numeric status do not crash or restart the interface", () =>
+            {
+                var worker = Field<object?>(window, "_worker");
+                var restarts = Field<int>(window, "_restartCount");
+                foreach (var line in new[] { "42", "[]", "true", "false", "null", "\"SDK log text\"" })
+                {
+                    Method(window, "HandleWorkerLine").Invoke(window, [line]);
+                    Check(Named<TextBox>(window, "LogBox").Text.Contains(line), "A non-object module log value was not retained as text.");
+                }
+                Method(window, "HandleWorkerLine").Invoke(window, ["{\"type\":\"status\",\"rate\":90,\"trackingRate\":144,\"parameters\":20}"]);
+                Check(Named<TextBlock>(window, "OutputRate").Text.Contains("90")
+                    && Named<TextBlock>(window, "SenderCadence").Text.Contains("144"), "The valid numeric status control was not displayed.");
+                foreach (var status in new[]
+                {
+                    "{\"type\":\"status\",\"rate\":\"fast\",\"trackingRate\":true,\"parameters\":[],\"outputPort\":{}}",
+                    "{\"type\":\"status\",\"rate\":null,\"trackingRate\":[],\"parameters\":false,\"outputPort\":\"9000\"}",
+                    "{\"type\":\"status\",\"rate\":1e999,\"trackingRate\":1e999}"
+                })
+                {
+                    Method(window, "HandleWorkerLine").Invoke(window, [status]);
+                    Check(Named<TextBlock>(window, "OutputRate").Text.StartsWith("0", StringComparison.Ordinal)
+                        && Named<TextBlock>(window, "SenderCadence").Text.Contains("0 Hz"),
+                        "An invalid numeric status produced a bad displayed rate.");
+                }
+                Check(ReferenceEquals(Field<object?>(window, "_worker"), worker)
+                    && Field<int>(window, "_restartCount") == restarts && !Field<bool>(window, "_pendingRestart")
+                    && !Field<bool>(window, "_running"),
+                    "A module log or malformed status started or restarted a worker.");
+            });
+
             Test("Save connection confirmation dismisses itself after its readable display time", () =>
             {
                 Method(window, "Save_Click").Invoke(window, [window, new RoutedEventArgs()]);
@@ -366,6 +405,7 @@ internal static class Program
                     Check(Field<object?>(window, "_worker") is null, "AutoStart=false launched a worker.");
                     Check(expected.Kind == ModuleKind.BabbleHeadsetRuntime,
                         "The first compatible Babble import did not default to headset runtime.");
+                    CheckAvailableDownloads(ModuleKind.BaballoniaDesktop, ModuleKind.SteamLink, ModuleKind.VirtualDesktop);
                     Check(Named<TextBlock>(window, "PackageDetail").Text.Contains("23456"), "Custom headset input port was not shown.");
                     PumpUntil(() => Named<StackPanel>(window, "OverviewPage").Opacity >= .999,
                         "module overview entrance finished before preview capture");
@@ -391,6 +431,7 @@ internal static class Program
                         "module page entrance finished before preview capture");
                     Check(Named<ItemsControl>(window, "ModuleLibrary").Items.Count == 2,
                         "The saved library did not retain both Babble connection profiles.");
+                    CheckAvailableDownloads(ModuleKind.SteamLink, ModuleKind.VirtualDesktop);
                     var cards = string.Join("\n", Descendants(Named<ItemsControl>(window, "ModuleLibrary"))
                         .OfType<TextBlock>().Select(block => block.Text));
                     Check(cards.Contains("UDP 23456") && cards.Contains("UDP 42424"),
@@ -458,7 +499,7 @@ internal static class Program
             {
                 Test("module ZIP updates activate only after startup, recover from failure, and roll back across relaunch", () =>
                 {
-                    var executable = Path.Combine(published, "runtime", "BabbleFrameBridge.Worker.exe");
+                    var executable = workerExecutable!;
                     Check(File.Exists(executable), "The explicitly supplied published worker does not exist.");
                     var profile = Path.Combine(root, "module-update-profile");
                     var fixtures = Path.Combine(root, "module-update-fixtures");
@@ -622,7 +663,7 @@ internal static class Program
             {
                 Test("confirmed removal preserves an inactive worker, clears an active selection, and persists an empty library", () =>
                 {
-                    var executable = Path.Combine(published, "runtime", "BabbleFrameBridge.Worker.exe");
+                    var executable = workerExecutable!;
                     var profile = Path.Combine(root, "module-removal-worker-profile");
                     var fixtures = Path.Combine(root, "module-removal-worker-fixtures");
                     Directory.CreateDirectory(fixtures);
@@ -670,6 +711,7 @@ internal static class Program
                         var afterInactive = new ModuleStore(profile);
                         Check(afterInactive.Current == selected && afterInactive.Installed.Count == 1,
                             "Removing an inactive entry changed the active selection or removed another module.");
+                        CheckAvailableDownloads(ModuleKind.BaballoniaDesktop, ModuleKind.SteamLink, ModuleKind.VirtualDesktop);
                         Check(Field<bool>(window, "_running") && Field<Process>(window, "_worker").Id == originalPid,
                             "Removing an inactive entry stopped or restarted the active tracking worker.");
                         Check(!Directory.Exists(inactive.DirectoryPath) && Directory.Exists(selected.DirectoryPath),
@@ -700,11 +742,14 @@ internal static class Program
                         Check(new ModuleStore(profile).Current is null && new ModuleStore(profile).Installed.Count == 2
                             && Field<object?>(window, "_worker") is null,
                             "Reopening restored a deleted selection, launched a worker, or lost remaining entries.");
+                        CheckAvailableDownloads(ModuleKind.SteamLink, ModuleKind.VirtualDesktop);
                         foreach (var remaining in new ModuleStore(profile).Installed.ToArray())
                         {
                             InvokeCardButton(remaining, "Remove module");
                             InvokeCardButton(remaining, "Confirm remove module");
-                            CheckLibraryReferences(new ModuleStore(profile));
+                            var remainingStore = new ModuleStore(profile);
+                            CheckLibraryReferences(remainingStore);
+                            CheckAvailableDownloads(DownloadOrder.Where(kind => !remainingStore.Installed.Any(release => release.Kind == kind)).ToArray());
                         }
                         var empty = new ModuleStore(profile);
                         Check(empty.Installed.Count == 0 && empty.Current is null && empty.Previous is null,
@@ -722,6 +767,7 @@ internal static class Program
                             "The empty module library did not persist across relaunch.");
                         Check(Named<Button>(window, "ImportButton").IsEnabled && !Named<Button>(window, "StartButton").IsEnabled,
                             "An empty reopened library did not offer import with tracking stopped.");
+                        CheckAvailableDownloads(DownloadOrder);
                     }
                     finally { CloseWindow(); }
                 });
@@ -818,7 +864,7 @@ internal static class Program
 
             if (suppliedZip is not null && virtualDesktopZip is not null && steamLinkZip is not null)
             {
-                Test("all four in-app downloads import genuine ZIPs without activating modules on a fresh auto-start profile", () =>
+                Test("official downloads add all four profiles, hide installed choices and remain inactive across relaunch", () =>
                 {
                     var profile = Path.Combine(root, "download-four-provider-profile");
                     var packages = new Dictionary<Uri, byte[]>
@@ -836,7 +882,7 @@ internal static class Program
                         themes.AttachWindow(window); window.Show();
                         PumpUntil(() => Field<bool>(window, "_initialized") && !Field<bool>(window, "_busy"), "four-provider download profile loaded");
                         Check(AppSettings.Load(profile).AutoStart, "The download test did not cover the new-profile auto-start preference.");
-                        foreach (var kind in new[] { ModuleKind.BabbleHeadsetRuntime, ModuleKind.BaballoniaDesktop, ModuleKind.SteamLink, ModuleKind.VirtualDesktop })
+                        foreach (var kind in new[] { ModuleKind.BabbleHeadsetRuntime, ModuleKind.SteamLink, ModuleKind.VirtualDesktop })
                         {
                             var priorArchives = DownloadArchives(profile).ToHashSet(StringComparer.OrdinalIgnoreCase);
                             InvokeDownload(kind);
@@ -855,11 +901,12 @@ internal static class Program
                                 "The completed cached ZIP differs from the genuine response fixture.");
                             Check(handler.Requests.Last() == ModuleDownloader.SourceFor(kind).DownloadUri,
                                 "The download button requested a different provider's URL.");
+                            CheckAvailableDownloads(DownloadOrder.Where(available => !store.Installed.Any(release => release.Kind == available)).ToArray());
                         }
-                        Check(handler.Requests.Count == 4 && DownloadArchives(profile).Length == 4,
+                        Check(handler.Requests.Count == 3 && DownloadArchives(profile).Length == 3,
                             "Each requested module did not retain its own completed ZIP.");
                         Check(new ModuleStore(profile).Installed.Count == 4,
-                            "Choosing both Babble download options duplicated their shared package profiles.");
+                            "The three package downloads did not add exactly the four available provider profiles.");
                         var orderedCards = Descendants(Named<ItemsControl>(window, "ModuleLibrary")).OfType<Button>()
                             .Where(button => button.Tag is ModuleRelease && button.Content is string action
                                 && (action == "Use module" || action.StartsWith("Selected", StringComparison.Ordinal)))
@@ -874,6 +921,11 @@ internal static class Program
                             .All(kind => new ModuleStore(profile).Installed.Any(release => release.Kind == kind))
                             && new ModuleStore(profile).Current is null && Field<object?>(window, "_worker") is null,
                             "Reopening lost downloaded providers or activated a module without an explicit selection.");
+                        Named<RadioButton>(window, "ModulesNav").IsChecked = true; Pump();
+                        CheckAvailableDownloads();
+                        Check(Named<TextBlock>(window, "DownloadChoicesEmptyText").Text.Contains("already in your library"),
+                            "The empty download list does not explain that the providers are already imported.");
+                        SavePreview(window, renderDirectory, "all-downloads-installed.png");
                     }
                     finally { CloseWindow(); }
                 });
@@ -881,7 +933,7 @@ internal static class Program
 
             if (suppliedZip is not null && published is not null)
             {
-                Test("in-app download success, failure and cancellation preserve a running module and its connection", () =>
+                Test("download registration, duplicates, failure and cancellation preserve a running module and its connection", () =>
                 {
                     var profile = Path.Combine(root, "download-running-profile");
                     var fixtures = Path.Combine(root, "download-running-fixtures");
@@ -900,12 +952,13 @@ internal static class Program
                     using var downloader = new ModuleDownloader(client);
                     try
                     {
-                        window = CreateWindow(profile, Path.Combine(published, "runtime", "BabbleFrameBridge.Worker.exe"), downloader);
+                        window = CreateWindow(profile, workerExecutable!, downloader);
                         themes.AttachWindow(window); window.Show();
                         PumpUntil(() => Field<bool>(window, "_initialized") && !Field<bool>(window, "_busy"), "running download profile loaded");
                         InvokeModuleImport(firstZip);
                         var original = new ModuleStore(profile).Current;
                         var originalIds = new ModuleStore(profile).Installed.Select(release => release.Id).ToHashSet();
+                        CheckAvailableDownloads(ModuleKind.SteamLink, ModuleKind.VirtualDesktop);
                         var originalPid = Field<Process>(window, "_worker").Id;
                         var settings = File.ReadAllText(Path.Combine(profile, "settings.json"));
                         void CheckActiveUnchanged()
@@ -916,7 +969,7 @@ internal static class Program
                             Check(File.ReadAllText(Path.Combine(profile, "settings.json")) == settings,
                                 "A module download changed the saved VRChat connection.");
                         }
-                        InvokeDownload(ModuleKind.BabbleHeadsetRuntime);
+                        InvokeDownloadDirect(ModuleKind.BabbleHeadsetRuntime);
                         CheckActiveUnchanged();
                         var afterSuccess = new ModuleStore(profile).Installed;
                         Check(afterSuccess.Count == originalIds.Count + 2, "The successful Babble download did not add both available profiles.");
@@ -934,7 +987,7 @@ internal static class Program
                         var initialDownloadedIds = afterSuccess.Select(release => release.Id).ToHashSet();
                         foreach (var repeated in new[] { ModuleKind.BabbleHeadsetRuntime, ModuleKind.BaballoniaDesktop })
                         {
-                            InvokeDownload(repeated);
+                            InvokeDownloadDirect(repeated);
                             CheckActiveUnchanged();
                             Check(new ModuleStore(profile).Installed.Select(release => release.Id).ToHashSet().SetEquals(initialDownloadedIds)
                                 && HashFile(configuredPath) == configuredHash,
@@ -944,7 +997,7 @@ internal static class Program
                         InvokeCardButton(downloadedDesktop, "Confirm remove module");
                         CheckActiveUnchanged();
                         Check(File.Exists(cache) && HashFile(cache) == cacheHash, "Removing a downloaded profile altered its cached source ZIP.");
-                        InvokeDownload(ModuleKind.BaballoniaDesktop);
+                        InvokeDownloadDirect(ModuleKind.BaballoniaDesktop);
                         CheckActiveUnchanged();
                         var restoredProfiles = new ModuleStore(profile).Installed;
                         Check(restoredProfiles.Count == afterSuccess.Count
@@ -1024,6 +1077,7 @@ internal static class Program
                                 "A valid bare/manifest-free Babble import did not add the two known connection profiles.");
                             Check(Field<object?>(window, "_worker") is null && store.Current is null,
                                 "The format-only check executed a module or activated a failed worker.");
+                            CheckAvailableDownloads(ModuleKind.SteamLink, ModuleKind.VirtualDesktop);
                             Check(HashFile(path) == originalHash, "Importing a module changed its original DLL or ZIP.");
                             CloseWindow();
                             store.Activate(headset);
@@ -1070,6 +1124,7 @@ internal static class Program
                         var text = string.Join("\n", Descendants(Named<ItemsControl>(window, "ModuleLibrary")).OfType<TextBlock>().Select(block => block.Text));
                         Check(text.Contains(custom.ModuleName) && text.Contains("Module-managed input"),
                             "The custom library card does not show its actual name and module-managed input.");
+                        CheckAvailableDownloads(DownloadOrder);
                         CheckLibraryLayout(); SavePreview(window, renderDirectory, "custom-sdk-module.png");
                         InvokeCardButton(custom, "Remove module");
                         InvokeCardButton(custom, "Confirm remove module");
@@ -1077,6 +1132,191 @@ internal static class Program
                             "The additional SDK module could not be removed through its library card.");
                         Check(File.Exists(customModuleDll) && HashFile(customModuleDll) == sourceHash,
                             "Removing an imported SDK module changed or removed its original DLL.");
+                    }
+                    finally { CloseWindow(); }
+                });
+            }
+
+            if (suppliedZip is not null && virtualDesktopZip is not null && published is not null)
+            {
+                Test("a Virtual Desktop startup error leaves an error notice and restores the prior selected worker", () =>
+                {
+                    var profile = Path.Combine(root, "virtual-desktop-startup-failure-profile");
+                    var fixtures = Path.Combine(root, "virtual-desktop-startup-failure-fixtures");
+                    Directory.CreateDirectory(fixtures);
+                    using var output = ReservePort();
+                    var ports = Enumerable.Range(0, 3).Select(_ => ReservePort()).ToArray();
+                    var feedback = PortOf(ports[0]); var link = PortOf(ports[1]); var input = PortOf(ports[2]);
+                    foreach (var reservation in ports) reservation.Dispose();
+                    new AppSettings { AutoStart = false, OutputPort = PortOf(output), ReceivePort = feedback, LinkPort = link }.Save(profile);
+                    var babbleZip = ModuleFixture(suppliedZip, fixtures, "4.0.0", input, link);
+                    try
+                    {
+                        window = CreateWindow(profile, workerExecutable!);
+                        themes.AttachWindow(window); window.Show();
+                        PumpUntil(() => Field<bool>(window, "_initialized") && !Field<bool>(window, "_busy"), "VD failure profile loaded");
+                        InvokeModuleImport(babbleZip);
+                        var store = Field<ModuleStore>(window, "_store");
+                        var original = store.Current;
+                        var originalPid = Field<Process>(window, "_worker").Id;
+                        var virtualDesktop = store.Prepare(virtualDesktopZip);
+                        store.Register(virtualDesktop);
+                        Method(window, "RefreshModule").Invoke(window, []);
+                        CheckAvailableDownloads(ModuleKind.SteamLink);
+                        // This isolated staged copy is locked only to force a deterministic
+                        // loader error; the user's real Streamer and IPC are untouched.
+                        using (var unavailableDll = new FileStream(Path.Combine(virtualDesktop.DirectoryPath, virtualDesktop.DllFileName),
+                            FileMode.Open, FileAccess.Read, FileShare.None))
+                        {
+                            InvokeModuleSelection(virtualDesktop);
+                            Check(new ModuleStore(profile).Current == original && Field<bool>(window, "_running")
+                                && Field<Process>(window, "_worker").Id != originalPid,
+                                "A failed VD activation did not restore the prior selected tracking worker.");
+                            Check(Named<Border>(window, "GlobalNotice").Visibility == Visibility.Visible
+                                && Named<TextBlock>(window, "GlobalNoticeText").Text.Contains("could not start", StringComparison.OrdinalIgnoreCase)
+                                && Named<TextBox>(window, "LogBox").Text.Contains("Restored the previous active module."),
+                                "The VD startup error was lost or the recovery was not explained.");
+                        }
+                        CheckAvailableDownloads(ModuleKind.SteamLink);
+                    }
+                    finally { CloseWindow(); }
+                });
+            }
+
+            if (virtualDesktopZip is not null && published is not null)
+            {
+                Test("Use module keeps Virtual Desktop selected while waiting for Streamer and allows a quick stop", () =>
+                {
+                    if (HasExistingVirtualDesktopIpc())
+                    {
+                        Console.WriteLine("SKIP VD waiting UI: existing user IPC objects are present; they were not changed.");
+                        return;
+                    }
+                    var profile = Path.Combine(root, "virtual-desktop-waiting-profile");
+                    using var output = ReservePort(); using var feedback = ReservePort();
+                    var feedbackPort = PortOf(feedback); feedback.Dispose();
+                    new AppSettings { AutoStart = false, OutputPort = PortOf(output), ReceivePort = feedbackPort }.Save(profile);
+                    var store = new ModuleStore(profile);
+                    var virtualDesktop = store.Prepare(virtualDesktopZip);
+                    store.Register(virtualDesktop);
+                    try
+                    {
+                        window = CreateWindow(profile, workerExecutable!);
+                        themes.AttachWindow(window); window.Show();
+                        PumpUntil(() => Field<bool>(window, "_initialized") && !Field<bool>(window, "_busy"), "VD waiting profile loaded");
+                        InvokeModuleSelection(virtualDesktop);
+                        Check(new ModuleStore(profile).Current == virtualDesktop && Field<bool>(window, "_running")
+                            && Field<bool>(window, "_awaitingVirtualDesktop"),
+                            "Use module rejected the absent Streamer instead of saving a waiting VD selection.");
+                        Check(Named<TextBlock>(window, "StateTitle").Text.Contains("Waiting", StringComparison.OrdinalIgnoreCase)
+                            && Named<TextBlock>(window, "StateDetail").Text.Contains("Streamer", StringComparison.OrdinalIgnoreCase),
+                            "The waiting VD session does not explain the Streamer setup step.");
+                        var pid = Field<Process>(window, "_worker").Id;
+                        PumpFor(TimeSpan.FromMilliseconds(150));
+                        Check(Field<Process>(window, "_worker").Id == pid && output.Available == 0,
+                            "A waiting VD session restarted or sent tracking data before initialization.");
+                        CheckAvailableDownloads(ModuleKind.BabbleHeadsetRuntime, ModuleKind.BaballoniaDesktop, ModuleKind.SteamLink);
+                        Named<RadioButton>(window, "OverviewNav").IsChecked = true; Pump();
+                        SavePreview(window, renderDirectory, "virtual-desktop-waiting.png");
+                        BeginButtonClick(Named<Button>(window, "StartButton"));
+                        PumpUntil(() => !Field<bool>(window, "_busy") && !Field<bool>(window, "_running"),
+                            "waiting VD session stopped", TimeSpan.FromSeconds(6));
+                        Check(Field<object?>(window, "_worker") is null && !Field<bool>(window, "_awaitingVirtualDesktop")
+                            && new ModuleStore(profile).Current == virtualDesktop,
+                            "Stopping a waiting VD worker lost its saved selection or retained waiting state.");
+                    }
+                    finally { CloseWindow(); }
+                });
+            }
+
+            if (suppliedZip is not null && published is not null)
+            {
+                Test("an inactive missing DLL preserves startup of the valid module and restores its download and removal actions", () =>
+                {
+                    var profile = Path.Combine(root, "missing-inactive-module-profile");
+                    var fixtures = Path.Combine(root, "missing-inactive-module-fixtures");
+                    Directory.CreateDirectory(fixtures);
+                    using var output = ReservePort();
+                    var ports = Enumerable.Range(0, 3).Select(_ => ReservePort()).ToArray();
+                    var feedback = PortOf(ports[0]); var link = PortOf(ports[1]); var input = PortOf(ports[2]);
+                    foreach (var reservation in ports) reservation.Dispose();
+                    new AppSettings { AutoStart = false, OutputPort = PortOf(output), ReceivePort = feedback, LinkPort = link }.Save(profile);
+                    var originalHash = HashFile(suppliedZip);
+                    var package = ModuleFixture(suppliedZip, fixtures, "4.0.0", input, link);
+                    var packageHash = HashFile(package);
+                    var store = new ModuleStore(profile);
+                    var headset = store.Install(package);
+                    var desktop = store.CreateCompanion(headset); store.Register(desktop);
+                    try
+                    {
+                        window = CreateWindow(profile, workerExecutable!);
+                        themes.AttachWindow(window); window.Show();
+                        PumpUntil(() => Field<bool>(window, "_initialized") && !Field<bool>(window, "_busy"), "valid missing-entry setup opened");
+                        CloseWindow();
+                        // Delete only the staged inactive copy, never its original package.
+                        File.Delete(Path.Combine(desktop.DirectoryPath, desktop.DllFileName));
+                        var settings = AppSettings.Load(profile); settings.AutoStart = true; settings.Save(profile);
+                        window = CreateWindow(profile, workerExecutable!);
+                        themes.AttachWindow(window); window.Show();
+                        PumpUntil(() => Field<bool>(window, "_initialized") && !Field<bool>(window, "_busy"), "library reopened with one inactive DLL missing");
+                        var reopened = new ModuleStore(profile);
+                        Check(reopened.Current == headset && reopened.Installed.Count == 2
+                            && !reopened.Installed.Single(release => release.Id == desktop.Id).IsAvailable,
+                            "The missing inactive DLL blocked or erased otherwise valid module metadata.");
+                        Check(Field<bool>(window, "_running") && Named<Button>(window, "StartButton").IsEnabled,
+                            "The valid saved module could not start because an inactive DLL was missing.");
+                        CheckAvailableDownloads(ModuleKind.BaballoniaDesktop, ModuleKind.SteamLink, ModuleKind.VirtualDesktop);
+                        var pid = Field<Process>(window, "_worker").Id;
+                        Check(!CardButton(desktop, "Unavailable").IsEnabled,
+                            "The missing inactive DLL could still be selected for startup.");
+                        var text = string.Join("\n", Descendants(Named<ItemsControl>(window, "ModuleLibrary")).OfType<TextBlock>().Select(block => block.Text));
+                        Check(text.Contains("missing", StringComparison.OrdinalIgnoreCase), "The missing imported DLL has no recovery guidance.");
+                        SavePreview(window, renderDirectory, "missing-inactive-module.png");
+                        InvokeCardButton(desktop, "Remove module"); InvokeCardButton(desktop, "Confirm remove module");
+                        Check(new ModuleStore(profile).Current == headset && new ModuleStore(profile).Installed.Count == 1
+                            && Field<bool>(window, "_running") && Field<Process>(window, "_worker").Id == pid,
+                            "Removing a missing inactive entry interrupted the remaining tracking worker.");
+                        Check(HashFile(suppliedZip) == originalHash && HashFile(package) == packageHash
+                            && File.Exists(Path.Combine(headset.DirectoryPath, headset.DllFileName)),
+                            "Missing-entry recovery changed a source package or the valid module's copied DLL.");
+                    }
+                    finally { CloseWindow(); }
+                });
+            }
+
+            if (customModuleDll is not null)
+            {
+                Test("a missing selected custom DLL opens stopped with recovery actions and can be removed safely", () =>
+                {
+                    var profile = Path.Combine(root, "missing-current-custom-profile");
+                    new AppSettings { AutoStart = true }.Save(profile);
+                    var originalHash = HashFile(customModuleDll);
+                    var store = new ModuleStore(profile);
+                    var custom = store.Install(customModuleDll);
+                    File.Delete(Path.Combine(custom.DirectoryPath, custom.DllFileName));
+                    try
+                    {
+                        window = CreateWindow(profile, workerExecutable);
+                        themes.AttachWindow(window); window.Show();
+                        PumpUntil(() => Field<bool>(window, "_initialized") && !Field<bool>(window, "_busy"), "missing selected custom DLL profile opened");
+                        var reopened = new ModuleStore(profile);
+                        Check(reopened.Current is { IsAvailable: false } missing && missing.Id == custom.Id,
+                            "The unavailable custom selection was erased or prevented the library from reopening.");
+                        Check(Field<object?>(window, "_worker") is null && !Field<bool>(window, "_running")
+                            && !Named<Button>(window, "StartButton").IsEnabled && Named<Button>(window, "ImportButton").IsEnabled,
+                            "A missing selected DLL auto-started or blocked the available import/recovery actions.");
+                        Check((Named<TextBlock>(window, "StateTitle").Text + " " + Named<TextBlock>(window, "StateDetail").Text)
+                            .Contains("missing", StringComparison.OrdinalIgnoreCase), "The selected missing DLL has no visible recovery explanation.");
+                        CheckAvailableDownloads(DownloadOrder);
+                        Named<RadioButton>(window, "ModulesNav").IsChecked = true; Pump();
+                        Check(!CardButton(custom, "Unavailable").IsEnabled, "A missing selected custom DLL was offered for use.");
+                        SavePreview(window, renderDirectory, "missing-current-custom-module.png");
+                        InvokeCardButton(custom, "Remove module"); InvokeCardButton(custom, "Confirm remove module");
+                        Check(new ModuleStore(profile).Current is null && new ModuleStore(profile).Installed.Count == 0
+                            && Named<Button>(window, "ImportButton").IsEnabled,
+                            "The missing custom entry could not be removed without losing import access.");
+                        Check(File.Exists(customModuleDll) && HashFile(customModuleDll) == originalHash,
+                            "Removing the missing copied entry changed its original SDK DLL.");
                     }
                     finally { CloseWindow(); }
                 });
@@ -1281,6 +1521,42 @@ internal static class Program
         }));
         PumpUntil(() => started && !Field<bool>(window, "_busy"), "module action completed: " + action, TimeSpan.FromSeconds(90));
     }
+
+    private static void CheckAvailableDownloads(params ModuleKind[] expected)
+    {
+        var choices = Named<ItemsControl>(window!, "DownloadChoices");
+        var actual = choices.Items.Cast<object>().Select(item => (ModuleKind)item.GetType().GetProperty("Kind")!.GetValue(item)!).ToArray();
+        Check(actual.SequenceEqual(expected), "Installed providers were not hidden from downloads in the requested order: " + string.Join(", ", actual));
+        Check(Named<TextBlock>(window!, "DownloadChoicesEmptyText").Visibility == (expected.Length == 0 ? Visibility.Visible : Visibility.Collapsed),
+            "The empty-download message did not follow available provider choices.");
+        var manual = Descendants(Named<StackPanel>(window!, "ModulesPage")).OfType<Button>()
+            .Single(button => button.Content is string text && text.StartsWith("Import", StringComparison.Ordinal));
+        Check(manual.IsEnabled && (Named<StackPanel>(window!, "ModulesPage").Visibility != Visibility.Visible || manual.IsVisible),
+            "Filtering downloads hid or disabled manual DLL/ZIP import.");
+    }
+
+    private static void InvokeDownloadDirect(ModuleKind kind)
+    {
+        Task? download = null;
+        window!.Dispatcher.BeginInvoke(new Action(() => download = (Task)Method(window, "DownloadModule").Invoke(window, [kind])!));
+        PumpUntil(() => download?.IsCompleted == true, "backend duplicate download completed", TimeSpan.FromSeconds(30));
+        download!.GetAwaiter().GetResult();
+        PumpUntil(() => !Field<bool>(window, "_busy"), "backend duplicate download finished");
+    }
+
+    private static bool HasExistingVirtualDesktopIpc()
+    {
+        // Read-only handle probes: never create, map, modify, or signal user IPC.
+        using var mapping = OpenFileMappingW(0x0004, false, "VirtualDesktop.BodyState");
+        if (!mapping.IsInvalid || Marshal.GetLastWin32Error() == 5) return true;
+        using var changed = OpenEventW(0x00100000, false, "VirtualDesktop.BodyStateEvent");
+        return !changed.IsInvalid || Marshal.GetLastWin32Error() == 5;
+    }
+
+    [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+    private static extern SafeFileHandle OpenFileMappingW(uint access, [MarshalAs(UnmanagedType.Bool)] bool inheritHandle, string name);
+    [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+    private static extern SafeWaitHandle OpenEventW(uint access, [MarshalAs(UnmanagedType.Bool)] bool inheritHandle, string name);
 
     private static string[] DownloadArchives(string profile)
     {
