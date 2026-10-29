@@ -4,7 +4,7 @@
 
 A Windows app built for **Babble Frame Runtime on Steam Frame**. It sends your headset’s eye and face tracking to VRChat through compatible **VRCFaceTracking SDK** modules. Supports traditional VRCFT avatars and VRChat’s native face-tracking SDK beta.
 
-![Steam Frame Babble Bridge running on Windows](docs/images/app-running.png)
+![Steam Frame Babble Bridge running on Windows](docs/images/app-running.jpg)
 
 ## Get started
 
