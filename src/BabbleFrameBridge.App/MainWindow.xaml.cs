@@ -119,7 +119,7 @@ public partial class MainWindow : Window
     {
         ModuleLibrary.ItemsSource = _store.Installed.Select(release => new ModuleCard(release,
             ModuleCatalog.Get(release.Kind).Name, $"Version {release.Version} · {ConnectionFor(release)}",
-            ModuleCatalog.Get(release.Kind).Instructions,
+            InstructionsFor(release),
             release.Id == _store.Current?.Id ? "Selected ✓" : "Use module",
             !_busy && _initialized && release.Id != _store.Current?.Id)).ToArray();
     }
@@ -158,6 +158,10 @@ public partial class MainWindow : Window
                 throw new InvalidOperationException($"{ModuleCatalog.Get(release.Kind).Name} uses input port {port}. Choose different VRChat ports in Connection.");
     }
     private string ConnectionFor(ModuleRelease release) => InputPortFor(release) is var port && port > 0 ? $"UDP {port}" : "Shared memory · Virtual Desktop Streamer";
+    private string InstructionsFor(ModuleRelease release) => release.Kind == ModuleKind.BaballoniaDesktop
+        ? $"Enable Baballonia’s VRCFaceTracking output to 127.0.0.1:{InputPortFor(release)}."
+        : ModuleCatalog.Get(release.Kind).Instructions;
+    private string ProviderInstructions => (_sessionRelease ?? _store.Current) is { } release ? InstructionsFor(release) : Provider.Instructions;
     private ModuleDefinition Provider => ModuleCatalog.Get((_sessionRelease ?? _store.Current)?.Kind ?? ModuleKind.BabbleHeadsetRuntime);
 
     private void SetState(string title, string detail, bool live, bool error = false)
@@ -175,7 +179,7 @@ public partial class MainWindow : Window
         else SetState("Bridge stopped", "Start the bridge with " + Provider.Name + ".", false);
     }
 
-    private void SetListeningState() => SetState(Provider.Name, Provider.Instructions, true);
+    private void SetListeningState() => SetState(Provider.Name, ProviderInstructions, true);
 
     private void ShowNotice(string message, bool error = false)
     {
@@ -314,7 +318,7 @@ public partial class MainWindow : Window
             using var document = JsonDocument.Parse(line);
             var item = document.RootElement;
             switch (Str(item, "type")) {
-                case "ready": _ready?.TrySetResult(true); Log(Provider.Name + " loaded. " + Provider.Instructions); break;
+                case "ready": _ready?.TrySetResult(true); Log(Provider.Name + " loaded. " + ProviderInstructions); break;
                 case "fatal":
                     var message = Str(item, "message", "Tracking runtime failed."); Log("ERROR: " + message);
                     _ready?.TrySetException(new InvalidOperationException(message));
@@ -347,8 +351,8 @@ public partial class MainWindow : Window
         {
             if (Provider.Kind == ModuleKind.BabbleHeadsetRuntime)
                 SetState(linked ? "Headset connected" : "Listening for headset",
-                    receiving ? "Receiving expressions from the headset runtime." : linked ? "Connected. Waiting for expression data from the headset." : Provider.Instructions, true);
-            else SetState(Provider.Name, Bool(item, "receivingKnown") && receiving ? "Receiving tracking data. Your expressions are connected." : Provider.Instructions, true);
+                    receiving ? "Receiving expressions from the headset runtime." : linked ? "Connected. Waiting for expression data from the headset." : ProviderInstructions, true);
+            else SetState(Provider.Name, Bool(item, "receivingKnown") && receiving ? "Receiving tracking data. Your expressions are connected." : ProviderInstructions, true);
         }
     }
 
