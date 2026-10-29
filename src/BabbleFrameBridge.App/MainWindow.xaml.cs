@@ -19,6 +19,8 @@ public partial class MainWindow : Window
 {
     private readonly string _root;
     private readonly ModuleStore _store;
+    private readonly bool _useDiscovery;
+    private readonly string _workerExecutable;
     private AppSettings _settings;
     private Process? _worker;
     private TaskCompletionSource<bool>? _ready;
@@ -32,7 +34,7 @@ public partial class MainWindow : Window
     private readonly DispatcherTimer _noticeTimer;
     private bool _noticeFading;
 
-    public MainWindow(string root)
+    public MainWindow(string root, bool useDiscovery = true, string? workerExecutable = null)
     {
         InitializeComponent();
         _noticeTimer = new DispatcherTimer(DispatcherPriority.Background, Dispatcher);
@@ -40,6 +42,8 @@ public partial class MainWindow : Window
         BuildLabel.Text = "INDEPENDENT BUILD  /  v" + typeof(App).Assembly.GetName().Version?.ToString(3);
         SelectPage("overview");
         _root = root;
+        _useDiscovery = useDiscovery;
+        _workerExecutable = workerExecutable ?? Path.Combine(AppContext.BaseDirectory, "runtime", "BabbleFrameBridge.Worker.exe");
         Directory.CreateDirectory(root);
         Directory.CreateDirectory(Path.Combine(root, "logs"));
         _logPath = Path.Combine(root, "logs", $"bridge-{DateTime.Now:yyyy-MM-dd}.log");
@@ -122,7 +126,6 @@ public partial class MainWindow : Window
     private void UpdateSourceLabels()
     {
         HeadsetState.Text = DesktopSource ? "Baballonia · stopped" : "Headset · waiting";
-        ModeLabel.Text = DesktopSource ? "Eye and face inputs enabled." : "Eyes and face follow your headset.";
     }
 
     private void SetStoppedState()
@@ -219,7 +222,7 @@ public partial class MainWindow : Window
     {
         if (_closing) throw new OperationCanceledException("The app is closing.");
         if (_worker is not null) await StopWorker();
-        var executable = Path.Combine(AppContext.BaseDirectory, "runtime", "BabbleFrameBridge.Worker.exe");
+        var executable = _workerExecutable;
         if (!File.Exists(executable)) throw new FileNotFoundException("The runtime folder is missing. Extract the entire portable app ZIP before starting.", executable);
         var start = new ProcessStartInfo(executable) {
             WorkingDirectory = Path.GetDirectoryName(executable)!, UseShellExecute = false,
@@ -228,6 +231,7 @@ public partial class MainWindow : Window
         start.ArgumentList.Add("--module"); start.ArgumentList.Add(Path.Combine(release.DirectoryPath, release.DllFileName));
         start.ArgumentList.Add("--data"); start.ArgumentList.Add(_root);
         start.ArgumentList.Add("--parent"); start.ArgumentList.Add(Environment.ProcessId.ToString());
+        if (!_useDiscovery) start.ArgumentList.Add("--no-discovery");
         var process = new Process { StartInfo = start, EnableRaisingEvents = true };
         _ready = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
         _worker = process;
@@ -319,9 +323,7 @@ public partial class MainWindow : Window
     private void UpdateStatus(JsonElement item)
     {
         var linked = Bool(item, "linked") || Bool(item, "connected") || Bool(item, "bfrConnected");
-        var eye = Bool(item, "eye"); var face = Bool(item, "face");
         HeadsetState.Text = DesktopSource ? "Baballonia · input enabled" : linked ? "Headset · connected" : "Headset · waiting";
-        ModeLabel.Text = $"Eyes {(eye ? "enabled" : "off")} · face {(face ? "enabled" : "off")}" + (DesktopSource ? " · desktop input" : " · selected by headset");
         OutputRate.Text = $"{Number(item, "rate"):N0} msgs/s";
         var avatar = Str(item, "avatar");
         AvatarLabel.Text = string.IsNullOrWhiteSpace(avatar) ? "Avatar · waiting for VRChat" : "Avatar · " + avatar;

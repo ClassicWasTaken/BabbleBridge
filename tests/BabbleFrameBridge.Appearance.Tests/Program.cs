@@ -3,6 +3,9 @@
 
 using System.Diagnostics;
 using System.IO;
+using System.IO.Compression;
+using System.Net;
+using System.Net.Sockets;
 using System.Reflection;
 using System.Runtime.InteropServices;
 using System.Text.Json.Nodes;
@@ -216,8 +219,9 @@ internal static class Program
                     && AppSettings.Load(emptyProfile).InputSource == TrackingInputSource.HeadsetRuntime,
                     "A later launch did not restore the explicitly saved Headset source.");
                 Check(Field<object?>(window, "_worker") is null, "Changing source launched a worker without a module.");
-                Method(window, "SelectPage").Invoke(window, ["settings"]);
-                Named<StackPanel>(window, "SettingsPage").Opacity = 1;
+                Named<RadioButton>(window, "SettingsNav").IsChecked = true;
+                PumpUntil(() => Named<StackPanel>(window, "SettingsPage").Opacity >= .999,
+                    "settings entrance finished before preview capture");
                 themes.ApplyTheme(false); Pump(); SavePreview(window, renderDirectory, "connection-light.png");
                 themes.ApplyTheme(true); Pump(); SavePreview(window, renderDirectory, "connection-dark.png");
             });
@@ -248,12 +252,92 @@ internal static class Program
                     PumpUntil(() => Named<StackPanel>(window, "OverviewPage").Opacity >= .999,
                         "module overview entrance finished before preview capture");
                     SavePreview(window, renderDirectory, "module-ready.png");
+                    Named<RadioButton>(window, "ModulesNav").IsChecked = true;
+                    PumpUntil(() => Named<StackPanel>(window, "ModulesPage").Opacity >= .999,
+                        "module page entrance finished before preview capture");
+                    SavePreview(window, renderDirectory, "modules.png");
                     Named<RadioButton>(window, "DesktopSourceButton").IsChecked = true;
                     Pump();
                     Check(Named<TextBlock>(window, "TrackingInputPort").Text.Contains("42424"), "Custom module desktop input port was not shown.");
                     Check(JsonNode.Parse(File.ReadAllText(configPath))!["Port"]!.GetValue<int>() == 42424,
                         "Previewing the desktop source overwrote its configured module port.");
                     CloseWindow();
+                });
+            }
+
+            if (suppliedZip is not null && published is not null)
+            {
+                Test("module ZIP updates activate only after startup, recover from failure, and roll back across relaunch", () =>
+                {
+                    var executable = Path.Combine(published, "runtime", "BabbleFrameBridge.Worker.exe");
+                    Check(File.Exists(executable), "The explicitly supplied published worker does not exist.");
+                    var profile = Path.Combine(root, "module-update-profile");
+                    var fixtures = Path.Combine(root, "module-update-fixtures");
+                    Directory.CreateDirectory(fixtures);
+                    using var output = ReservePort();
+                    using var occupied = ReservePort();
+                    var ports = Enumerable.Range(0, 3).Select(_ => ReservePort()).ToArray();
+                    var receivePort = PortOf(ports[0]);
+                    var linkPort = PortOf(ports[1]);
+                    var inputPort = PortOf(ports[2]);
+                    foreach (var reservation in ports) reservation.Dispose();
+                    new AppSettings
+                    {
+                        AutoStart = false, OutputPort = PortOf(output), ReceivePort = receivePort,
+                        LinkPort = linkPort, InputSource = TrackingInputSource.HeadsetRuntime
+                    }.Save(profile);
+                    var firstZip = ModuleFixture(suppliedZip, fixtures, "4.0.0", inputPort, linkPort);
+                    var updateZip = ModuleFixture(suppliedZip, fixtures, "4.0.1", inputPort, linkPort);
+                    var rejectedZip = ModuleFixture(suppliedZip, fixtures, "4.0.2", PortOf(occupied), linkPort);
+                    try
+                    {
+                        window = CreateWindow(profile, executable);
+                        themes.AttachWindow(window);
+                        window.Show();
+                        PumpUntil(() => Field<bool>(window, "_initialized") && !Field<bool>(window, "_busy"), "update profile loaded");
+                        InvokeModuleImport(firstZip);
+                        var original = new ModuleStore(profile).Current;
+                        Check(original?.Version == "4.0.0" && Field<bool>(window, "_running"),
+                            "The first module did not activate after the real worker initialized.");
+                        Check(Field<Process>(window, "_worker").StartInfo.ArgumentList.Contains("--no-discovery"),
+                            "The isolated worker could discover a live VRChat session.");
+                        var originalPid = Field<Process>(window, "_worker").Id;
+
+                        InvokeModuleImport(updateZip);
+                        var updated = new ModuleStore(profile).Current;
+                        Check(updated?.Version == "4.0.1" && new ModuleStore(profile).Previous == original,
+                            "A successful update did not preserve the previous module.");
+                        Check(Field<bool>(window, "_running") && Field<Process>(window, "_worker").Id != originalPid,
+                            "Updating did not replace the active worker.");
+
+                        // The candidate is a structurally valid package. Its own reserved test port
+                        // makes startup fail after the prior worker has stopped, exercising recovery.
+                        InvokeModuleImport(rejectedZip);
+                        var recovered = new ModuleStore(profile);
+                        Check(recovered.Current == updated && recovered.Previous == original,
+                            "A failed startup changed the saved active or rollback module.");
+                        Check(Field<bool>(window, "_running"), "The previous worker did not resume after the failed update.");
+                        Check(Named<Border>(window, "GlobalNotice").Visibility == Visibility.Visible
+                            && Named<TextBlock>(window, "GlobalNoticeText").Text.Contains("The new module could not start."),
+                            "The failed update did not leave a clear error notification.");
+                        Check(Named<TextBox>(window, "LogBox").Text.Contains("Restored the previous active module."),
+                            "The UI did not confirm recovery of the previous worker.");
+
+                        InvokeRollback();
+                        Check(new ModuleStore(profile).Current == original && new ModuleStore(profile).Previous == updated,
+                            "Rollback did not switch to the saved original module.");
+                        Check(Field<bool>(window, "_running"), "Rollback did not restart the original module.");
+                        CloseWindow();
+                        window = CreateWindow(profile, executable);
+                        themes.AttachWindow(window);
+                        window.Show();
+                        PumpUntil(() => Field<bool>(window, "_initialized") && !Field<bool>(window, "_busy"), "rolled-back profile reopened");
+                        Check(new ModuleStore(profile).Current == original && new ModuleStore(profile).Previous == updated,
+                            "Relaunch lost the active and rollback module selections.");
+                        Check(Field<object?>(window, "_worker") is null && Named<Button>(window, "StartButton").IsEnabled,
+                            "Relaunch did not retain the saved AutoStart=false preference and module availability.");
+                    }
+                    finally { CloseWindow(); }
                 });
             }
 
@@ -291,14 +375,81 @@ internal static class Program
         return failed == 0 ? 0 : 1;
     }
 
-    private static MainWindow CreateWindow(string profile)
+    private static MainWindow CreateWindow(string profile, string? workerExecutable = null)
     {
-        var result = new MainWindow(profile)
+        var result = new MainWindow(profile, useDiscovery: false, workerExecutable: workerExecutable)
         {
             ShowActivated = false, ShowInTaskbar = false,
             WindowStartupLocation = WindowStartupLocation.Manual, Left = -20000, Top = -20000
         };
         return result;
+    }
+
+    private static UdpClient ReservePort()
+    {
+        var socket = new UdpClient(AddressFamily.InterNetwork);
+        socket.Client.ExclusiveAddressUse = true;
+        socket.Client.Bind(new IPEndPoint(IPAddress.Loopback, 0));
+        return socket;
+    }
+
+    private static int PortOf(UdpClient socket) => ((IPEndPoint)socket.Client.LocalEndPoint!).Port;
+
+    private static string ModuleFixture(string source, string directory, string version, int inputPort, int linkPort)
+    {
+        var path = Path.Combine(directory, "module-" + version + ".zip");
+        using var original = ZipFile.OpenRead(source);
+        using var fixture = ZipFile.Open(path, ZipArchiveMode.Create);
+        foreach (var item in original.Entries)
+        {
+            var entry = fixture.CreateEntry(item.FullName);
+            entry.ExternalAttributes = item.ExternalAttributes;
+            if (item.FullName.EndsWith('/')) continue;
+            using var input = item.Open();
+            using var output = entry.Open();
+            var name = Path.GetFileName(item.FullName);
+            if (name is "module.json" or "BabbleConfig.json")
+            {
+                var json = JsonNode.Parse(input)!.AsObject();
+                if (name == "module.json") json["Version"] = version;
+                else
+                {
+                    json["Host"] = "127.0.0.1";
+                    json["Port"] = inputPort;
+                    json["LinkPort"] = linkPort;
+                    json["IsEyeSupported"] = true;
+                    json["IsFaceSupported"] = true;
+                }
+                using var writer = new StreamWriter(output, leaveOpen: true);
+                writer.Write(json.ToJsonString());
+            }
+            else input.CopyTo(output);
+        }
+        return path;
+    }
+
+    private static void InvokeModuleImport(string path)
+    {
+        Task? operation = null;
+        window!.Dispatcher.BeginInvoke(new Action(() =>
+        {
+            try { operation = (Task)Method(window, "UpdateModule").Invoke(window, [path])!; }
+            catch (Exception error) { operation = Task.FromException(error); }
+        }));
+        PumpUntil(() => operation?.IsCompleted == true, "module import transaction completed", TimeSpan.FromSeconds(90));
+        operation!.GetAwaiter().GetResult();
+        PumpUntil(() => !Field<bool>(window, "_busy"), "module import operation finished");
+    }
+
+    private static void InvokeRollback()
+    {
+        var started = false;
+        window!.Dispatcher.BeginInvoke(new Action(() =>
+        {
+            Method(window, "Rollback_Click").Invoke(window, [window, new RoutedEventArgs()]);
+            started = true;
+        }));
+        PumpUntil(() => started && !Field<bool>(window, "_busy"), "module rollback transaction completed", TimeSpan.FromSeconds(50));
     }
 
     private static Dictionary<string, Color> DisplayedColors(MainWindow target)
@@ -331,6 +482,8 @@ internal static class Program
     {
         if (directory is null) return;
         Directory.CreateDirectory(directory);
+        // Capture the final page layout rather than the first tick of its entrance animation.
+        if (Field<FrameworkElement?>(target, "_currentPage") is { } page) Motion.Transition(page, false);
         target.UpdateLayout();
         var content = (FrameworkElement)target.Content;
         var image = new RenderTargetBitmap((int)Math.Ceiling(content.ActualWidth),

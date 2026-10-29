@@ -80,7 +80,7 @@ if ([string]::IsNullOrWhiteSpace($Compiler)) {
     if ($compilerCommand) { $Compiler = $compilerCommand.Source }
     if ([string]::IsNullOrWhiteSpace($Compiler)) {
         $locations = @($env:ProgramFiles, ${env:ProgramFiles(x86)}, (Join-Path $env:LOCALAPPDATA 'Programs'))
-        $candidates = foreach ($major in @(7, 6)) {
+        $candidates = foreach ($major in @(7)) {
             foreach ($location in $locations) {
                 if (![string]::IsNullOrWhiteSpace($location)) { Join-Path $location "Inno Setup $major/ISCC.exe" }
             }
@@ -101,30 +101,18 @@ if ($compilerMajorVersion -eq 0) {
     if ($engineVersion -match '(?m)^\s*(\d+)\.\d+\.\d+\s*$') { $compilerMajorVersion = [int]$Matches[1] }
     elseif ($engineVersion -match 'Inno Setup (\d+)') { $compilerMajorVersion = [int]$Matches[1] }
 }
-if ($compilerMajorVersion -lt 6) { throw 'Inno Setup 6 or newer is required; Inno Setup 7 is recommended.' }
+if ($compilerMajorVersion -lt 7) { throw 'Inno Setup 7 or newer is required for the installer styling and directives. Use the tested Inno Setup 7 compiler.' }
 
 $outputPath = [IO.Path]::GetFullPath($OutputDirectory)
 $null = New-Item -ItemType Directory -Path $outputPath -Force
 $outputName = "Babble-Bridge-Setup-$appVersion"
-if ($compilerMajorVersion -ge 7) {
-    $compilerArguments = @(
-        "--define=AppPayload=$payloadPath",
-        "--define=AppVersion=$appVersion",
-        "--output-dir=$outputPath",
-        "--output-filename=$outputName",
-        $scriptPath
-    )
-}
-else {
-    # Inno Setup 6 uses legacy switches; the script must also support that compiler.
-    $compilerArguments = @(
-        "/DAppPayload=$payloadPath",
-        "/DAppVersion=$appVersion",
-        "/O$outputPath",
-        "/F$outputName",
-        $scriptPath
-    )
-}
+$compilerArguments = @(
+    "--define=AppPayload=$payloadPath",
+    "--define=AppVersion=$appVersion",
+    "--output-dir=$outputPath",
+    "--output-filename=$outputName",
+    $scriptPath
+)
 
 Write-Output "Building Babble Bridge $appVersion installer..."
 & $compilerPath @compilerArguments

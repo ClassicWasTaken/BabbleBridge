@@ -3,15 +3,23 @@ BABBLE BRIDGE INSTALLER VALIDATION
 Result: PASS
 
 Isolated per-user install, reinstall, upgrade, downgrade rejection and uninstall.
-The test used a separate random application identity and a workspace install folder.
-The synthetic newer installer tested upgrade behavior without changing production version.
+The test used a separate random application identity and workspace install and shortcut folders.
+Real application payloads tested: 1.0.4 to 1.0.5.
+Shortcut collision protection and running-application install/uninstall guards were exercised.
 Installed-worker mapping used the existing --all-parameters diagnostic mode.
 VRChat avatar discovery was excluded to avoid interference with a running local game.
 
 - First install created one test uninstall entry and extracted the complete verified app payload.
 - Same-version reinstall reused the installation directory and uninstall entry.
-- A newer synthetic release replaced installed files and updated the same uninstall entry.
+- An unrelated same-name desktop shortcut survived unchecked installation and explicitly selected reinstallation.
+- Setup rejected an update while the isolated application mutex existed, before changing version or files.
+- Real app binaries upgraded from 1.0.4 to 1.0.5; installed app and worker hashes match the new payload.
+- A future stable version sharing an old development version number was rejected before changing files or registration.
+- Both former development product names permitted their known-version migration to the stable series.
 - An older installer was rejected before changing installed version or files.
 - The installed worker passed real-module BFR discovery, exact diagnostic OSC mapping, and mode-change restart checks.
 - The isolated uninstaller removed installed app files and its test registration.
+- Uninstall removed this installation's Start menu and guide shortcuts and preserved the unrelated desktop shortcut.
+- Uninstall rejected removal while the isolated application mutex existed, preserving files, registration and shortcuts.
+- A requested desktop shortcut was created and was removed by normal uninstall.
 - Real user settings, imported modules, and module state remained byte-for-byte unchanged.

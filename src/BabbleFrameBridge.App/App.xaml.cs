@@ -29,11 +29,11 @@ public partial class App : Application
         if (!first) { MessageBox.Show("Babble Bridge is already open.", "Babble Bridge"); Shutdown(); return; }
         // Stable presence marker lets future installers detect even portable copies.
         // Profile mutexes continue to keep normal and diagnostic data isolated.
+        _installerPresence = new Mutex(false, "Local\\FrameBridge.Desktop");
         if (dataIndex < 0) {
             // Match the installer shortcuts so Windows groups the running app with
             // the shortcut that carries its explicit, current headset icon.
             SetCurrentProcessExplicitAppUserModelID("FrameBridge.Desktop");
-            _installerPresence = new Mutex(false, "Local\\FrameBridge.Desktop");
             // Allow Restart Manager to reopen the app after a software update;
             // do not register automatic crash, hang, or system-reboot relaunches.
             RegisterApplicationRestart("", 1 | 2 | 8);

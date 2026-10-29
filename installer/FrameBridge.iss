@@ -7,7 +7,7 @@
   #define AppPayload "..\dist\BabbleFrameBridge"
 #endif
 #ifndef AppVersion
-  #define AppVersion "1.0.4"
+  #define AppVersion "1.0.5"
 #endif
 #ifndef BuildIdentity
   #define BuildIdentity "FrameBridge.Desktop.8E250247-8BA9-42B7-A698-94D2A52E880A"
@@ -20,6 +20,12 @@
 #endif
 #ifndef AppMutexName
   #define AppMutexName "Local\FrameBridge.Desktop"
+#endif
+#ifndef IconDesktopDir
+  #define IconDesktopDir "{autodesktop}"
+#endif
+#ifndef IconGroupDir
+  #define IconGroupDir "{group}"
 #endif
 #define HeadsetIconPath "Assets\Brand\FrameBridge-headset-v1.ico"
 
@@ -101,9 +107,9 @@ Type: files; Name: "{app}\Assets\Brand\Babble-Brand-LICENSE.txt"
 Type: files; Name: "{app}\Assets\Brand\SOURCE.txt"
 
 [Icons]
-Name: "{group}\{#ProductName}"; Filename: "{app}\BabbleFrameBridge.exe"; WorkingDir: "{app}"; IconFilename: "{app}\{#HeadsetIconPath}"; IconIndex: 0; AppUserModelID: "FrameBridge.Desktop"
-Name: "{group}\Setup guide"; Filename: "{app}\START-HERE.txt"
-Name: "{autodesktop}\{#ProductName}"; Filename: "{app}\BabbleFrameBridge.exe"; WorkingDir: "{app}"; IconFilename: "{app}\{#HeadsetIconPath}"; IconIndex: 0; Check: ShouldHaveDesktopShortcut; AppUserModelID: "FrameBridge.Desktop"
+Name: "{#IconGroupDir}\{#ProductName}"; Filename: "{app}\BabbleFrameBridge.exe"; WorkingDir: "{app}"; IconFilename: "{app}\{#HeadsetIconPath}"; IconIndex: 0; Check: ShouldHaveStartShortcut; AppUserModelID: "FrameBridge.Desktop"
+Name: "{#IconGroupDir}\Setup guide"; Filename: "{app}\START-HERE.txt"; Check: ShouldHaveGuideShortcut
+Name: "{#IconDesktopDir}\{#ProductName}"; Filename: "{app}\BabbleFrameBridge.exe"; WorkingDir: "{app}"; IconFilename: "{app}\{#HeadsetIconPath}"; IconIndex: 0; Check: ShouldHaveDesktopShortcut; AppUserModelID: "FrameBridge.Desktop"
 
 [Run]
 Filename: "{app}\BabbleFrameBridge.exe"; Description: "Open &Babble Bridge"; WorkingDir: "{app}"; Flags: nowait postinstall skipifsilent
@@ -143,14 +149,39 @@ begin
 end;
 
 function ShouldHaveDesktopShortcut: Boolean;
+var
+  Filename, Target: String;
 begin
   { Refresh an existing app shortcut even if an older setup did not record the
     optional task. Do not create a new desktop shortcut unless it was selected. }
-  Result := WizardIsTaskSelected('desktopicon') or
-    FileExists(ExpandConstant('{autodesktop}\{#ProductName}.lnk')) or
+  Filename := ExpandConstant('{#IconDesktopDir}\{#ProductName}.lnk');
+  Target := ExpandConstant('{app}\BabbleFrameBridge.exe');
+  if FileExists(Filename) and not IsAppShortcut(Filename, Target) then begin
+    Log('Preserving a different application''s desktop shortcut: ' + Filename);
+    Result := False;
+    Exit;
+  end;
+  Result := WizardIsTaskSelected('desktopicon') or IsAppShortcut(Filename, Target) or
     (('{#BuildIdentity}' = 'FrameBridge.Desktop.8E250247-8BA9-42B7-A698-94D2A52E880A')
-      and IsAppShortcut(ExpandConstant('{autodesktop}\Frame Bridge.lnk'),
-        ExpandConstant('{app}\BabbleFrameBridge.exe')));
+      and IsAppShortcut(ExpandConstant('{#IconDesktopDir}\Frame Bridge.lnk'), Target));
+end;
+
+function ShouldHaveStartShortcut: Boolean;
+var
+  Filename: String;
+begin
+  Filename := ExpandConstant('{#IconGroupDir}\{#ProductName}.lnk');
+  Result := not FileExists(Filename) or IsAppShortcut(Filename, ExpandConstant('{app}\BabbleFrameBridge.exe'));
+  if not Result then Log('Preserving a different application''s Start menu shortcut: ' + Filename);
+end;
+
+function ShouldHaveGuideShortcut: Boolean;
+var
+  Filename: String;
+begin
+  Filename := ExpandConstant('{#IconGroupDir}\Setup guide.lnk');
+  Result := not FileExists(Filename) or IsAppShortcut(Filename, ExpandConstant('{app}\START-HERE.txt'));
+  if not Result then Log('Preserving a different application''s guide shortcut: ' + Filename);
 end;
 
 procedure RefreshShellItem(const Filename: String);
@@ -167,17 +198,25 @@ var
 begin
   if CurStep = ssPostInstall then begin
     if '{#BuildIdentity}' = 'FrameBridge.Desktop.8E250247-8BA9-42B7-A698-94D2A52E880A' then begin
-      RetireShortcut(ExpandConstant('{autodesktop}\Frame Bridge.lnk'),
-        ExpandConstant('{app}\BabbleFrameBridge.exe'));
+      { Retire an old link only after its replacement was actually created.
+        A name collision with another app must not remove the only owned link. }
+      if IsAppShortcut(ExpandConstant('{#IconDesktopDir}\{#ProductName}.lnk'),
+        ExpandConstant('{app}\BabbleFrameBridge.exe')) then
+        RetireShortcut(ExpandConstant('{#IconDesktopDir}\Frame Bridge.lnk'),
+          ExpandConstant('{app}\BabbleFrameBridge.exe'));
       OldGroup := ExpandConstant('{autoprograms}\Frame Bridge');
-      RetireShortcut(OldGroup + '\Frame Bridge.lnk', ExpandConstant('{app}\BabbleFrameBridge.exe'));
-      RetireShortcut(OldGroup + '\Setup guide.lnk', ExpandConstant('{app}\START-HERE.txt'));
+      if IsAppShortcut(ExpandConstant('{#IconGroupDir}\{#ProductName}.lnk'),
+        ExpandConstant('{app}\BabbleFrameBridge.exe')) then
+        RetireShortcut(OldGroup + '\Frame Bridge.lnk', ExpandConstant('{app}\BabbleFrameBridge.exe'));
+      if IsAppShortcut(ExpandConstant('{#IconGroupDir}\Setup guide.lnk'),
+        ExpandConstant('{app}\START-HERE.txt')) then
+        RetireShortcut(OldGroup + '\Setup guide.lnk', ExpandConstant('{app}\START-HERE.txt'));
       RemoveDir(OldGroup); { Nonrecursive: preserve the folder if it has any other files. }
     end;
     RefreshShellItem(ExpandConstant('{app}\{#HeadsetIconPath}'));
     RefreshShellItem(ExpandConstant('{app}\BabbleFrameBridge.exe'));
-    RefreshShellItem(ExpandConstant('{group}\{#ProductName}.lnk'));
-    RefreshShellItem(ExpandConstant('{autodesktop}\{#ProductName}.lnk'));
+    RefreshShellItem(ExpandConstant('{#IconGroupDir}\{#ProductName}.lnk'));
+    RefreshShellItem(ExpandConstant('{#IconDesktopDir}\{#ProductName}.lnk'));
   end;
 end;
 
@@ -213,26 +252,33 @@ begin
   end;
 end;
 
-function IsKnownDevelopmentBuild(const Version: String): Boolean;
+function IsKnownDevelopmentBuild(const Version, InstalledName: String): Boolean;
 begin
-  { The first stable release resets the development numbering. Only these
-    exact development versions may transition to 1.0.0 through 1.0.4; future stable
-    versions still use the normal downgrade guard. }
-  Result := (Version = '1.2.0') or (Version = '1.3.0') or
+  { Only exact versions bearing the former development product names can
+    transition to the first stable series. A future stable release with the
+    same version number must still receive normal downgrade protection. }
+  Result := ((CompareText(InstalledName, 'Frame Bridge') = 0) or
+    (CompareText(InstalledName, 'Steam Frame Babble Bridge') = 0)) and
+    ((Version = '1.2.0') or (Version = '1.3.0') or
     (Version = '1.4.0') or (Version = '1.4.1') or (Version = '1.4.2') or
-    (Version = '1.5.0') or (Version = '1.5.1');
+    (Version = '1.5.0') or (Version = '1.5.1'));
 end;
 
 function InitializeSetup: Boolean;
 var
-  InstalledVersion: String;
+  InstalledVersion, InstalledName: String;
 begin
   Result := True;
   if RegQueryStringValue(HKCU,
     'Software\Microsoft\Windows\CurrentVersion\Uninstall\{#BuildIdentity}_is1',
     'DisplayVersion', InstalledVersion) then begin
     if VersionIsNewer(InstalledVersion, '{#AppVersion}') then begin
-      if (('{#AppVersion}' = '1.0.0') or ('{#AppVersion}' = '1.0.1') or ('{#AppVersion}' = '1.0.2') or ('{#AppVersion}' = '1.0.3') or ('{#AppVersion}' = '1.0.4')) and IsKnownDevelopmentBuild(InstalledVersion) then begin
+      InstalledName := '';
+      RegQueryStringValue(HKCU,
+        'Software\Microsoft\Windows\CurrentVersion\Uninstall\{#BuildIdentity}_is1',
+        'DisplayName', InstalledName);
+      if (Pos('1.0.', '{#AppVersion}') = 1) and
+        IsKnownDevelopmentBuild(InstalledVersion, InstalledName) then begin
         Log('Transitioning a known development installation to the first stable release.');
         Exit;
       end;

@@ -31,9 +31,10 @@ required payload files, and produces:
 To use a compiler or payload in a different location:
   .\installer\build-installer.ps1 -Compiler 'C:\Tools\Inno Setup 7\ISCC.exe' -PayloadDirectory 'C:\Build\BabbleFrameBridge' -OutputDirectory 'C:\Build\Installers'
 
-The helper searches PATH and the usual Inno Setup 7/6 installation directories.
-It uses Inno Setup 7's long command-line switches, or legacy switches for version
-6 when the installer script is compatible. Inno Setup 7 is recommended.
+The helper requires Inno Setup 7 or newer and searches PATH and the usual Inno
+Setup 7 installation directories. It uses Inno Setup 7's long command-line
+switches. Older compilers are rejected before compilation because they may lack
+the installer styling and directives used here.
 It never installs the compiled package automatically or deletes existing files.
 It rejects payloads containing a module ZIP or Baballonia DLL. On upgrade, the
 installer removes the obsolete baked-in Assets\Baballonia-module.zip from old
@@ -53,6 +54,10 @@ and Inno Setup, allowing one installed app entry to be updated over time.
 New installations use %LOCALAPPDATA%\Programs\Babble Bridge. Upgrades reuse
 the existing installation directory automatically, including older app paths.
 The installer rejects an older release being installed over a newer release.
+Existing same-name desktop, Start menu and guide shortcuts are updated only when
+their target belongs to this installation. Unrelated shortcuts are preserved.
+Setup and Uninstall refuse to proceed while this application's presence mutex
+exists; close the application before updating or removing it.
 
 Settings, logs and imported module releases live separately in:
   %LOCALAPPDATA%\BabbleFrameBridge

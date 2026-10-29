@@ -1,4 +1,4 @@
-BABBLE BRIDGE 1.0.4 — WINDOWS x64
+BABBLE BRIDGE 1.0.5 — WINDOWS x64
 
 PREREQUISITE
 Install the Microsoft Visual C++ v14 Redistributable (x64) from Microsoft:
@@ -115,6 +115,10 @@ avatar's blendshapes have visually applied every value.
 Desktop Baballonia-style OSC and BFR Link also pass a Jerry-template parameter
 fixture: eye/lip enable flags, gaze, independent lids/widen, supported brow/squint,
 pupils, binary parameters and mouth output. A face-only ZIP startup is covered.
+Isolated installer tests cover a real 1.0.4 to 1.0.5 payload upgrade, reinstall,
+downgrade guards, running-app protection, shortcut collisions and uninstall.
+Actual-window module tests cover ZIP activation, failed-start recovery, rollback
+and persistence after reopening. Test profiles and network ports are isolated.
 
 PROJECT REFERENCES
 VRCFaceTracking: https://github.com/Project-Babble/VRCFaceTracking
