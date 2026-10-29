@@ -141,7 +141,7 @@ public partial class MainWindow : Window
         try
         {
             using var config = JsonDocument.Parse(File.ReadAllText(Path.Combine(release.DirectoryPath, "BabbleConfig.json")));
-            if (config.RootElement.ValueKind == JsonValueKind.Object && config.RootElement.TryGetProperty("Port", out var port) && port.TryGetInt32(out var value) && value is > 0 and <= 65535) return value;
+            if (config.RootElement.ValueKind == JsonValueKind.Object && config.RootElement.TryGetProperty("Port", out var port) && port.ValueKind == JsonValueKind.Number && port.TryGetInt32(out var value) && value is > 0 and <= 65535) return value;
         }
         catch (Exception e) when (e is IOException or UnauthorizedAccessException or JsonException) { }
         return 8888;
