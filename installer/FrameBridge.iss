@@ -7,7 +7,7 @@
   #define AppPayload "..\dist\BabbleFrameBridge"
 #endif
 #ifndef AppVersion
-  #define AppVersion "1.0.0"
+  #define AppVersion "1.0.1"
 #endif
 #ifndef BuildIdentity
   #define BuildIdentity "FrameBridge.Desktop.8E250247-8BA9-42B7-A698-94D2A52E880A"
@@ -180,7 +180,7 @@ end;
 function IsKnownDevelopmentBuild(const Version: String): Boolean;
 begin
   { The first stable release resets the development numbering. Only these
-    exact development versions may transition to 1.0.0; future stable
+    exact development versions may transition to 1.0.0 or 1.0.1; future stable
     versions still use the normal downgrade guard. }
   Result := (Version = '1.2.0') or (Version = '1.3.0') or
     (Version = '1.4.0') or (Version = '1.4.1') or (Version = '1.4.2') or
@@ -196,7 +196,7 @@ begin
     'Software\Microsoft\Windows\CurrentVersion\Uninstall\{#BuildIdentity}_is1',
     'DisplayVersion', InstalledVersion) then begin
     if VersionIsNewer(InstalledVersion, '{#AppVersion}') then begin
-      if ('{#AppVersion}' = '1.0.0') and IsKnownDevelopmentBuild(InstalledVersion) then begin
+      if (('{#AppVersion}' = '1.0.0') or ('{#AppVersion}' = '1.0.1')) and IsKnownDevelopmentBuild(InstalledVersion) then begin
         Log('Transitioning a known development installation to the first stable release.');
         Exit;
       end;

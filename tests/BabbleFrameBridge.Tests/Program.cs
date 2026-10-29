@@ -136,6 +136,21 @@ try
         settings.OutputHost = "not-an-ip";
         ExpectFailure(settings.Validate, "invalid-address");
     });
+    Test("tracking source is explicit, persists, and defaults safely for existing settings", () =>
+    {
+        var dataRoot = Path.Combine(root, "tracking-source");
+        Directory.CreateDirectory(dataRoot);
+        File.WriteAllText(Path.Combine(dataRoot, "settings.json"), "{}");
+        var settings = AppSettings.Load(dataRoot);
+        Check(settings.InputSource == TrackingInputSource.SteamFrameRuntime, "Existing settings changed their source.");
+        settings.InputSource = TrackingInputSource.BaballoniaDesktop;
+        settings.Save(dataRoot);
+        Check(AppSettings.Load(dataRoot).InputSource == TrackingInputSource.BaballoniaDesktop, "Desktop source did not persist.");
+        Check(File.ReadAllText(Path.Combine(dataRoot, "settings.json")).Contains("\"BaballoniaDesktop\""), "Source must have a readable stable JSON name.");
+        settings.InputSource = (TrackingInputSource)123;
+        ExpectFailure(settings.Validate, "invalid-tracking-source");
+        Check(AppSettings.Load(dataRoot).InputSource == TrackingInputSource.BaballoniaDesktop, "Rejected source overwrote valid settings.");
+    });
 }
 finally
 {

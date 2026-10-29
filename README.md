@@ -18,6 +18,8 @@ A Windows app built for **Babble Frame Runtime on Steam Frame**. It sends your h
 2. Start **Babble Frame Runtime** on your Steam Frame, on the same network as your PC.
 3. Enable **OSC** in VRChat and select a face-tracking avatar.
 
+For desktop Baballonia, select **Connection → Baballonia desktop → Save connection** and enable its VRCFaceTracking output to `127.0.0.1:8888`. Jerry’s templates are supported.
+
 Windows 10/11 x64. [Setup & requirements](START-HERE.txt) · [Build from source](BUILD.txt)
 
 Original code: [Apache 2.0](LICENSE). [Copyrights & third-party licenses](THIRD_PARTY_NOTICES.md).

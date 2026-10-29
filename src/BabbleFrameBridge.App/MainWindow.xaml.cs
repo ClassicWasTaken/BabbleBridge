@@ -43,6 +43,9 @@ public partial class MainWindow : Window
         HostBox.Text = _settings.OutputHost;
         PortBox.Text = _settings.OutputPort.ToString();
         ReceiveBox.Text = _settings.ReceivePort.ToString();
+        DesktopSourceButton.IsChecked = DesktopSource;
+        FrameSourceButton.IsChecked = !DesktopSource;
+        UpdateSourceLabels();
         AutoStartBox.IsChecked = _settings.AutoStart;
         ApplyMotionPreference();
         SystemParameters.StaticPropertyChanged += MotionPreference_Changed;
@@ -54,12 +57,12 @@ public partial class MainWindow : Window
             TargetLabel.Text = $"{_settings.OutputHost} : {_settings.OutputPort}";
             if (_store.Current is { } current)
             {
-                SetState("Bridge stopped", "Start the bridge to listen for your Steam Frame.", false);
+                SetStoppedState();
                 if (_settings.AutoStart) await StartWorker(current);
             }
             else
             {
-                SetState("Add your tracking module", "Choose a Baballonia module ZIP to connect your Steam Frame.", false);
+                SetState("Add your tracking module", "Choose your Baballonia module ZIP to start tracking.", false);
                 TrackingRoute.Text = "Add a module to begin";
                 Log("No tracking module installed. Choose your Baballonia module ZIP or drop it onto this window.");
             }
@@ -104,6 +107,27 @@ public partial class MainWindow : Window
         StateTitle.Text = title; StateDetail.Text = detail;
         StateDot.Fill = new SolidColorBrush((Color)ColorConverter.ConvertFromString(error ? "#F4C2C2" : live ? "#BDE5D1" : "#A6C5B8"));
     }
+
+    private bool DesktopSource => _settings.InputSource == TrackingInputSource.BaballoniaDesktop;
+
+    private void UpdateSourceLabels()
+    {
+        HeadsetState.Text = DesktopSource ? "Baballonia · stopped" : "Steam Frame · waiting";
+        ModeLabel.Text = DesktopSource ? "Eye and face inputs enabled." : "Eyes and face follow your headset.";
+    }
+
+    private void SetStoppedState()
+    {
+        UpdateSourceLabels();
+        if (_store.Current is null) SetState("Add your tracking module", "Choose your Baballonia module ZIP to start tracking.", false);
+        else SetState("Bridge stopped", DesktopSource
+            ? "Start the bridge to accept tracking from Baballonia on this computer."
+            : "Start the bridge to listen for your Steam Frame.", false);
+    }
+
+    private void SetListeningState() => SetState(DesktopSource ? "Baballonia desktop input" : "Listening for Steam Frame", DesktopSource
+        ? "Send Baballonia’s VRCFaceTracking output to this computer on port 8888."
+        : "Start Babble Frame Runtime on the headset. Discovery is automatic.", true);
 
     private void ShowNotice(string message, bool error = false)
     {
@@ -160,7 +184,7 @@ public partial class MainWindow : Window
             _ready?.TrySetException(new InvalidOperationException("The tracking runtime exited. Check the activity log for details."));
             SetState("Runtime stopped", "Check the activity log, then start the bridge again.", false, true);
             ShowNotice("The runtime stopped. Check the activity log, then start the bridge again.", true);
-            HeadsetState.Text = "Steam Frame · disconnected";
+            HeadsetState.Text = DesktopSource ? "Baballonia · stopped" : "Steam Frame · disconnected";
             OutputRate.Text = "0 msgs/s"; RefreshButtons();
         }));
         SetState("Starting bridge", $"Loading Baballonia {release.Version}…", false);
@@ -172,7 +196,7 @@ public partial class MainWindow : Window
             if (process.HasExited) throw new InvalidOperationException("The runtime exited immediately after loading. Check the activity log.");
             if (_closing) throw new OperationCanceledException("The app is closing.");
             _running = true;
-            SetState("Listening for Steam Frame", "Start Babble Frame Runtime on the headset. Discovery is automatic.", true);
+            SetListeningState();
             RefreshButtons();
         }
         catch { await StopWorker(); throw; }
@@ -196,12 +220,12 @@ public partial class MainWindow : Window
             finally { process.Dispose(); }
         }
         OutputRate.Text = "0 msgs/s";
-        HeadsetState.Text = "Steam Frame · waiting";
+        HeadsetState.Text = DesktopSource ? "Baballonia · stopped" : "Steam Frame · waiting";
         TrackingRoute.Text = "Bridge stopped";
         if (_store.Current is null)
-            SetState("Add your tracking module", "Choose a Baballonia module ZIP to connect your Steam Frame.", false);
+            SetState("Add your tracking module", "Choose your Baballonia module ZIP to start tracking.", false);
         else
-            SetState("Bridge stopped", "Start the bridge to listen for your Steam Frame.", false);
+            SetStoppedState();
         RefreshButtons();
     }
 
@@ -215,7 +239,9 @@ public partial class MainWindow : Window
             using var document = JsonDocument.Parse(line);
             var item = document.RootElement;
             switch (Str(item, "type")) {
-                case "ready": _ready?.TrySetResult(true); Log("Module loaded. Listening for the headset."); break;
+                case "ready": _ready?.TrySetResult(true); Log(DesktopSource
+                    ? "Module loaded. Desktop Baballonia eye and face inputs are enabled."
+                    : "Module loaded. Listening for the headset."); break;
                 case "fatal":
                     var message = Str(item, "message", "Tracking runtime failed."); Log("ERROR: " + message);
                     _ready?.TrySetException(new InvalidOperationException(message));
@@ -234,8 +260,8 @@ public partial class MainWindow : Window
     {
         var linked = Bool(item, "linked") || Bool(item, "connected") || Bool(item, "bfrConnected");
         var eye = Bool(item, "eye"); var face = Bool(item, "face");
-        HeadsetState.Text = linked ? "Steam Frame · connected" : "Steam Frame · waiting";
-        ModeLabel.Text = $"Eyes {(eye ? "enabled" : "off")} · face {(face ? "enabled" : "off")} · selected by headset";
+        HeadsetState.Text = DesktopSource ? "Baballonia · input enabled" : linked ? "Steam Frame · connected" : "Steam Frame · waiting";
+        ModeLabel.Text = $"Eyes {(eye ? "enabled" : "off")} · face {(face ? "enabled" : "off")}" + (DesktopSource ? " · desktop input" : " · selected by headset");
         OutputRate.Text = $"{Number(item, "rate"):N0} msgs/s";
         var avatar = Str(item, "avatar");
         AvatarLabel.Text = string.IsNullOrWhiteSpace(avatar) ? "Avatar · waiting for VRChat" : "Avatar · " + avatar;
@@ -245,8 +271,16 @@ public partial class MainWindow : Window
         var actualHost = Str(item, "outputHost", _settings.OutputHost);
         var actualPort = Number(item, "outputPort");
         TargetLabel.Text = $"{actualHost} : {(actualPort > 0 ? actualPort : _settings.OutputPort):0}";
-        if (_running && !_busy) SetState(linked ? "Steam Frame connected" : "Listening for Steam Frame",
-            receiving ? "Receiving expressions from Babble Frame Runtime." : linked ? "Connected. Waiting for expression data from the headset." : "Start Babble Frame Runtime on the headset. Discovery is automatic.", true);
+        if (_running && !_busy)
+        {
+            if (DesktopSource)
+            {
+                var inputPort = Number(item, "inputPort");
+                SetState("Baballonia desktop input", $"Send Baballonia’s VRCFaceTracking output to this computer on port {(inputPort > 0 ? inputPort : 8888):0}.", true);
+            }
+            else SetState(linked ? "Steam Frame connected" : "Listening for Steam Frame",
+                receiving ? "Receiving expressions from Babble Frame Runtime." : linked ? "Connected. Waiting for expression data from the headset." : "Start Babble Frame Runtime on the headset. Discovery is automatic.", true);
+        }
     }
 
     private async Task RestartForHeadset()
@@ -287,7 +321,7 @@ public partial class MainWindow : Window
             await StartWorker(release);
             _store.Activate(release);
             RefreshModule();
-            var activated = old is null ? $"Module {release.Version} is active. Listening for your Steam Frame."
+            var activated = old is null ? $"Module {release.Version} is active. Your tracking source is ready."
                 : $"Module {release.Version} is active. Your previous module is saved.";
             Log(activated);
             ShowNotice(activated);
@@ -310,11 +344,15 @@ public partial class MainWindow : Window
 
     private async void Save_Click(object sender, RoutedEventArgs e) => await RunOperation(async () => {
         if (!int.TryParse(PortBox.Text, out var port) || !int.TryParse(ReceiveBox.Text, out var receive)) throw new InvalidOperationException("Enter valid port numbers.");
-        var updated = new AppSettings { OutputHost = HostBox.Text.Trim(), OutputPort = port, ReceivePort = receive, AutoStart = AutoStartBox.IsChecked == true };
+        var updated = new AppSettings { OutputHost = HostBox.Text.Trim(), OutputPort = port, ReceivePort = receive,
+            LinkPort = _settings.LinkPort, EyeEnabled = _settings.EyeEnabled, FaceEnabled = _settings.FaceEnabled,
+            InputSource = DesktopSourceButton.IsChecked == true ? TrackingInputSource.BaballoniaDesktop : TrackingInputSource.SteamFrameRuntime,
+            AutoStart = AutoStartBox.IsChecked == true };
         updated.Validate(); updated.Save(_root); _settings = updated;
         TargetLabel.Text = $"{updated.OutputHost} : {updated.OutputPort}";
         Log("Connection settings saved.");
         if (_running) { await StopWorker(); await StartWorker(_store.Current!); }
+        else SetStoppedState();
         ShowNotice("Connection settings saved.");
     });
 

@@ -60,18 +60,30 @@ internal static class Program
 
             var moduleDirectory = Path.GetDirectoryName(modulePath)!;
             Directory.SetCurrentDirectory(moduleDirectory);
-            // The Frame path is always enabled. Preserve the module's negotiated eye/face claims across restarts.
+            var desktopSource = settings.InputSource == TrackingInputSource.BaballoniaDesktop;
+            // A linked Frame negotiates its claims. This host owns the sole desktop module, so desktop OSC
+            // must claim both channels even when an imported legacy ZIP defaults to face tracking only.
             var configPath = Path.Combine(moduleDirectory, "BabbleConfig.json");
             var config = File.Exists(configPath) ? JsonNode.Parse(File.ReadAllText(configPath)) as JsonObject ?? new() : new JsonObject();
             config["Host"] ??= "127.0.0.1";
             config["Port"] ??= 8888;
-            config["IsEyeSupported"] ??= true;
-            config["IsFaceSupported"] ??= true;
-            config["LinkEnabled"] = true;
+            if (desktopSource)
+            {
+                config["IsEyeSupported"] = true;
+                config["IsFaceSupported"] = true;
+            }
+            else
+            {
+                config["IsEyeSupported"] ??= true;
+                config["IsFaceSupported"] ??= true;
+            }
+            config["LinkEnabled"] = !desktopSource;
             config["LinkPort"] = settings.LinkPort;
             File.WriteAllText(configPath, config.ToJsonString(new() { WriteIndented = true }));
-            CheckPort(settings.LinkPort, IPAddress.Any);
-            CheckPort(config["Port"]!.GetValue<int>(), IPAddress.Loopback);
+            if (!desktopSource) CheckPort(settings.LinkPort, IPAddress.Any);
+            var desktopInputPort = config["Port"]!.GetValue<int>();
+            CheckPort(desktopInputPort, IPAddress.Loopback);
+            var inputPort = desktopSource ? desktopInputPort : settings.LinkPort;
 
             _ = Task.Run(async () =>
             {
@@ -131,11 +143,17 @@ internal static class Program
             // The VRCFT mapping exposes these static status values to EyeTrackingActive / ExpressionTrackingActive.
             SetCoreStatus("EyeStatus", claims.eyeSuccess);
             SetCoreStatus("ExpressionStatus", claims.expressionSuccess);
-            if (module.GetType().GetField("babbleLink", BindingFlags.Instance | BindingFlags.NonPublic) != null && GetField(module, "babbleLink") == null)
+            if (!desktopSource && module.GetType().GetField("babbleLink", BindingFlags.Instance | BindingFlags.NonPublic) != null && GetField(module, "babbleLink") == null)
                 throw new InvalidOperationException("Baballonia could not start BFR Link. Close other tracking apps using UDP " + settings.LinkPort + ".");
             // A newer compatible SDK may expose the reinitialization event; support it without requiring that API in v5.4.1.
             var reinitEvent = module.GetType().GetEvent("ReinitializeRequested", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
-            Action requestRestart = () => { Emit(new { type = "restart", message = "The headset changed its eye or mouth tracking mode." }); stop.Cancel(); };
+            Action requestRestart = () =>
+            {
+                Emit(new { type = "restart", message = desktopSource
+                    ? "Baballonia changed its eye or mouth tracking mode."
+                    : "The headset changed its eye or mouth tracking mode." });
+                stop.Cancel();
+            };
             if (reinitEvent?.EventHandlerType == typeof(Action)) reinitEvent.AddEventHandler(module, requestRestart);
 
             // Set the source policy before every mapper/sender callback, including the first frame.
@@ -147,7 +165,14 @@ internal static class Program
             router = new AvatarRouter(logs, target, sender, settings, args.Contains("--all-parameters"), nativeFace, args.Contains("--no-discovery"));
             await router.StartAsync(stop.Token);
             await sender.StartAsync(stop.Token);
-            Emit(new { type = "ready", eye = claims.eyeSuccess, face = claims.expressionSuccess, message = "Module initialized; waiting for Steam Frame." });
+            Emit(new
+            {
+                type = "ready", eye = claims.eyeSuccess, face = claims.expressionSuccess,
+                source = settings.InputSource.ToString(), inputPort,
+                message = desktopSource
+                    ? $"Module initialized; listening for Baballonia desktop OSC on UDP {inputPort}."
+                    : "Module initialized; waiting for Steam Frame."
+            });
             var clock = Stopwatch.StartNew();
             long lastMessages = 0;
             long lastPackets = 0;
@@ -171,6 +196,7 @@ internal static class Program
                 Emit(new
                 {
                     type = "status", eye = claims.eyeSuccess, face = claims.expressionSuccess,
+                    source = settings.InputSource.ToString(), inputPort,
                     connected, receiving = connected && dataAge is >= 0 and < 2.5,
                     headset = connected ? GetField(link, "_headsetName") as string ?? "Steam Frame" : "",
                     path = connected ? GetField(link, "_activePath") as string ?? "" : "",
@@ -239,7 +265,7 @@ internal static class Program
     private static void CheckPort(int port, IPAddress address)
     {
         try { using var socket = new Socket(AddressFamily.InterNetwork, SocketType.Dgram, ProtocolType.Udp) { ExclusiveAddressUse = true }; socket.Bind(new IPEndPoint(address, port)); }
-        catch (SocketException) { throw new InvalidOperationException($"UDP {port} is already in use. Close VRCFaceTracking, Baballonia, or another bridge before starting this app."); }
+        catch (SocketException) { throw new InvalidOperationException($"UDP {port} is already in use. Close the other app listening on that port, such as VRCFaceTracking or another bridge."); }
     }
 }
 

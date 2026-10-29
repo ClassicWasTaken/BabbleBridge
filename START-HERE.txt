@@ -1,4 +1,4 @@
-STEAM FRAME BABBLE BRIDGE 1.0.0 — WINDOWS x64
+STEAM FRAME BABBLE BRIDGE 1.0.1 — WINDOWS x64
 
 PREREQUISITE
 Install the Microsoft Visual C++ v14 Redistributable (x64) from Microsoft:
@@ -8,7 +8,7 @@ setup does not download or install this prerequisite automatically. The packaged
 application includes its separate .NET runtime and its accompanying notices.
 
 GET STARTED
-1. Run FrameBridge-Setup-1.0.0.exe and follow the setup wizard. It installs for
+1. Run Steam-Frame-Babble-Bridge-Setup.exe and follow the setup wizard. It installs for
    your Windows account and adds Frame Bridge to the Start menu. An optional
    desktop shortcut is available. The portable ZIP is also supported: extract
    the entire folder and keep its runtime and Assets folders.
@@ -32,6 +32,16 @@ The regular Baballonia desktop camera/inference app is not needed for that path.
 This independent app is based on VRCFaceTracking. The Baballonia module is a
 separate download that you supply. It is not an official Project Babble release.
 
+DESKTOP BABALLONIA INPUT
+If your tracking comes from the Baballonia desktop app instead of Frame Runtime,
+open Connection, choose 'Baballonia desktop', and click 'Save connection'. Enable
+Baballonia's VRCFaceTracking output to 127.0.0.1:8888. Keep Baballonia running and
+close the separate VRCFaceTracking app. Desktop mode enables both eye and face
+inputs even when an older module ZIP defaults to face only. It does not listen
+for BFR Link. Choose Frame Runtime again for tracking sent from the headset.
+The desktop input status indicates the listener is enabled; it does not claim a
+headset connection or prove that the desktop app is currently sending data.
+
 UPDATE THE MODULE
 Click 'Add module ZIP' for the first module, or 'Import module ZIP' for an update,
 and choose a VRCFaceTracking.Baballonia ZIP.
@@ -53,13 +63,14 @@ The app distinguishes a linked headset from recently received expression data.
 The overview shows headset connection, VRChat output and the active module.
 Expression processing continues in the background without an on-screen monitor.
 Output counts are sent OSC messages, not confirmation that VRChat has applied them.
-Eyes and face follow the headset's settings. The module saves those choices;
+In Frame Runtime mode, eyes and face follow the headset's settings. The module saves those choices;
 the bridge restarts it automatically when the claimed tracking mode changes.
 Connection settings let you change the VRChat IPv4 address and send/receive ports.
 Default output is 127.0.0.1:9000; avatar-change input is 127.0.0.1:9001.
 When defaults are used, OSCQuery can negotiate VRChat's actual output port.
 Automatic avatar discovery is intended for VRChat running on this PC.
 The app uses the module's loopback OSC listener on 8888 as well as BFR Link 6767.
+Desktop mode uses only the loopback OSC listener on 8888.
 Close other tracking apps if either port is already occupied.
 
 YOUR FILES
@@ -94,6 +105,9 @@ Live Steam Frame input was checked while VRChat was running: both eyelids blinke
 eye widening changed and pupil values varied. The native protocol is covered by
 byte-level and real-module loopback tests. Sent packets alone do not confirm the
 avatar's blendshapes have visually applied every value.
+Desktop Baballonia-style OSC and BFR Link also pass a Jerry-template parameter
+fixture: eye/lip enable flags, gaze, independent lids/widen, supported brow/squint,
+pupils, binary parameters and mouth output. A face-only ZIP startup is covered.
 
 PROJECT REFERENCES
 VRCFaceTracking: https://github.com/Project-Babble/VRCFaceTracking

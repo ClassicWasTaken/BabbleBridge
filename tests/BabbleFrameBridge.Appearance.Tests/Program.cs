@@ -121,6 +121,30 @@ internal static class Program
                     "Displayed window did not follow the restored automatic palette.");
             });
 
+            Test("desktop source selection is saved and restored without launching a worker", () =>
+            {
+                Check(Named<RadioButton>(window, "FrameSourceButton").IsChecked == true,
+                    "An existing/default profile changed away from Frame Runtime.");
+                Named<RadioButton>(window, "DesktopSourceButton").IsChecked = true;
+                Named<CheckBox>(window, "AutoStartBox").IsChecked = false;
+                Method(window, "Save_Click").Invoke(window, [window, new RoutedEventArgs()]);
+                PumpUntil(() => !Field<bool>(window, "_busy"), "desktop source saved");
+                Check(AppSettings.Load(emptyProfile).InputSource == TrackingInputSource.BaballoniaDesktop,
+                    "Save connection did not persist desktop input.");
+                CloseWindow();
+                window = CreateWindow(emptyProfile);
+                themes.AttachWindow(window);
+                window.Show();
+                PumpUntil(() => Field<bool>(window, "_initialized") && !Field<bool>(window, "_busy"), "desktop profile reopened");
+                Check(Named<RadioButton>(window, "DesktopSourceButton").IsChecked == true,
+                    "Reopening did not restore desktop source selection.");
+                Check(Field<object?>(window, "_worker") is null, "Changing source launched a worker without a module.");
+                Method(window, "SelectPage").Invoke(window, ["settings"]);
+                Named<StackPanel>(window, "SettingsPage").Opacity = 1;
+                themes.ApplyTheme(false); Pump(); SavePreview(window, renderDirectory, "connection-light.png");
+                themes.ApplyTheme(true); Pump(); SavePreview(window, renderDirectory, "connection-dark.png");
+            });
+
             CloseWindow();
             if (suppliedZip is not null)
             {

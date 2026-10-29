@@ -3,11 +3,20 @@
 
 using System.Net;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 
 namespace BabbleFrameBridge.Shared;
 
+[JsonConverter(typeof(JsonStringEnumConverter<TrackingInputSource>))]
+public enum TrackingInputSource
+{
+    SteamFrameRuntime,
+    BaballoniaDesktop
+}
+
 public sealed class AppSettings
 {
+    public TrackingInputSource InputSource { get; set; } = TrackingInputSource.SteamFrameRuntime;
     public string OutputHost { get; set; } = "127.0.0.1";
     public int OutputPort { get; set; } = 9000;
     public int ReceivePort { get; set; } = 9001;
@@ -34,6 +43,8 @@ public sealed class AppSettings
 
     public void Validate()
     {
+        if (!Enum.IsDefined(InputSource))
+            throw new ArgumentException("Choose a supported tracking input source.");
         if (!IPAddress.TryParse(OutputHost, out var address) || address.AddressFamily != System.Net.Sockets.AddressFamily.InterNetwork)
             throw new ArgumentException("The VRChat destination must be an IPv4 address, such as 127.0.0.1.");
         if (OutputPort is < 1 or > 65535 || ReceivePort is < 1 or > 65535 || LinkPort is < 1 or > 65535)
