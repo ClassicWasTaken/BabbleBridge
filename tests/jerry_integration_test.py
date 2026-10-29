@@ -41,7 +41,7 @@ class JerryInput:
     def __init__(self, source, legacy_port, link_port, receive_port, capture):
         self.source = source
         self.socket = udp_socket()
-        self.peer = ("127.0.0.1", link_port if source == "frame" else legacy_port)
+        self.peer = ("127.0.0.1", link_port if source == "headset" else legacy_port)
         self.avatar_peer = ("127.0.0.1", receive_port)
         self.capture = capture
         self.values = {}
@@ -64,16 +64,16 @@ class JerryInput:
         if now >= self.next_avatar:
             self.socket.sendto(osc_message("/avatar/change", "avtr_jerry_upper_test"), self.avatar_peer)
             self.next_avatar = now + 0.8
-        if self.source == "frame" and now >= self.next_control:
+        if self.source == "headset" and now >= self.next_control:
             common = {"proto": "bfr-link", "v": 1, "sid": "jerry-upper-test", "eye": True, "face": True}
             for message in (
-                dict(common, type="beacon", name="Simulated Steam Frame", version="test"),
+                dict(common, type="beacon", name="Simulated headset", version="test"),
                 dict(common, type="ping", seq=1, path="lan", active=True),
             ):
                 self.socket.sendto(json.dumps(message).encode(), self.peer)
             self.next_control = now + 0.2
         if now >= self.next_data:
-            if self.source == "frame":
+            if self.source == "headset":
                 self.socket.sendto(osc_bundle(self.tracking), self.peer)
             else:
                 # The desktop Baballonia receiver accepts individual OSC floats.
@@ -142,7 +142,7 @@ def run_case(executable, archive, source):
             (root / "settings.json").write_text(json.dumps({
                 "OutputHost": "127.0.0.1", "OutputPort": capture.getsockname()[1],
                 "ReceivePort": receive_port, "LinkPort": link_port, "AutoStart": False,
-                "InputSource": "BaballoniaDesktop" if source == "desktop" else "SteamFrameRuntime",
+                "InputSource": "BaballoniaDesktop" if source == "desktop" else "HeadsetRuntime",
             }), encoding="utf-8")
             avatar_folder = root / "LocalLow" / "VRChat" / "VRChat" / "OSC" / "usr_jerry_test" / "Avatars"
             avatar_folder.mkdir(parents=True)
@@ -222,7 +222,7 @@ def main():
     parser.add_argument("--module-zip", type=Path, required=True)
     args = parser.parse_args()
     executable, archive = args.worker.resolve(strict=True), args.module_zip.resolve(strict=True)
-    checks = run_case(executable, archive, "desktop") + run_case(executable, archive, "frame")
+    checks = run_case(executable, archive, "desktop") + run_case(executable, archive, "headset")
     print(json.dumps({"result": "PASS", "checks": checks}, indent=2))
 
 

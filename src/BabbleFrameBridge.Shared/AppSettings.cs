@@ -7,16 +7,49 @@ using System.Text.Json.Serialization;
 
 namespace BabbleFrameBridge.Shared;
 
-[JsonConverter(typeof(JsonStringEnumConverter<TrackingInputSource>))]
+[JsonConverter(typeof(TrackingInputSourceConverter))]
 public enum TrackingInputSource
 {
-    SteamFrameRuntime,
-    BaballoniaDesktop
+    HeadsetRuntime = 0,
+    BaballoniaDesktop = 1
+}
+
+/// <summary>Keep existing profiles readable while writing the current source names.</summary>
+public sealed class TrackingInputSourceConverter : JsonConverter<TrackingInputSource>
+{
+    public override TrackingInputSource Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
+    {
+        if (reader.TokenType == JsonTokenType.String)
+        {
+            var name = reader.GetString()?.Trim();
+            if (string.Equals(name, "HeadsetRuntime", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(name, "SteamFrameRuntime", StringComparison.OrdinalIgnoreCase) || name == "0")
+                return TrackingInputSource.HeadsetRuntime;
+            if (string.Equals(name, "BaballoniaDesktop", StringComparison.OrdinalIgnoreCase) || name == "1")
+                return TrackingInputSource.BaballoniaDesktop;
+        }
+        else if (reader.TokenType == JsonTokenType.Number && reader.TryGetInt32(out var number))
+        {
+            if (number == 0) return TrackingInputSource.HeadsetRuntime;
+            if (number == 1) return TrackingInputSource.BaballoniaDesktop;
+        }
+        throw new JsonException("Choose a supported tracking input source.");
+    }
+
+    public override void Write(Utf8JsonWriter writer, TrackingInputSource value, JsonSerializerOptions options)
+    {
+        writer.WriteStringValue(value switch
+        {
+            TrackingInputSource.HeadsetRuntime => "HeadsetRuntime",
+            TrackingInputSource.BaballoniaDesktop => "BaballoniaDesktop",
+            _ => throw new JsonException("Choose a supported tracking input source.")
+        });
+    }
 }
 
 public sealed class AppSettings
 {
-    public TrackingInputSource InputSource { get; set; } = TrackingInputSource.SteamFrameRuntime;
+    public TrackingInputSource InputSource { get; set; } = TrackingInputSource.HeadsetRuntime;
     public string OutputHost { get; set; } = "127.0.0.1";
     public int OutputPort { get; set; } = 9000;
     public int ReceivePort { get; set; } = 9001;
@@ -50,7 +83,7 @@ public sealed class AppSettings
         if (OutputPort is < 1 or > 65535 || ReceivePort is < 1 or > 65535 || LinkPort is < 1 or > 65535)
             throw new ArgumentException("Ports must be between 1 and 65535.");
         if (ReceivePort == LinkPort || ReceivePort == 8888 || LinkPort == 8888)
-            throw new ArgumentException("The receive, Frame Link, and Baballonia OSC (8888) ports must be different.");
+            throw new ArgumentException("The receive, Headset Link, and Baballonia OSC (8888) ports must be different.");
         if (OutputPort == ReceivePort || OutputPort == LinkPort || OutputPort == 8888)
             throw new ArgumentException("The VRChat output port must differ from the app's listening ports.");
         if (!EyeEnabled && !FaceEnabled)

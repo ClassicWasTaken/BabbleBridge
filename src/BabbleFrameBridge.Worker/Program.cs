@@ -61,7 +61,7 @@ internal static class Program
             var moduleDirectory = Path.GetDirectoryName(modulePath)!;
             Directory.SetCurrentDirectory(moduleDirectory);
             var desktopSource = settings.InputSource == TrackingInputSource.BaballoniaDesktop;
-            // A linked Frame negotiates its claims. This host owns the sole desktop module, so desktop OSC
+            // A linked headset negotiates its claims. This host owns the sole desktop module, so desktop OSC
             // must claim both channels even when an imported legacy ZIP defaults to face tracking only.
             var configPath = Path.Combine(moduleDirectory, "BabbleConfig.json");
             var config = File.Exists(configPath) ? JsonNode.Parse(File.ReadAllText(configPath)) as JsonObject ?? new() : new JsonObject();
@@ -158,7 +158,7 @@ internal static class Program
 
             // Set the source policy before every mapper/sender callback, including the first frame.
             // The disabled mutator passes through this same data object.
-            prepareEyes = data => data.Eye.NormalizedPupilRange = GetFrameEyeInputs(module).NormalizedDilation ? (2f, 8f) : null;
+            prepareEyes = data => data.Eye.NormalizedPupilRange = GetHeadsetEyeInputs(module).NormalizedDilation ? (2f, 8f) : null;
             UnifiedTracking.OnUnifiedDataUpdated = prepareEyes + UnifiedTracking.OnUnifiedDataUpdated;
             nativeFace = new NativeFaceSender(target, logs.CreateLogger<NativeFaceSender>());
             nativeFace.Start();
@@ -171,7 +171,7 @@ internal static class Program
                 source = settings.InputSource.ToString(), inputPort,
                 message = desktopSource
                     ? $"Module initialized; listening for Baballonia desktop OSC on UDP {inputPort}."
-                    : "Module initialized; waiting for Steam Frame."
+                    : "Module initialized; waiting for the headset."
             });
             var clock = Stopwatch.StartNew();
             long lastMessages = 0;
@@ -191,14 +191,14 @@ internal static class Program
                 var connected = sid != null && DateTime.UtcNow - lastSeen < TimeSpan.FromSeconds(3.5);
                 if (packetCount != lastPackets) { lastDataAt = DateTime.UtcNow; lastPackets = packetCount; }
                 var dataAge = lastDataAt == DateTime.MinValue ? -1 : Math.Max(0, (DateTime.UtcNow - lastDataAt).TotalSeconds);
-                var eyeInputs = GetFrameEyeInputs(module);
+                var eyeInputs = GetHeadsetEyeInputs(module);
                 var total = Interlocked.Read(ref messages) + nativeFace.FramesSent;
                 Emit(new
                 {
                     type = "status", eye = claims.eyeSuccess, face = claims.expressionSuccess,
                     source = settings.InputSource.ToString(), inputPort,
                     connected, receiving = connected && dataAge is >= 0 and < 2.5,
-                    headset = connected ? GetField(link, "_headsetName") as string ?? "Steam Frame" : "",
+                    headset = connected ? GetField(link, "_headsetName") as string ?? "Headset" : "",
                     path = connected ? GetField(link, "_activePath") as string ?? "" : "",
                     packets = packetCount, packetAge = dataAge,
                     eyeLeft = Finite(UnifiedTracking.Data.Eye.Left.Openness), eyeRight = Finite(UnifiedTracking.Data.Eye.Right.Openness),
@@ -242,7 +242,7 @@ internal static class Program
     }
 
     private static float Finite(float value) => float.IsFinite(value) ? value : 0;
-    private static (bool NormalizedDilation, bool Pupil, bool Widen) GetFrameEyeInputs(ExtTrackingModule module)
+    private static (bool NormalizedDilation, bool Pupil, bool Widen) GetHeadsetEyeInputs(ExtTrackingModule module)
     {
         var osc = GetField(module, "babbleOSC");
         var gate = GetField(osc, "_applyLock");

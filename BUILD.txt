@@ -1,4 +1,4 @@
-BUILDING STEAM FRAME BABBLE BRIDGE
+BUILDING BABBLE BRIDGE
 
 Requirements: Windows x64, .NET 10 SDK, internet access for NuGet restore.
 The native OSC library needs Microsoft's Visual C++ v14 Redistributable (x64)
@@ -24,7 +24,7 @@ Run tests:
   python tests/native_integration_test.py --worker dist/BabbleFrameBridge/runtime/BabbleFrameBridge.Worker.exe --module-zip 'C:\Path\Baballonia-module.zip'
 
 The Python integration test uses only the standard library, temporary files,
-loopback sockets, and a simulated Frame. It does not access real hardware or
+loopback sockets, and a simulated headset. It does not access real hardware or
 alter real VRChat/VRCFaceTracking settings. Python 3.11+ is recommended.
 
 LAYOUT

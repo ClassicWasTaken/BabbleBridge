@@ -1,4 +1,4 @@
-BABBLE BRIDGE 1.0.3 — WINDOWS x64
+BABBLE BRIDGE 1.0.4 — WINDOWS x64
 
 PREREQUISITE
 Install the Microsoft Visual C++ v14 Redistributable (x64) from Microsoft:
@@ -8,7 +8,7 @@ setup does not download or install this prerequisite automatically. The packaged
 application includes its separate .NET runtime and its accompanying notices.
 
 GET STARTED
-1. Run Steam-Frame-Babble-Bridge-Setup.exe and follow the setup wizard. It installs for
+1. Run Babble-Bridge-Setup.exe and follow the setup wizard. It installs for
    your Windows account and adds Babble Bridge to the Start menu. An optional
    desktop shortcut is available. The portable ZIP is also supported: extract
    the entire folder and keep its runtime and Assets folders.
@@ -18,7 +18,7 @@ GET STARTED
    or drop the ZIP onto the app. No module is included or installed automatically.
    Get the module separately from https://github.com/Project-Babble/Baballonia .
    Existing imported modules remain available after an app update.
-4. On your Steam Frame, run Babble Frame Runtime and enable the tracking you want.
+4. On your headset, start its runtime and enable the tracking you want.
    The headset and PC must be on the same reachable network. The bridge listens
    for BFR Link on UDP 6767. If Windows asks about network access, you choose
    whether to allow access on your trusted private network.
@@ -26,21 +26,21 @@ GET STARTED
    OSCQuery discovers the avatar and its tracking parameters automatically.
    If VRChat was already running, reselect your avatar if needed.
 
-This app replaces the PC-side VRCFaceTracking bridge for Babble Frame Runtime.
-The runtime still runs on the Steam Frame; this app does not install it there.
+This app replaces the PC-side VRCFaceTracking bridge for a compatible headset runtime.
+The runtime still runs on your headset; this app does not install it there.
 The regular Baballonia desktop camera/inference app is not needed for that path.
 This independent app is based on VRCFaceTracking. The Baballonia module is a
 separate download that you supply. It is not an official Project Babble release.
 
 DESKTOP BABALLONIA INPUT
-The first launch selects Steam Frame Runtime. After you choose a source and click
+The first launch selects Headset Runtime. After you choose a source and click
 'Save connection', the app restores that saved selection on future launches.
-If your tracking comes from the Baballonia desktop app instead of Frame Runtime,
+If your tracking comes from the Baballonia desktop app instead of Headset Runtime,
 open Connection, choose 'Baballonia desktop', and click 'Save connection'. Enable
 Baballonia's VRCFaceTracking output to 127.0.0.1:8888. Keep Baballonia running and
 close the separate VRCFaceTracking app. Desktop mode enables both eye and face
 inputs even when an older module ZIP defaults to face only. It does not listen
-for BFR Link. Choose Frame Runtime again for tracking sent from the headset.
+for BFR Link. Choose Headset Runtime again for tracking sent from the headset.
 The desktop input status indicates the listener is enabled; it does not claim a
 headset connection or prove that the desktop app is currently sending data.
 
@@ -65,11 +65,11 @@ The app distinguishes a linked headset from recently received expression data.
 The overview shows headset connection, VRChat output and the active module.
 Expression processing continues in the background without an on-screen monitor.
 Output counts are sent OSC messages, not confirmation that VRChat has applied them.
-In Frame Runtime mode, eyes and face follow the headset's settings. The module saves those choices;
+In Headset Runtime mode, eyes and face follow the headset's settings. The module saves those choices;
 the bridge restarts it automatically when the claimed tracking mode changes.
 Connection settings let you change the VRChat IPv4 address and send/receive ports.
 The tracking input port appears beside the selected source and updates automatically:
-Frame Runtime uses BFR Link (normally 6767), and desktop Baballonia uses the module's
+Headset Runtime uses BFR Link (normally 6767), and desktop Baballonia uses the module's
 OSC port (normally 8888). VRChat send/feedback ports are labeled separately.
 Success notifications fade away after four seconds. Use the close button to dismiss
 any notification; error notifications remain visible until dismissed or a new action.
@@ -88,7 +88,7 @@ Logs stay on your computer. No telemetry sender is initialized by this app.
 Closing the window stops its tracking worker.
 
 IF THE HEADSET DOES NOT CONNECT
-Check that Babble Frame Runtime is running on the Steam Frame, the PC and headset
+Check that the headset runtime is running, the PC and headset
 can reach each other, and another app is not using UDP 6767 or 8888. If discovery
 is blocked on your network, use the runtime's PC IP fallback. Check the activity
 log for module errors. You may need to allow the runtime worker through your
@@ -108,7 +108,7 @@ Tested on this Windows PC with a separately supplied v4.0.0 DLL. Automated loopb
 verify BFR discovery/heartbeat, exact eye and jaw OSC mapping, mode-change
 restart, persistence, and relaunch. ZIP tests verify update/rollback and invalid
 package handling and rollback. The Windows window was visually checked.
-Live Steam Frame input was checked while VRChat was running: both eyelids blinked,
+Live headset input was checked while VRChat was running: both eyelids blinked,
 eye widening changed and pupil values varied. The native protocol is covered by
 byte-level and real-module loopback tests. Sent packets alone do not confirm the
 avatar's blendshapes have visually applied every value.
@@ -119,7 +119,7 @@ pupils, binary parameters and mouth output. A face-only ZIP startup is covered.
 PROJECT REFERENCES
 VRCFaceTracking: https://github.com/Project-Babble/VRCFaceTracking
 Baballonia module: https://github.com/Project-Babble/Baballonia
-Frame runtime: https://github.com/Project-Babble/Babble-Frame-Runtime
+Headset runtime: https://github.com/Project-Babble/Babble-Frame-Runtime
 See LICENSE, NOTICE.txt, THIRD_PARTY_NOTICES.md and licenses for the applicable
 source provenance, copyrights and third-party terms. Compatibility references
 do not imply affiliation with or endorsement by the named projects or companies.

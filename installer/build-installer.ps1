@@ -105,7 +105,7 @@ if ($compilerMajorVersion -lt 6) { throw 'Inno Setup 6 or newer is required; Inn
 
 $outputPath = [IO.Path]::GetFullPath($OutputDirectory)
 $null = New-Item -ItemType Directory -Path $outputPath -Force
-$outputName = "FrameBridge-Setup-$appVersion"
+$outputName = "Babble-Bridge-Setup-$appVersion"
 if ($compilerMajorVersion -ge 7) {
     $compilerArguments = @(
         "--define=AppPayload=$payloadPath",

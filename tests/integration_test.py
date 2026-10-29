@@ -154,7 +154,7 @@ class Frame:
         if now >= self.next_control:
             self.sequence += 1
             for message in (
-                dict(base, type="beacon", name="Simulated Steam Frame", version="test-v1"),
+                dict(base, type="beacon", name="Simulated headset", version="test-v1"),
                 dict(base, type="ping", seq=self.sequence, path="lan", active=True),
             ):
                 self.socket.sendto(json.dumps(message).encode(), self.peer)

@@ -10,7 +10,7 @@ The setup wizard and uninstaller also follow Windows light/dark preferences.
 Windows shortcuts and Installed Apps use the original headset icon stored at
 Assets\Brand\FrameBridge-headset-v1.ico. A separate icon path lets upgrades
 refresh the desktop and Start menu icon without resetting Windows' icon cache.
-Upgrades replace former Frame Bridge shortcuts only when their targets match
+Upgrades replace former app shortcuts only when their targets match
 this installation. The previous installation path and application identity stay
 stable so existing settings and imported modules continue to work.
 
@@ -25,8 +25,8 @@ From the source root in PowerShell:
 The first command publishes the app to dist\BabbleFrameBridge. The second reads
 the app Version from its project, checks the published executable's version and
 required payload files, and produces:
-  dist\installer\FrameBridge-Setup-<version>.exe
-  dist\installer\FrameBridge-Setup-<version>.exe.sha256
+  dist\installer\Babble-Bridge-Setup-<version>.exe
+  dist\installer\Babble-Bridge-Setup-<version>.exe.sha256
 
 To use a compiler or payload in a different location:
   .\installer\build-installer.ps1 -Compiler 'C:\Tools\Inno Setup 7\ISCC.exe' -PayloadDirectory 'C:\Build\BabbleFrameBridge' -OutputDirectory 'C:\Build\Installers'
@@ -50,6 +50,8 @@ Keep the production AppId in FrameBridge.iss unchanged across releases. Keep the
 per-user and 64-bit installation modes consistent, and preserve the existing
 installation directory. These values identify the same application to Windows
 and Inno Setup, allowing one installed app entry to be updated over time.
+New installations use %LOCALAPPDATA%\Programs\Babble Bridge. Upgrades reuse
+the existing installation directory automatically, including older app paths.
 The installer rejects an older release being installed over a newer release.
 
 Settings, logs and imported module releases live separately in:

@@ -7,7 +7,7 @@
   #define AppPayload "..\dist\BabbleFrameBridge"
 #endif
 #ifndef AppVersion
-  #define AppVersion "1.0.3"
+  #define AppVersion "1.0.4"
 #endif
 #ifndef BuildIdentity
   #define BuildIdentity "FrameBridge.Desktop.8E250247-8BA9-42B7-A698-94D2A52E880A"
@@ -29,9 +29,9 @@ AppName={#DisplayName}
 AppVersion={#AppVersion}
 AppVerName={#DisplayName} {#AppVersion}
 AppPublisher=Babble Bridge contributors
-AppComments=Independent bridge for Babble Frame Runtime and VRChat.
+AppComments=Independent bridge for headset tracking and VRChat.
 AppCopyright=Independent application. See LICENSE and NOTICE.txt.
-DefaultDirName={localappdata}\Programs\Frame Bridge
+DefaultDirName={localappdata}\Programs\Babble Bridge
 DefaultGroupName={#ProductName}
 PrivilegesRequired=lowest
 ArchitecturesAllowed=x64compatible
@@ -65,7 +65,7 @@ WizardImageStretch=yes
 WizardSizePercent=115,115
 SetupIconFile=..\src\BabbleFrameBridge.App\Assets\Bridge.ico
 OutputDir=..\dist\installer
-OutputBaseFilename=FrameBridge-Setup-{#AppVersion}
+OutputBaseFilename=Babble-Bridge-Setup-{#AppVersion}
 Compression=lzma2/normal
 SolidCompression=yes
 VersionInfoVersion={#AppVersion}
@@ -110,9 +110,9 @@ Filename: "{app}\BabbleFrameBridge.exe"; Description: "Open &Babble Bridge"; Wor
 
 [Messages]
 WelcomeLabel1=Meet Babble Bridge.
-WelcomeLabel2=Your Steam Frame expressions, connected to VRChat.%n%nSetup will install this independent bridge for your Windows account.%n%nThe Microsoft Visual C++ v14 Redistributable (x64) must be installed separately from Microsoft.%n%nFuture versions can be installed over this one. Your settings and Baballonia modules stay in place.
+WelcomeLabel2=Your headset expressions, connected to VRChat.%n%nSetup will install this independent bridge for your Windows account.%n%nThe Microsoft Visual C++ v14 Redistributable (x64) must be installed separately from Microsoft.%n%nFuture versions can be installed over this one. Your settings and Baballonia modules stay in place.
 FinishedHeadingLabel=You’re ready to express yourself.
-FinishedLabel=Babble Bridge is installed.%n%nOpen Babble Bridge and add your own Baballonia module ZIP, then start Babble Frame Runtime on your headset.%n%nExisting imported modules are preserved. To update the app later, run its newer setup file. To update only the module, import a new ZIP inside the app.
+FinishedLabel=Babble Bridge is installed.%n%nOpen Babble Bridge and add your own Baballonia module ZIP, then start the headset runtime.%n%nExisting imported modules are preserved. To update the app later, run its newer setup file. To update only the module, import a new ZIP inside the app.
 BeveledLabel=Independent runtime bridge
 
 [Code]
@@ -216,7 +216,7 @@ end;
 function IsKnownDevelopmentBuild(const Version: String): Boolean;
 begin
   { The first stable release resets the development numbering. Only these
-    exact development versions may transition to 1.0.0 through 1.0.3; future stable
+    exact development versions may transition to 1.0.0 through 1.0.4; future stable
     versions still use the normal downgrade guard. }
   Result := (Version = '1.2.0') or (Version = '1.3.0') or
     (Version = '1.4.0') or (Version = '1.4.1') or (Version = '1.4.2') or
@@ -232,7 +232,7 @@ begin
     'Software\Microsoft\Windows\CurrentVersion\Uninstall\{#BuildIdentity}_is1',
     'DisplayVersion', InstalledVersion) then begin
     if VersionIsNewer(InstalledVersion, '{#AppVersion}') then begin
-      if (('{#AppVersion}' = '1.0.0') or ('{#AppVersion}' = '1.0.1') or ('{#AppVersion}' = '1.0.2') or ('{#AppVersion}' = '1.0.3')) and IsKnownDevelopmentBuild(InstalledVersion) then begin
+      if (('{#AppVersion}' = '1.0.0') or ('{#AppVersion}' = '1.0.1') or ('{#AppVersion}' = '1.0.2') or ('{#AppVersion}' = '1.0.3') or ('{#AppVersion}' = '1.0.4')) and IsKnownDevelopmentBuild(InstalledVersion) then begin
         Log('Transitioning a known development installation to the first stable release.');
         Exit;
       end;

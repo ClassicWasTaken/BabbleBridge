@@ -55,11 +55,11 @@ internal static class Program
             Test("fresh profile requires an imported module even when auto-start is enabled", () =>
             {
                 Check(AppSettings.Load(emptyProfile).AutoStart, "Fixture did not exercise default auto-start.");
-                Check(AppSettings.Load(emptyProfile).InputSource == TrackingInputSource.SteamFrameRuntime,
-                    "First launch did not save Frame Runtime as the initial source.");
-                Check(Named<RadioButton>(window, "FrameSourceButton").IsChecked == true
+                Check(AppSettings.Load(emptyProfile).InputSource == TrackingInputSource.HeadsetRuntime,
+                    "First launch did not save Headset Runtime as the initial source.");
+                Check(Named<RadioButton>(window, "HeadsetSourceButton").IsChecked == true
                     && Named<RadioButton>(window, "DesktopSourceButton").IsChecked == false,
-                    "First launch did not select Frame Runtime in the interface.");
+                    "First launch did not select Headset Runtime in the interface.");
                 Check(new ModuleStore(emptyProfile).Current is null, "First run installed a module.");
                 Check(!Directory.EnumerateFiles(emptyProfile, "*.dll", SearchOption.AllDirectories).Any(),
                     "First run copied module payload into the profile.");
@@ -131,16 +131,16 @@ internal static class Program
             {
                 var send = Named<TextBox>(window, "PortBox").Text;
                 var receive = Named<TextBox>(window, "ReceiveBox").Text;
-                Check(Named<TextBlock>(window, "TrackingInputPort").Text.Contains("6767"), "Frame input port was not shown.");
+                Check(Named<TextBlock>(window, "TrackingInputPort").Text.Contains("6767"), "Headset input port was not shown.");
                 Named<RadioButton>(window, "DesktopSourceButton").IsChecked = true;
                 Pump();
                 Check(Named<TextBlock>(window, "TrackingInputPort").Text.Contains("8888"), "Desktop selection did not show its input port.");
-                Named<RadioButton>(window, "FrameSourceButton").IsChecked = true;
+                Named<RadioButton>(window, "HeadsetSourceButton").IsChecked = true;
                 Pump();
                 Check(Named<TextBlock>(window, "TrackingInputPort").Text.Contains("6767"), "Returning to Frame did not restore its input port.");
                 Check(Named<TextBox>(window, "PortBox").Text == send && Named<TextBox>(window, "ReceiveBox").Text == receive,
                     "Choosing a tracking source changed the separate VRChat send/receive ports.");
-                Check(AppSettings.Load(emptyProfile).InputSource == TrackingInputSource.SteamFrameRuntime,
+                Check(AppSettings.Load(emptyProfile).InputSource == TrackingInputSource.HeadsetRuntime,
                     "Previewing a source saved it before Save connection.");
             });
 
@@ -178,8 +178,8 @@ internal static class Program
 
             Test("a later launch restores the saved source and connection preferences", () =>
             {
-                Check(Named<RadioButton>(window, "FrameSourceButton").IsChecked == true,
-                    "An existing/default profile changed away from Frame Runtime.");
+                Check(Named<RadioButton>(window, "HeadsetSourceButton").IsChecked == true,
+                    "An existing/default profile changed away from Headset Runtime.");
                 Named<RadioButton>(window, "DesktopSourceButton").IsChecked = true;
                 Named<CheckBox>(window, "AutoStartBox").IsChecked = false;
                 Named<TextBox>(window, "HostBox").Text = "127.0.0.2";
@@ -204,17 +204,17 @@ internal static class Program
                 Check(restored.OutputHost == "127.0.0.2" && restored.OutputPort == 19000
                     && restored.ReceivePort == 19001 && !restored.AutoStart,
                     "Reopening changed other saved connection preferences.");
-                Named<RadioButton>(window, "FrameSourceButton").IsChecked = true;
+                Named<RadioButton>(window, "HeadsetSourceButton").IsChecked = true;
                 Method(window, "Save_Click").Invoke(window, [window, new RoutedEventArgs()]);
-                PumpUntil(() => !Field<bool>(window, "_busy"), "Frame source saved");
+                PumpUntil(() => !Field<bool>(window, "_busy"), "Headset source saved");
                 CloseWindow();
                 window = CreateWindow(emptyProfile);
                 themes.AttachWindow(window);
                 window.Show();
-                PumpUntil(() => Field<bool>(window, "_initialized") && !Field<bool>(window, "_busy"), "Frame profile reopened");
-                Check(Named<RadioButton>(window, "FrameSourceButton").IsChecked == true
-                    && AppSettings.Load(emptyProfile).InputSource == TrackingInputSource.SteamFrameRuntime,
-                    "A later launch did not restore the explicitly saved Frame source.");
+                PumpUntil(() => Field<bool>(window, "_initialized") && !Field<bool>(window, "_busy"), "Headset profile reopened");
+                Check(Named<RadioButton>(window, "HeadsetSourceButton").IsChecked == true
+                    && AppSettings.Load(emptyProfile).InputSource == TrackingInputSource.HeadsetRuntime,
+                    "A later launch did not restore the explicitly saved Headset source.");
                 Check(Field<object?>(window, "_worker") is null, "Changing source launched a worker without a module.");
                 Method(window, "SelectPage").Invoke(window, ["settings"]);
                 Named<StackPanel>(window, "SettingsPage").Opacity = 1;
@@ -244,7 +244,7 @@ internal static class Program
                     Check(Named<Button>(window, "StartButton").IsEnabled, "Imported module did not enable Start.");
                     Check(Named<Button>(window, "ImportButton").IsEnabled, "Imported module disabled future imports.");
                     Check(Field<object?>(window, "_worker") is null, "AutoStart=false launched a worker.");
-                    Check(Named<TextBlock>(window, "TrackingInputPort").Text.Contains("23456"), "Custom Frame Link port was not shown.");
+                    Check(Named<TextBlock>(window, "TrackingInputPort").Text.Contains("23456"), "Custom Headset Link port was not shown.");
                     PumpUntil(() => Named<StackPanel>(window, "OverviewPage").Opacity >= .999,
                         "module overview entrance finished before preview capture");
                     SavePreview(window, renderDirectory, "module-ready.png");

@@ -103,7 +103,7 @@ def main():
     panel.alpha_composite(logo.resize((100,100),Image.Resampling.LANCZOS),(32,39))
     text=ImageDraw.Draw(panel)
     text.text((30,171),'Babble Bridge',font=font('BoldItalic',36),fill='#F2FCF5')
-    text.multiline_text((32,230),'Steam Frame tracking.\nYour module, your setup.',font=font('Regular',16),fill='#C7DFD0',spacing=6)
+    text.multiline_text((32,230),'Headset tracking.\nYour module, your setup.',font=font('Regular',16),fill='#C7DFD0',spacing=6)
     text.line((32,294,86,294),fill='#80BDA6',width=2)
     text.line((32,553,296,553),fill='#385D4A',width=1)
     text.text((32,573),'Independent desktop bridge',font=font('Medium',14),fill='#C6DECE')

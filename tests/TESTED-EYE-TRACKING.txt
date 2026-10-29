@@ -1,4 +1,4 @@
-FRAME BRIDGE 1.3.0 — EYE TRACKING VALIDATION
+BABBLE BRIDGE 1.3.0 — EYE TRACKING VALIDATION
 Tested on Windows x64, 28 October 2026 (local time).
 
 Fixed native VRChat SDK beta compatibility:
@@ -7,7 +7,7 @@ Fixed native VRChat SDK beta compatibility:
 - Send complete 102-byte /tracking/face/v1 OSC blob frames.
 - Include separate left/right closure, eye widening and opposing pupil
   dilation/constriction. Unsupported brow inputs remain zero.
-- Preserve the Frame runtime's normalized pupil range through Baballonia's
+- Preserve the headset runtime's normalized pupil range through Baballonia's
   nominal 2..8 mapping. These are not physical pupil diameter measurements.
 - Pause older avatar parameters and gaze/combined-blink OSC in native mode;
   refresh every relevant legacy value when changing avatars or output modes.

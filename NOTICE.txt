@@ -7,10 +7,10 @@ This grant covers rights the contributors are entitled to license; it does
 not claim ownership of third-party works, names, fonts, or software.
 
 INDEPENDENT PROJECT / TRADEMARKS
-This is an independent Windows host for Babble Frame Runtime. It is not an
+This is an independent Windows host for a compatible headset runtime. It is not an
 official release of Project Babble, VRCFaceTracking, Valve, or VRChat, and
-none of those parties sponsors or endorses this project. Names such as Steam
-Frame, Babble, VRCFaceTracking, and VRChat identify compatibility and origin.
+none of those parties sponsors or endorses this project. Names such as Babble,
+VRCFaceTracking, and VRChat identify compatibility and origin.
 Their respective owners retain their trademarks. No trademark rights are
 granted by this project's software license.
 
@@ -69,7 +69,7 @@ C++ x64 Redistributable separately, under Microsoft's own applicable terms.
 https://learn.microsoft.com/cpp/windows/latest-supported-vc-redist
 
 SEPARATE MODULE AND HEADSET SOFTWARE — NOT DISTRIBUTED HERE
-The Baballonia tracking module ZIP/DLL and Babble Frame Runtime are separate
+The Baballonia tracking module ZIP/DLL and headset runtime are separate
 works with their own licenses. Users obtain and supply those independently.
 They are not included in this repository, installer, or portable package.
 Project references:

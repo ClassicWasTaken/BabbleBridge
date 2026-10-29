@@ -1,6 +1,6 @@
 # Third-party copyrights and licenses
 
-The original Babble Bridge (previously Steam Frame Babble Bridge) code and original bridge artwork are
+The original Babble Bridge code and original bridge artwork are
 Copyright (c) 2026 Frame Bridge contributors, licensed under [Apache 2.0](LICENSE).
 Third-party works retain their own copyrights and terms. This file maps those
 works to the full notices preserved in the repository and distribution.
@@ -38,7 +38,7 @@ from [Microsoft's official distribution](https://learn.microsoft.com/cpp/windows
 and follow its applicable terms. Build tools and the installer compiler are
 not included in the app package.
 
-Baballonia module packages, Babble Frame Runtime, VRChat, and Steam Frame software
+Baballonia module packages, the headset runtime, VRChat, and headset software
 are not distributed here. They remain governed by their own licenses. Official
 Project Babble logo assets and the previous website-animation port were removed
 from this version; no permission to use another project's trademarks is implied.

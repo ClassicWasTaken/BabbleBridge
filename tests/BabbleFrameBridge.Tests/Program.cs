@@ -6,13 +6,14 @@ using System.Text;
 using System.Text.Json;
 using BabbleFrameBridge.Shared;
 
-var suppliedZip = args.FirstOrDefault();
-if (!File.Exists(suppliedZip))
+var settingsOnly = args.Contains("--settings-only", StringComparer.Ordinal);
+var suppliedZip = args.FirstOrDefault(argument => !argument.StartsWith("--", StringComparison.Ordinal)) ?? "";
+if (!settingsOnly && !File.Exists(suppliedZip))
 {
-    Console.Error.WriteLine("Pass the path to a genuine VRCFaceTracking.Baballonia module ZIP as the first argument.");
+    Console.Error.WriteLine("Pass a genuine VRCFaceTracking.Baballonia module ZIP, or use --settings-only for settings regressions.");
     return 2;
 }
-var fixtureEntries = ReadZip(suppliedZip);
+var fixtureEntries = settingsOnly ? new List<FixtureEntry>() : ReadZip(suppliedZip);
 var tempParent = Path.GetFullPath(Path.Combine(Environment.CurrentDirectory, "work", "module-tests"));
 Directory.CreateDirectory(tempParent);
 var root = Path.Combine(tempParent, Guid.NewGuid().ToString("N"));
@@ -22,99 +23,102 @@ var failed = 0;
 
 try
 {
-    Test("new profiles remain empty until a module ZIP is imported", () =>
+    if (!settingsOnly)
     {
-        var dataRoot = Path.Combine(root, "empty-profile");
-        var store = new ModuleStore(dataRoot);
-        Check(store.Current is null && store.Previous is null, "A new profile auto-installed a module.");
-        Check(!Directory.EnumerateFiles(dataRoot, "*.dll", SearchOption.AllDirectories).Any(), "A new profile contains a module DLL.");
-        Check(new ModuleStore(dataRoot).Current is null, "Reopening an empty profile installed a module.");
-    });
-    Test("valid package stages without activation", () =>
-    {
-        var store = NewStore("staging");
-        var staged = store.Prepare(suppliedZip);
-        Check(store.Current is null, "Prepare changed the active release.");
-        Check(staged.Version == "4.0.0", "Unexpected supplied module version.");
-        Check(staged.Sha256.Length == 64 && File.Exists(Path.Combine(staged.DirectoryPath, staged.DllFileName)), "Incomplete staged release.");
-        store.Activate(staged);
-        Check(store.Current == staged, "Prepared release was not activated.");
-        Check(store.Previous is null, "Unexpected previous release on first activation.");
-    });
-    Test("update, restart, rollback, and undo rollback retain both versions", () =>
-    {
-        var dataRoot = Path.Combine(root, "lifecycle");
-        var store = new ModuleStore(dataRoot);
-        var first = store.Install(suppliedZip);
-        var nextZip = Package("next", entries => SetManifest(entries, "Version", "4.0.1"));
-        var second = store.Install(nextZip);
-        Check(second.Version == "4.0.1" && store.Previous == first, "Update lost the previous release.");
-        store = new ModuleStore(dataRoot);
-        Check(store.Current == second && store.Previous == first, "State did not survive restart.");
-        Check(store.Rollback() == first && store.Current == first && store.Previous == second, "Rollback failed.");
-        Check(store.Rollback() == second && store.Previous == first, "Undo rollback failed.");
-        Check(File.Exists(Path.Combine(first.DirectoryPath, first.DllFileName)), "Old DLL was deleted.");
-    });
-    Test("wrapper directory packages resolve the module directory", () =>
-    {
-        var zip = Path.Combine(root, "wrapped.zip");
-        WriteZip(zip, fixtureEntries.Select(e => e with { Name = "download/" + e.Name }));
-        var store = NewStore("wrapped");
-        var release = store.Install(zip);
-        Check(Path.GetFileName(release.DirectoryPath) == "download", "Incorrect wrapped module path.");
-        Check(File.Exists(Path.Combine(release.DirectoryPath, "module.json")), "Manifest not found in resolved directory.");
-    });
-    Test("rejected packages preserve the running and previous versions", () =>
-    {
-        var store = NewStore("rejections");
-        var current = store.Install(suppliedZip);
-        var badPackages = new Dictionary<string, Action<List<FixtureEntry>>>
+        Test("new profiles remain empty until a module ZIP is imported", () =>
         {
-            ["traversal"] = entries => entries.Add(new("../escaped.txt", [1])),
-            ["backslash-traversal"] = entries => entries.Add(new("..\\escaped.txt", [1])),
-            ["absolute"] = entries => entries.Add(new("C:/escaped.txt", [1])),
-            ["alternate-stream"] = entries => entries.Add(new("file.txt:payload", [1])),
-            ["windows-device"] = entries => entries.Add(new("CON.txt", [1])),
-            ["trailing-dot"] = entries => entries.Add(new("bad./payload", [1])),
-            ["duplicate"] = entries => entries.Add(entries[0] with { Name = entries[0].Name.ToUpperInvariant() }),
-            ["symlink"] = entries => entries.Add(new("linked", Encoding.UTF8.GetBytes("outside"), unchecked((int)0xA1FF0000))),
-            ["wrong-module"] = entries => SetManifest(entries, "ModuleId", Guid.NewGuid().ToString()),
-            ["wrong-dll"] = entries => SetManifest(entries, "DllFileName", "Other.dll"),
-            ["missing-dll"] = entries => entries.RemoveAll(e => e.Name == ModuleStore.BaballoniaDll),
-            ["non-managed-dll"] = entries => Replace(entries, ModuleStore.BaballoniaDll, [1, 2, 3]),
-            ["other-assembly"] = entries => Replace(entries, ModuleStore.BaballoniaDll, File.ReadAllBytes(typeof(ModuleStore).Assembly.Location)),
-            ["multiple-manifests"] = entries => entries.Add(new("extra/module.json", Encoding.UTF8.GetBytes("{}"))),
-            ["invalid-json"] = entries => Replace(entries, "module.json", Encoding.UTF8.GetBytes("{not-json}")),
-            ["oversized-manifest"] = entries => Replace(entries, "module.json", new byte[1024 * 1024 + 1]),
-        };
-        foreach (var (name, mutate) in badPackages)
+            var dataRoot = Path.Combine(root, "empty-profile");
+            var store = new ModuleStore(dataRoot);
+            Check(store.Current is null && store.Previous is null, "A new profile auto-installed a module.");
+            Check(!Directory.EnumerateFiles(dataRoot, "*.dll", SearchOption.AllDirectories).Any(), "A new profile contains a module DLL.");
+            Check(new ModuleStore(dataRoot).Current is null, "Reopening an empty profile installed a module.");
+        });
+        Test("valid package stages without activation", () =>
         {
-            var zip = Package(name, mutate);
-            ExpectFailure(() => store.Install(zip), name);
-            Check(store.Current == current && store.Previous is null, $"{name} changed active module state.");
-        }
-        Check(!File.Exists(Path.Combine(root, "escaped.txt")), "Traversal wrote outside the release directory.");
-    });
-    Test("prepared releases cannot be activated in another store", () =>
-    {
-        var a = NewStore("store-a");
-        var b = NewStore("store-b");
-        var release = a.Prepare(suppliedZip);
-        ExpectFailure(() => b.Activate(release), "foreign-release");
-        Check(b.Current is null, "Foreign release changed state.");
-        ExpectFailure(() => a.Activate(release with { DirectoryPath = root }), "tampered-release");
-        Check(a.Current is null, "Tampered release changed state.");
-    });
-    Test("corrupt state recovers the last atomically replaced manifest", () =>
-    {
-        var dataRoot = Path.Combine(root, "recovery");
-        var store = new ModuleStore(dataRoot);
-        var first = store.Install(suppliedZip);
-        store.Install(Package("recovery-next", entries => SetManifest(entries, "Version", "4.0.2")));
-        File.WriteAllText(Path.Combine(dataRoot, "modules", "module-state.json"), "broken");
-        store = new ModuleStore(dataRoot);
-        Check(store.Current == first, "State backup recovery did not restore the previous valid manifest.");
-    });
+            var store = NewStore("staging");
+            var staged = store.Prepare(suppliedZip);
+            Check(store.Current is null, "Prepare changed the active release.");
+            Check(staged.Version == "4.0.0", "Unexpected supplied module version.");
+            Check(staged.Sha256.Length == 64 && File.Exists(Path.Combine(staged.DirectoryPath, staged.DllFileName)), "Incomplete staged release.");
+            store.Activate(staged);
+            Check(store.Current == staged, "Prepared release was not activated.");
+            Check(store.Previous is null, "Unexpected previous release on first activation.");
+        });
+        Test("update, restart, rollback, and undo rollback retain both versions", () =>
+        {
+            var dataRoot = Path.Combine(root, "lifecycle");
+            var store = new ModuleStore(dataRoot);
+            var first = store.Install(suppliedZip);
+            var nextZip = Package("next", entries => SetManifest(entries, "Version", "4.0.1"));
+            var second = store.Install(nextZip);
+            Check(second.Version == "4.0.1" && store.Previous == first, "Update lost the previous release.");
+            store = new ModuleStore(dataRoot);
+            Check(store.Current == second && store.Previous == first, "State did not survive restart.");
+            Check(store.Rollback() == first && store.Current == first && store.Previous == second, "Rollback failed.");
+            Check(store.Rollback() == second && store.Previous == first, "Undo rollback failed.");
+            Check(File.Exists(Path.Combine(first.DirectoryPath, first.DllFileName)), "Old DLL was deleted.");
+        });
+        Test("wrapper directory packages resolve the module directory", () =>
+        {
+            var zip = Path.Combine(root, "wrapped.zip");
+            WriteZip(zip, fixtureEntries.Select(e => e with { Name = "download/" + e.Name }));
+            var store = NewStore("wrapped");
+            var release = store.Install(zip);
+            Check(Path.GetFileName(release.DirectoryPath) == "download", "Incorrect wrapped module path.");
+            Check(File.Exists(Path.Combine(release.DirectoryPath, "module.json")), "Manifest not found in resolved directory.");
+        });
+        Test("rejected packages preserve the running and previous versions", () =>
+        {
+            var store = NewStore("rejections");
+            var current = store.Install(suppliedZip);
+            var badPackages = new Dictionary<string, Action<List<FixtureEntry>>>
+            {
+                ["traversal"] = entries => entries.Add(new("../escaped.txt", [1])),
+                ["backslash-traversal"] = entries => entries.Add(new("..\\escaped.txt", [1])),
+                ["absolute"] = entries => entries.Add(new("C:/escaped.txt", [1])),
+                ["alternate-stream"] = entries => entries.Add(new("file.txt:payload", [1])),
+                ["windows-device"] = entries => entries.Add(new("CON.txt", [1])),
+                ["trailing-dot"] = entries => entries.Add(new("bad./payload", [1])),
+                ["duplicate"] = entries => entries.Add(entries[0] with { Name = entries[0].Name.ToUpperInvariant() }),
+                ["symlink"] = entries => entries.Add(new("linked", Encoding.UTF8.GetBytes("outside"), unchecked((int)0xA1FF0000))),
+                ["wrong-module"] = entries => SetManifest(entries, "ModuleId", Guid.NewGuid().ToString()),
+                ["wrong-dll"] = entries => SetManifest(entries, "DllFileName", "Other.dll"),
+                ["missing-dll"] = entries => entries.RemoveAll(e => e.Name == ModuleStore.BaballoniaDll),
+                ["non-managed-dll"] = entries => Replace(entries, ModuleStore.BaballoniaDll, [1, 2, 3]),
+                ["other-assembly"] = entries => Replace(entries, ModuleStore.BaballoniaDll, File.ReadAllBytes(typeof(ModuleStore).Assembly.Location)),
+                ["multiple-manifests"] = entries => entries.Add(new("extra/module.json", Encoding.UTF8.GetBytes("{}"))),
+                ["invalid-json"] = entries => Replace(entries, "module.json", Encoding.UTF8.GetBytes("{not-json}")),
+                ["oversized-manifest"] = entries => Replace(entries, "module.json", new byte[1024 * 1024 + 1]),
+            };
+            foreach (var (name, mutate) in badPackages)
+            {
+                var zip = Package(name, mutate);
+                ExpectFailure(() => store.Install(zip), name);
+                Check(store.Current == current && store.Previous is null, $"{name} changed active module state.");
+            }
+            Check(!File.Exists(Path.Combine(root, "escaped.txt")), "Traversal wrote outside the release directory.");
+        });
+        Test("prepared releases cannot be activated in another store", () =>
+        {
+            var a = NewStore("store-a");
+            var b = NewStore("store-b");
+            var release = a.Prepare(suppliedZip);
+            ExpectFailure(() => b.Activate(release), "foreign-release");
+            Check(b.Current is null, "Foreign release changed state.");
+            ExpectFailure(() => a.Activate(release with { DirectoryPath = root }), "tampered-release");
+            Check(a.Current is null, "Tampered release changed state.");
+        });
+        Test("corrupt state recovers the last atomically replaced manifest", () =>
+        {
+            var dataRoot = Path.Combine(root, "recovery");
+            var store = new ModuleStore(dataRoot);
+            var first = store.Install(suppliedZip);
+            store.Install(Package("recovery-next", entries => SetManifest(entries, "Version", "4.0.2")));
+            File.WriteAllText(Path.Combine(dataRoot, "modules", "module-state.json"), "broken");
+            store = new ModuleStore(dataRoot);
+            Check(store.Current == first, "State backup recovery did not restore the previous valid manifest.");
+        });
+    }
     Test("settings persist and validation rejects conflicting listening ports", () =>
     {
         var dataRoot = Path.Combine(root, "settings");
@@ -142,7 +146,7 @@ try
         Directory.CreateDirectory(dataRoot);
         File.WriteAllText(Path.Combine(dataRoot, "settings.json"), "{}");
         var settings = AppSettings.Load(dataRoot);
-        Check(settings.InputSource == TrackingInputSource.SteamFrameRuntime, "Existing settings changed their source.");
+        Check(settings.InputSource == TrackingInputSource.HeadsetRuntime, "Existing settings changed their source.");
         settings.InputSource = TrackingInputSource.BaballoniaDesktop;
         settings.Save(dataRoot);
         Check(AppSettings.Load(dataRoot).InputSource == TrackingInputSource.BaballoniaDesktop, "Desktop source did not persist.");
@@ -150,6 +154,56 @@ try
         settings.InputSource = (TrackingInputSource)123;
         ExpectFailure(settings.Validate, "invalid-tracking-source");
         Check(AppSettings.Load(dataRoot).InputSource == TrackingInputSource.BaballoniaDesktop, "Rejected source overwrote valid settings.");
+    });
+    Test("the old runtime source name migrates without resetting connection preferences", () =>
+    {
+        var dataRoot = Path.Combine(root, "source-migration");
+        Directory.CreateDirectory(dataRoot);
+        var path = Path.Combine(dataRoot, "settings.json");
+        File.WriteAllText(path, """
+            {"InputSource":"SteamFrameRuntime","OutputHost":"192.168.1.20","OutputPort":19000,
+             "ReceivePort":19001,"LinkPort":17677,"AutoStart":true}
+            """);
+        var settings = AppSettings.Load(dataRoot);
+        Check(settings.InputSource == TrackingInputSource.HeadsetRuntime, "The old source name was not recognized.");
+        Check(settings.OutputHost == "192.168.1.20" && settings.OutputPort == 19000
+            && settings.ReceivePort == 19001 && settings.LinkPort == 17677 && settings.AutoStart,
+            "Migrating the runtime source changed saved connection preferences.");
+        settings.Save(dataRoot);
+        using var canonical = JsonDocument.Parse(File.ReadAllText(path));
+        Check(canonical.RootElement.GetProperty("InputSource").GetString() == "HeadsetRuntime",
+            "Saving a migrated profile did not write the canonical runtime name.");
+        Check(AppSettings.Load(dataRoot).InputSource == TrackingInputSource.HeadsetRuntime,
+            "The migrated profile could not be reopened.");
+    });
+    Test("source JSON preserves supported legacy values and rejects unknown values", () =>
+    {
+        var dataRoot = Path.Combine(root, "source-values");
+        Directory.CreateDirectory(dataRoot);
+        var path = Path.Combine(dataRoot, "settings.json");
+        foreach (var (json, expected) in new[]
+        {
+            ("0", TrackingInputSource.HeadsetRuntime), ("1", TrackingInputSource.BaballoniaDesktop),
+            ("\"HeadsetRuntime\"", TrackingInputSource.HeadsetRuntime),
+            ("\"BaballoniaDesktop\"", TrackingInputSource.BaballoniaDesktop),
+            ("\"steamframeruntime\"", TrackingInputSource.HeadsetRuntime),
+            ("\"0\"", TrackingInputSource.HeadsetRuntime), ("\"1\"", TrackingInputSource.BaballoniaDesktop)
+        })
+        {
+            File.WriteAllText(path, "{\"InputSource\":" + json + "}");
+            var settings = AppSettings.Load(dataRoot);
+            Check(settings.InputSource == expected, "Source value was not preserved: " + json);
+            settings.Save(dataRoot);
+            using var canonical = JsonDocument.Parse(File.ReadAllText(path));
+            Check(canonical.RootElement.GetProperty("InputSource").GetString() == expected.ToString(),
+                "Saving did not canonicalize the source value: " + json);
+        }
+        foreach (var json in new[] { "2", "-1", "1.5", "null", "true", "\"2\"", "\"unknown\"" })
+        {
+            File.WriteAllText(path, "{\"InputSource\":" + json + "}");
+            ExpectFailure(() => AppSettings.Load(dataRoot), "invalid-source-" + json);
+        }
+        ExpectFailure(() => JsonSerializer.Serialize((TrackingInputSource)123), "invalid-source-serialization");
     });
 }
 finally
@@ -181,7 +235,7 @@ static void Check(bool condition, string message)
 static void ExpectFailure(Action action, string context)
 {
     try { action(); }
-    catch (Exception ex) when (ex is InvalidDataException or IOException or ArgumentException or InvalidOperationException) { return; }
+    catch (Exception ex) when (ex is InvalidDataException or IOException or ArgumentException or InvalidOperationException or JsonException) { return; }
     throw new Exception("Expected rejection: " + context);
 }
 static List<FixtureEntry> ReadZip(string path)
