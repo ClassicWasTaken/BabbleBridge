@@ -1,0 +1,17 @@
+FRAME BRIDGE INSTALLER VALIDATION
+
+Result: PASS
+
+Isolated per-user install, reinstall, upgrade, downgrade rejection and uninstall.
+The test used a separate random application identity and a workspace install folder.
+The synthetic newer installer tested upgrade behavior without changing production version.
+Installed-worker mapping used the existing --all-parameters diagnostic mode.
+VRChat avatar discovery was excluded to avoid interference with a running local game.
+
+- First install created one test uninstall entry and extracted the complete verified app payload.
+- Same-version reinstall reused the installation directory and uninstall entry.
+- A newer synthetic release replaced installed files and updated the same uninstall entry.
+- An older installer was rejected before changing installed version or files.
+- The installed worker passed real-module BFR discovery, exact diagnostic OSC mapping, and mode-change restart checks.
+- The isolated uninstaller removed installed app files and its test registration.
+- Real user settings, imported modules, and module state remained byte-for-byte unchanged.

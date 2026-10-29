@@ -1,0 +1,22 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <UseWPF>true</UseWPF>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <AssemblyName>BabbleFrameBridge</AssemblyName>
+    <Version>1.5.0</Version>
+    <Product>Steam Frame Babble Bridge</Product>
+    <Authors>Frame Bridge contributors</Authors>
+    <Copyright>Copyright © 2026 Frame Bridge contributors. Third-party copyrights remain with their respective owners.</Copyright>
+    <Description>Independent Windows bridge for Babble Frame Runtime and VRChat face tracking.</Description>
+    <ApplicationIcon>Assets\Bridge.ico</ApplicationIcon>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\BabbleFrameBridge.Shared\BabbleFrameBridge.Shared.csproj" />
+    <Resource Include="Assets\Brand\*.ttf" />
+    <Resource Include="Assets\Brand\bridge-logo.png" />
+    <Content Include="Assets\Brand\*.txt" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+  </ItemGroup>
+</Project>

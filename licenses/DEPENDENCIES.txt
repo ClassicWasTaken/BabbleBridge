@@ -1,0 +1,240 @@
+Resolved NuGet dependencies for Babble Frame Bridge
+Versions recorded from the published worker build.
+
+CommunityToolkit.Mvvm/8.4.0
+Authors: Microsoft
+License: MIT
+License URL: https://licenses.nuget.org/MIT
+Project: https://github.com/CommunityToolkit/dotnet
+Copyright: (c) .NET Foundation and Contributors. All rights reserved.
+
+Gameloop.Vdf/0.6.2
+Authors: Shravan Rajinikanth
+License: MIT
+License URL: https://licenses.nuget.org/MIT
+Project: https://github.com/shravan2x/Gameloop.Vdf
+Copyright: Copyright © Shravan Rajinikanth 2016
+
+Microsoft.Extensions.Configuration/10.0.1
+Authors: Microsoft
+License: MIT
+License URL: https://licenses.nuget.org/MIT
+Project: https://dot.net/
+Copyright: © Microsoft Corporation. All rights reserved.
+
+Microsoft.Extensions.Configuration.Abstractions/10.0.1
+Authors: Microsoft
+License: MIT
+License URL: https://licenses.nuget.org/MIT
+Project: https://dot.net/
+Copyright: © Microsoft Corporation. All rights reserved.
+
+Microsoft.Extensions.Configuration.Binder/10.0.1
+Authors: Microsoft
+License: MIT
+License URL: https://licenses.nuget.org/MIT
+Project: https://dot.net/
+Copyright: © Microsoft Corporation. All rights reserved.
+
+Microsoft.Extensions.Configuration.CommandLine/10.0.1
+Authors: Microsoft
+License: MIT
+License URL: https://licenses.nuget.org/MIT
+Project: https://dot.net/
+Copyright: © Microsoft Corporation. All rights reserved.
+
+Microsoft.Extensions.Configuration.EnvironmentVariables/10.0.1
+Authors: Microsoft
+License: MIT
+License URL: https://licenses.nuget.org/MIT
+Project: https://dot.net/
+Copyright: © Microsoft Corporation. All rights reserved.
+
+Microsoft.Extensions.Configuration.FileExtensions/10.0.1
+Authors: Microsoft
+License: MIT
+License URL: https://licenses.nuget.org/MIT
+Project: https://dot.net/
+Copyright: © Microsoft Corporation. All rights reserved.
+
+Microsoft.Extensions.Configuration.Json/10.0.1
+Authors: Microsoft
+License: MIT
+License URL: https://licenses.nuget.org/MIT
+Project: https://dot.net/
+Copyright: © Microsoft Corporation. All rights reserved.
+
+Microsoft.Extensions.Configuration.UserSecrets/10.0.1
+Authors: Microsoft
+License: MIT
+License URL: https://licenses.nuget.org/MIT
+Project: https://dot.net/
+Copyright: © Microsoft Corporation. All rights reserved.
+
+Microsoft.Extensions.DependencyInjection/10.0.1
+Authors: Microsoft
+License: MIT
+License URL: https://licenses.nuget.org/MIT
+Project: https://dot.net/
+Copyright: © Microsoft Corporation. All rights reserved.
+
+Microsoft.Extensions.DependencyInjection.Abstractions/10.0.1
+Authors: Microsoft
+License: MIT
+License URL: https://licenses.nuget.org/MIT
+Project: https://dot.net/
+Copyright: © Microsoft Corporation. All rights reserved.
+
+Microsoft.Extensions.Diagnostics/10.0.1
+Authors: Microsoft
+License: MIT
+License URL: https://licenses.nuget.org/MIT
+Project: https://dot.net/
+Copyright: © Microsoft Corporation. All rights reserved.
+
+Microsoft.Extensions.Diagnostics.Abstractions/10.0.1
+Authors: Microsoft
+License: MIT
+License URL: https://licenses.nuget.org/MIT
+Project: https://dot.net/
+Copyright: © Microsoft Corporation. All rights reserved.
+
+Microsoft.Extensions.FileProviders.Abstractions/10.0.1
+Authors: Microsoft
+License: MIT
+License URL: https://licenses.nuget.org/MIT
+Project: https://dot.net/
+Copyright: © Microsoft Corporation. All rights reserved.
+
+Microsoft.Extensions.FileProviders.Physical/10.0.1
+Authors: Microsoft
+License: MIT
+License URL: https://licenses.nuget.org/MIT
+Project: https://dot.net/
+Copyright: © Microsoft Corporation. All rights reserved.
+
+Microsoft.Extensions.FileSystemGlobbing/10.0.1
+Authors: Microsoft
+License: MIT
+License URL: https://licenses.nuget.org/MIT
+Project: https://dot.net/
+Copyright: © Microsoft Corporation. All rights reserved.
+
+Microsoft.Extensions.Hosting/10.0.1
+Authors: Microsoft
+License: MIT
+License URL: https://licenses.nuget.org/MIT
+Project: https://dot.net/
+Copyright: © Microsoft Corporation. All rights reserved.
+
+Microsoft.Extensions.Hosting.Abstractions/10.0.1
+Authors: Microsoft
+License: MIT
+License URL: https://licenses.nuget.org/MIT
+Project: https://dot.net/
+Copyright: © Microsoft Corporation. All rights reserved.
+
+Microsoft.Extensions.Logging/10.0.1
+Authors: Microsoft
+License: MIT
+License URL: https://licenses.nuget.org/MIT
+Project: https://dot.net/
+Copyright: © Microsoft Corporation. All rights reserved.
+
+Microsoft.Extensions.Logging.Abstractions/10.0.1
+Authors: Microsoft
+License: MIT
+License URL: https://licenses.nuget.org/MIT
+Project: https://dot.net/
+Copyright: © Microsoft Corporation. All rights reserved.
+
+Microsoft.Extensions.Logging.Configuration/10.0.1
+Authors: Microsoft
+License: MIT
+License URL: https://licenses.nuget.org/MIT
+Project: https://dot.net/
+Copyright: © Microsoft Corporation. All rights reserved.
+
+Microsoft.Extensions.Logging.Console/10.0.1
+Authors: Microsoft
+License: MIT
+License URL: https://licenses.nuget.org/MIT
+Project: https://dot.net/
+Copyright: © Microsoft Corporation. All rights reserved.
+
+Microsoft.Extensions.Logging.Debug/10.0.1
+Authors: Microsoft
+License: MIT
+License URL: https://licenses.nuget.org/MIT
+Project: https://dot.net/
+Copyright: © Microsoft Corporation. All rights reserved.
+
+Microsoft.Extensions.Logging.EventLog/10.0.1
+Authors: Microsoft
+License: MIT
+License URL: https://licenses.nuget.org/MIT
+Project: https://dot.net/
+Copyright: © Microsoft Corporation. All rights reserved.
+
+Microsoft.Extensions.Logging.EventSource/10.0.1
+Authors: Microsoft
+License: MIT
+License URL: https://licenses.nuget.org/MIT
+Project: https://dot.net/
+Copyright: © Microsoft Corporation. All rights reserved.
+
+Microsoft.Extensions.Options/10.0.1
+Authors: Microsoft
+License: MIT
+License URL: https://licenses.nuget.org/MIT
+Project: https://dot.net/
+Copyright: © Microsoft Corporation. All rights reserved.
+
+Microsoft.Extensions.Options.ConfigurationExtensions/10.0.1
+Authors: Microsoft
+License: MIT
+License URL: https://licenses.nuget.org/MIT
+Project: https://dot.net/
+Copyright: © Microsoft Corporation. All rights reserved.
+
+Microsoft.Extensions.Primitives/10.0.1
+Authors: Microsoft
+License: MIT
+License URL: https://licenses.nuget.org/MIT
+Project: https://dot.net/
+Copyright: © Microsoft Corporation. All rights reserved.
+
+Microsoft.NETCore.Platforms/1.1.0
+Authors: Microsoft
+License: 
+License URL: http://go.microsoft.com/fwlink/?LinkId=329770
+Project: https://dot.net/
+Copyright: © Microsoft Corporation.  All rights reserved.
+
+NETStandard.Library/1.6.1
+Authors: Microsoft
+License: 
+License URL: http://go.microsoft.com/fwlink/?LinkId=329770
+Project: https://dot.net/
+Copyright: © Microsoft Corporation.  All rights reserved.
+
+Newtonsoft.Json/13.0.4
+Authors: James Newton-King
+License: MIT
+License URL: https://licenses.nuget.org/MIT
+Project: https://www.newtonsoft.com/json
+Copyright: Copyright © James Newton-King 2008
+
+Sentry/6.0.0
+Authors: Sentry Team and Contributors
+License: MIT
+License URL: https://licenses.nuget.org/MIT
+Project: https://sentry.io/
+Copyright: 
+
+System.Diagnostics.EventLog/10.0.1
+Authors: Microsoft
+License: MIT
+License URL: https://licenses.nuget.org/MIT
+Project: https://dot.net/
+Copyright: © Microsoft Corporation. All rights reserved.

@@ -1,0 +1,100 @@
+<!-- Copyright (c) 2026 Frame Bridge contributors. SPDX-License-Identifier: Apache-2.0 -->
+<Window x:Class="BabbleFrameBridge.App.MainWindow" xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" xmlns:local="clr-namespace:BabbleFrameBridge.App"
+ Title="Steam Frame Babble Bridge" Width="1200" Height="900" MinWidth="1020" MinHeight="760" WindowStartupLocation="CenterScreen" Background="{DynamicResource Cream}" Foreground="{DynamicResource Ink}" FontFamily="{StaticResource BrandFont}" FontSize="14" UseLayoutRounding="True" TextOptions.TextFormattingMode="Display" AllowDrop="True" Drop="Window_Drop" DragOver="Window_DragOver" Icon="Assets/Brand/bridge-logo.png">
+ <Grid>
+  <Grid.ColumnDefinitions><ColumnDefinition Width="216"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+  <Border Background="{DynamicResource SidebarBackground}">
+   <Grid Margin="18,26,18,22"><Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+    <StackPanel><StackPanel Orientation="Horizontal" Margin="6,0,0,24"><Image Source="Assets/Brand/bridge-logo.png" Width="34" Height="34" Margin="0,0,10,0"/><TextBlock Text="Frame Bridge" Foreground="{DynamicResource HeroInk}" FontWeight="Bold" FontStyle="Italic" FontSize="17" VerticalAlignment="Center"/></StackPanel>
+     <Border Height="1" Background="{DynamicResource SidebarDivider}" Margin="5,0,5,23"/><TextBlock Text="FRAME BRIDGE" Foreground="{DynamicResource SidebarMuted}" FontSize="10" FontWeight="SemiBold" Margin="14,0,0,14"/>
+    </StackPanel>
+    <StackPanel Grid.Row="1">
+     <RadioButton x:Name="OverviewNav" GroupName="Pages" Style="{StaticResource Navigation}" Tag="overview" Checked="Navigate_Click" IsChecked="True"><StackPanel Orientation="Horizontal"><Path Style="{StaticResource OutlineIcon}" Stroke="{Binding Foreground,RelativeSource={RelativeSource AncestorType=RadioButton}}" Data="M3,3H10V10H3Z M14,3H21V10H14Z M3,14H10V21H3Z M14,14H21V21H14Z" Margin="0,0,12,0"/><TextBlock Text="Overview" VerticalAlignment="Center"/></StackPanel></RadioButton>
+     <RadioButton x:Name="ModulesNav" GroupName="Pages" Style="{StaticResource Navigation}" Tag="modules" Checked="Navigate_Click"><StackPanel Orientation="Horizontal"><Path Style="{StaticResource OutlineIcon}" Stroke="{Binding Foreground,RelativeSource={RelativeSource AncestorType=RadioButton}}" Data="M3,7L12,2 21,7 12,12Z M3,7V17L12,22 21,17V7 M12,12V22" Margin="0,0,12,0"/><TextBlock Text="Module &amp; updates" VerticalAlignment="Center"/></StackPanel></RadioButton>
+     <RadioButton x:Name="SettingsNav" GroupName="Pages" Style="{StaticResource Navigation}" Tag="settings" Checked="Navigate_Click"><StackPanel Orientation="Horizontal"><Path Style="{StaticResource OutlineIcon}" Stroke="{Binding Foreground,RelativeSource={RelativeSource AncestorType=RadioButton}}" Data="M5,2V22 M12,2V22 M19,2V22 M2,8H8 M9,16H15 M16,7H22" Margin="0,0,12,0"/><TextBlock Text="Connection" VerticalAlignment="Center"/></StackPanel></RadioButton>
+     <RadioButton x:Name="ActivityNav" GroupName="Pages" Style="{StaticResource Navigation}" Tag="activity" Checked="Navigate_Click"><StackPanel Orientation="Horizontal"><Path Style="{StaticResource OutlineIcon}" Stroke="{Binding Foreground,RelativeSource={RelativeSource AncestorType=RadioButton}}" Data="M2,12H6L9,4 14,20 17,12H22" Margin="0,0,12,0"/><TextBlock Text="Activity log" VerticalAlignment="Center"/></StackPanel></RadioButton>
+    </StackPanel>
+    <StackPanel Grid.Row="3">
+     <Border Background="{DynamicResource SidebarCard}" CornerRadius="14" Padding="16" Margin="0,0,0,22"><StackPanel><Path Style="{StaticResource OutlineIcon}" Stroke="{DynamicResource Focus}" Data="M4,10C4,5 20,5 20,10V16C20,20 17,20 15,15H9C7,20 4,20 4,16Z M8,10H11 M9.5,8.5V11.5 M16,10H16.1" HorizontalAlignment="Left" Width="26" Height="24" Margin="0,0,0,11"/><TextBlock Text="Made for Steam Frame." Foreground="{DynamicResource HeroInk}" FontWeight="Medium" FontSize="13"/><TextBlock Text="Your expressions, across the bridge." Foreground="{DynamicResource SidebarMuted}" FontSize="12" Margin="0,5,0,0"/></StackPanel></Border>
+     <Button Content="Setup guide  ↗" Style="{StaticResource LinkButton}" Foreground="{DynamicResource SidebarInk}" HorizontalAlignment="Left" Margin="8,0,0,18" Click="Guide_Click"/>
+     <Button Style="{StaticResource LinkButton}" Foreground="{DynamicResource SidebarMuted}" HorizontalAlignment="Left" Margin="8,0,0,7" Click="Attribution_Click"><TextBlock Text="Credits &amp; licenses ↗" FontSize="10"/></Button>
+     <TextBlock x:Name="BuildLabel" Text="INDEPENDENT BUILD" Foreground="{DynamicResource SidebarFaint}" FontSize="9" Margin="8,0,0,0"/>
+    </StackPanel>
+   </Grid>
+  </Border>
+  <Grid Grid.Column="1" IsHitTestVisible="False" ClipToBounds="True">
+   <Ellipse Width="900" Height="650" HorizontalAlignment="Right" VerticalAlignment="Top" Margin="0,-340,-250,0"><Ellipse.Fill><RadialGradientBrush><GradientStop Color="#1F8ECFBE" Offset="0"/><GradientStop Color="#008ECFBE" Offset="1"/></RadialGradientBrush></Ellipse.Fill></Ellipse>
+   <Ellipse Width="800" Height="600" HorizontalAlignment="Left" VerticalAlignment="Bottom" Margin="-300,0,0,-270"><Ellipse.Fill><RadialGradientBrush><GradientStop Color="#20F4C2C2" Offset="0"/><GradientStop Color="#00F4C2C2" Offset="1"/></RadialGradientBrush></Ellipse.Fill></Ellipse>
+   <Viewbox Stretch="Fill" VerticalAlignment="Bottom" Height="200" Opacity="0.09"><Canvas Width="1000" Height="200"><Path Stroke="{DynamicResource Accent}" StrokeThickness="1" Data="M-30,95C180,190 300,-20 550,90S850,195 1030,100 M-30,112C180,207 300,-3 550,107S850,212 1030,117 M-30,129C180,224 300,14 550,124S850,229 1030,134"/></Canvas></Viewbox>
+  </Grid>
+  <Grid Grid.Column="1" Margin="32,25,32,18">
+   <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+   <Grid Margin="0,0,0,23"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+    <StackPanel><TextBlock x:Name="PageTitle" Text="Frame Bridge" Style="{StaticResource PageHeading}"/><TextBlock x:Name="PageSubtitle" Text="A little more you, in VR." Foreground="{DynamicResource Muted}" FontSize="13" Margin="0,3,0,0"/></StackPanel>
+    <Border Grid.Column="1" CornerRadius="16" Background="{DynamicResource SoftBackground}" Padding="12,7" VerticalAlignment="Center"><StackPanel Orientation="Horizontal"><Ellipse Width="6" Height="6" Fill="{DynamicResource Accent}" Margin="0,0,7,0"/><TextBlock Text="STEAM FRAME" Foreground="{DynamicResource AccentInk}" FontWeight="SemiBold" FontSize="10"/></StackPanel></Border>
+   </Grid>
+   <Border x:Name="GlobalNotice" Grid.Row="1" Visibility="Collapsed" Background="{DynamicResource ErrorBackground}" BorderBrush="{DynamicResource ErrorBorder}" BorderThickness="1" CornerRadius="12" Padding="14,11" Margin="0,0,0,14"><TextBlock x:Name="GlobalNoticeText" FontSize="12" Foreground="{DynamicResource ErrorInk}"/></Border>
+   <ScrollViewer Grid.Row="2" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" Padding="0,0,5,0">
+    <Grid>
+     <StackPanel x:Name="OverviewPage">
+      <Border CornerRadius="21" Padding="0" Margin="0,0,0,18" ClipToBounds="True">
+       <Border.Background><DynamicResource ResourceKey="HeroBackground"/></Border.Background>
+       <Grid x:Name="HeroSurface" SizeChanged="Hero_SizeChanged">
+        <local:ParticleField x:Name="HeroParticles" IsHitTestVisible="False"/>
+        <Border IsHitTestVisible="False"><Border.Background><RadialGradientBrush Center="0.5,0.45" GradientOrigin="0.5,0.45" RadiusX="0.4" RadiusY="0.4"><GradientStop Color="#0F8CFFC8" Offset="0"/><GradientStop Color="#008CFFC8" Offset="0.7"/></RadialGradientBrush></Border.Background></Border>
+        <Border IsHitTestVisible="False"><Border.Background><RadialGradientBrush Center="0.5,0.5" GradientOrigin="0.5,0.5" RadiusX="0.7" RadiusY="0.9"><GradientStop Color="#00000000" Offset="0.25"/><GradientStop Color="#4D000000" Offset="1"/></RadialGradientBrush></Border.Background></Border>
+       <Grid MinHeight="163" Margin="27,24"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="145"/></Grid.ColumnDefinitions>
+        <StackPanel><StackPanel Orientation="Horizontal"><Ellipse x:Name="StateDot" Width="7" Height="7" Fill="{DynamicResource Focus}" Margin="0,0,8,0"/><TextBlock Text="HEADSET CONNECTION" Foreground="{DynamicResource HeroMuted}" FontWeight="SemiBold" FontSize="10"/></StackPanel>
+         <TextBlock x:Name="StateTitle" Text="Getting ready" Foreground="{DynamicResource HeroInk}" FontSize="27" FontWeight="Bold" FontStyle="Italic" Margin="0,10,0,7"/>
+         <TextBlock x:Name="StateDetail" Text="Checking your module…" Foreground="{DynamicResource HeroMuted}" FontSize="12" Margin="0,0,12,18" MinHeight="19"/>
+         <StackPanel Orientation="Horizontal"><Button x:Name="StartButton" Content="Start bridge" Background="{DynamicResource HeroButtonBackground}" Foreground="{DynamicResource HeroButtonInk}" Padding="20,11" MinWidth="126" Click="Start_Click"/><TextBlock x:Name="ModeLabel" Text="Eyes and face follow your headset." Foreground="{DynamicResource HeroMuted}" VerticalAlignment="Center" FontSize="10" Margin="16,0,0,0" MaxWidth="215"/></StackPanel>
+        </StackPanel>
+        <StackPanel Grid.Column="1" VerticalAlignment="Center"><Image Source="{StaticResource BridgeLogoWhite}" Width="112" Height="100" HorizontalAlignment="Center"/><TextBlock x:Name="HeadsetState" Text="Steam Frame · waiting" Foreground="{DynamicResource HeroMuted}" FontSize="10" TextAlignment="Center" Margin="0,3,0,0"/></StackPanel>
+       </Grid></Grid>
+      </Border>
+      <Grid Margin="0,0,0,18">
+       <Border Style="{StaticResource Card}"><StackPanel>
+        <StackPanel Orientation="Horizontal" Margin="0,0,0,17"><Border Background="{DynamicResource SoftBackground}" CornerRadius="8" Padding="8" Margin="0,0,10,0"><Path Style="{StaticResource OutlineIcon}" Data="M3,12H7L10,5 14,19 17,12H21"/></Border><TextBlock Text="VRChat output" FontSize="17" FontWeight="SemiBold" VerticalAlignment="Center"/></StackPanel>
+        <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions><StackPanel><TextBlock x:Name="OutputRate" Text="0 msgs/s" FontSize="29" FontWeight="Bold" FontStyle="Italic"/><TextBlock Text="OSC messages sent" Foreground="{DynamicResource Muted}" FontSize="10" Margin="0,2,0,0"/></StackPanel><StackPanel Grid.Column="1" VerticalAlignment="Center"><TextBlock Text="DESTINATION" Style="{StaticResource Caption}" FontSize="9"/><TextBlock x:Name="TargetLabel" Text="127.0.0.1 : 9000" FontSize="12" FontWeight="Medium"/></StackPanel></Grid>
+        <Border BorderBrush="{DynamicResource Divider}" BorderThickness="0,1,0,0" Margin="0,17,0,0" Padding="0,12,0,0"><StackPanel><TextBlock x:Name="AvatarLabel" Text="Avatar · waiting for VRChat" Foreground="{DynamicResource Muted}" FontSize="11" TextTrimming="CharacterEllipsis" TextWrapping="NoWrap"/><TextBlock x:Name="TrackingRoute" Text="Waiting for avatar tracking support" Foreground="{DynamicResource AccentInk}" FontSize="11" Margin="0,9,0,0" TextWrapping="Wrap"/></StackPanel></Border>
+       </StackPanel></Border>
+      </Grid>
+      <Border Style="{StaticResource Card}" Margin="0,0,0,18">
+       <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+        <StackPanel Margin="0,0,16,0"><TextBlock Text="YOUR TRACKING MODULE" Style="{StaticResource Caption}" FontSize="10"/><TextBlock x:Name="ModuleLabel" Text="No module installed" FontWeight="SemiBold" FontSize="18"/><TextBlock x:Name="PackageDetail" Text="Drop a new module ZIP here to update." Foreground="{DynamicResource Muted}" FontSize="11" Margin="0,6,0,0"/><TextBlock x:Name="HashLabel" Foreground="{DynamicResource FaintInk}" FontFamily="Consolas" FontSize="9" Margin="0,7,0,0"/></StackPanel>
+        <StackPanel Grid.Column="1" VerticalAlignment="Center"><Button x:Name="ImportButton" Content="Import module ZIP  ↑" Click="Import_Click"/><Button x:Name="RollbackButton" Style="{StaticResource LinkButton}" Content="Restore previous" Margin="0,12,0,0" FontSize="11" Click="Rollback_Click" IsEnabled="False"/></StackPanel>
+       </Grid>
+      </Border>
+      <Border Background="{DynamicResource SoftBackground}" CornerRadius="12" Padding="16,12"><Grid><Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions><Ellipse Width="6" Height="6" Fill="{DynamicResource Accent}" VerticalAlignment="Center" Margin="0,0,10,0"/><TextBlock x:Name="LatestActivity" Grid.Column="1" Text="Everything is ready for your next session." FontSize="11" Foreground="{DynamicResource SubtleInk}" TextTrimming="CharacterEllipsis" TextWrapping="NoWrap" VerticalAlignment="Center" Margin="0,0,12,0"/><Button Grid.Column="2" Content="View activity  →" Style="{StaticResource LinkButton}" FontSize="10" Click="ShowActivity_Click"/></Grid></Border>
+     </StackPanel>
+     <StackPanel x:Name="ModulesPage" Visibility="Collapsed">
+      <Border Style="{StaticResource Card}" Padding="28"><StackPanel>
+       <Border Background="{DynamicResource SoftBackground}" CornerRadius="15" Padding="18" HorizontalAlignment="Left" Margin="0,0,0,20"><Path Style="{StaticResource OutlineIcon}" Width="28" Height="28" Data="M3,7L12,2 21,7 12,12Z M3,7V17L12,22 21,17V7 M12,12V22"/></Border>
+       <TextBlock Text="{Binding Text,ElementName=ModuleLabel}" FontSize="26" FontWeight="Bold" FontStyle="Italic"/>
+       <TextBlock Text="The module that brings your headset’s expressions to VRChat." Foreground="{DynamicResource Muted}" Margin="0,7,0,22"/>
+       <Border Background="{DynamicResource InsetBackground}" BorderBrush="{DynamicResource InputBorder}" BorderThickness="1" CornerRadius="15" Padding="28" Margin="0,0,0,22"><StackPanel><TextBlock Text="A new ZIP. A fresh start." FontSize="21" FontWeight="Bold" FontStyle="Italic" TextAlignment="Center"/><TextBlock Text="Drop a Baballonia module ZIP anywhere in this window, or choose a file below." Foreground="{DynamicResource Muted}" FontSize="12" TextAlignment="Center" Margin="0,10,0,21"/><Button Content="Choose module ZIP  ↑" IsEnabled="{Binding IsEnabled,ElementName=ImportButton}" Click="Import_Click" HorizontalAlignment="Center"/></StackPanel></Border>
+       <TextBlock Text="{Binding Text,ElementName=PackageDetail}" Foreground="{DynamicResource Muted}" FontSize="12"/>
+       <Button Content="Restore previous module" Style="{StaticResource QuietButton}" IsEnabled="{Binding IsEnabled,ElementName=RollbackButton}" Click="Rollback_Click" HorizontalAlignment="Left" Margin="0,17,0,24"/>
+       <Border BorderBrush="{DynamicResource Divider}" BorderThickness="0,1,0,0" Padding="0,18,0,0"><StackPanel><TextBlock Text="Updates, with a way back." FontWeight="SemiBold"/><TextBlock Text="Your new module is checked before activation. The bridge restarts automatically, and the previous module stays available to restore." Foreground="{DynamicResource Muted}" FontSize="12" Margin="0,7,0,0"/><TextBlock Text="{Binding Text,ElementName=HashLabel}" Foreground="{DynamicResource FaintInk}" FontSize="10" FontFamily="Consolas" Margin="0,16,0,0"/></StackPanel></Border>
+      </StackPanel></Border>
+     </StackPanel>
+     <StackPanel x:Name="SettingsPage" Visibility="Collapsed">
+      <Border Style="{StaticResource Card}" Padding="28"><StackPanel>
+       <TextBlock Text="Your connection to VRChat." FontSize="23" FontWeight="Bold" FontStyle="Italic"/>
+       <TextBlock Text="The defaults work for VRChat on this computer. Change them if your setup needs a different destination." Foreground="{DynamicResource Muted}" FontSize="12" Margin="0,8,0,28"/>
+       <TextBlock Text="VRChat IP address" Style="{StaticResource Caption}"/><TextBox x:Name="HostBox" AutomationProperties.Name="VRChat IP address" Width="450" HorizontalAlignment="Left" Margin="0,0,0,22"/>
+       <Grid MaxWidth="460" HorizontalAlignment="Left"><Grid.ColumnDefinitions><ColumnDefinition Width="215"/><ColumnDefinition Width="20"/><ColumnDefinition Width="215"/></Grid.ColumnDefinitions><StackPanel><TextBlock Text="Send port" Style="{StaticResource Caption}"/><TextBox x:Name="PortBox" AutomationProperties.Name="Send port"/></StackPanel><StackPanel Grid.Column="2"><TextBlock Text="Receive port" Style="{StaticResource Caption}"/><TextBox x:Name="ReceiveBox" AutomationProperties.Name="Receive port"/></StackPanel></Grid>
+       <CheckBox x:Name="AutoStartBox" Foreground="{DynamicResource AccentInk}" Content="Start the bridge when this app opens" FontSize="13" Margin="0,26,0,26" Checked="AutoStart_Changed" Unchecked="AutoStart_Changed"/>
+       <Border Background="{DynamicResource SoftBackground}" CornerRadius="12" Padding="17" Margin="0,0,0,24"><StackPanel><TextBlock Text="Appearance follows Windows" FontWeight="SemiBold" FontSize="13"/><TextBlock Text="Light and dark mode change automatically with your Windows app color setting." Foreground="{DynamicResource Muted}" FontSize="11" Margin="0,5,0,0"/></StackPanel></Border>
+       <Button x:Name="SaveButton" Content="Save connection" Click="Save_Click" HorizontalAlignment="Left"/>
+       <Border Background="{DynamicResource SoftBackground}" CornerRadius="12" Padding="17" Margin="0,28,0,0"><TextBlock Text="Keep VRCFaceTracking closed while this bridge is running. Both apps use the module’s ports." Foreground="{DynamicResource SubtleInk}" FontSize="12"/></Border>
+      </StackPanel></Border>
+     </StackPanel>
+     <Grid x:Name="ActivityPage" Visibility="Collapsed"><Border Style="{StaticResource Card}" Padding="24"><StackPanel><Grid Margin="0,0,0,18"><TextBlock Text="What’s happening behind the scenes." FontSize="20" FontWeight="Bold" FontStyle="Italic"/><Button Content="Open log folder  ↗" Style="{StaticResource LinkButton}" HorizontalAlignment="Right" VerticalAlignment="Bottom" Margin="0,40,0,0" Click="Logs_Click"/></Grid><TextBox x:Name="LogBox" MinHeight="400" MaxHeight="520" Height="450" IsReadOnly="True" TextWrapping="Wrap" VerticalScrollBarVisibility="Auto" FontFamily="Consolas" FontSize="11" BorderThickness="0" Background="{DynamicResource LogBackground}" Padding="14" AutomationProperties.Name="Activity log"/></StackPanel></Border></Grid>
+    </Grid>
+   </ScrollViewer>
+   <Grid Grid.Row="3" Margin="0,17,0,0"><TextBlock Text="Independent project. Built on VRCFaceTracking." Foreground="{DynamicResource FaintInk}" FontSize="10"/><Button Content="GitHub  ↗" Style="{StaticResource LinkButton}" FontSize="10" HorizontalAlignment="Right" Click="Website_Click"/></Grid>
+  </Grid>
+ </Grid>
+</Window>
+

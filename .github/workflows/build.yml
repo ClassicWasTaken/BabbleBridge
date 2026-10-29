@@ -1,0 +1,75 @@
+name: Windows build
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: windows-build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  portable:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: pwsh
+    env:
+      DOTNET_CLI_TELEMETRY_OPTOUT: '1'
+      DOTNET_NOLOGO: '1'
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      - name: Install .NET 10 SDK
+        uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6
+        with:
+          dotnet-version: '10.0.403'
+
+      - name: Publish self-contained Windows app
+        run: ./build.ps1
+
+      - name: Check pupil normalization
+        run: dotnet run --project tests/EyeData.Tests -c Release
+
+      - name: Verify component license texts and distribution exclusions
+        run: python tests/check_distribution_licenses.py --publish-dir dist/BabbleFrameBridge
+
+      - name: Check native protocol and avatar message parsing
+        run: dotnet run --project tests/BabbleFrameBridge.NativeFace.Tests -c Release
+
+      - name: Check themes and module-free first run
+        run: dotnet run --project tests/BabbleFrameBridge.Appearance.Tests -c Release -- --publish-dir dist/BabbleFrameBridge
+
+      - name: Verify distribution notices and separate-module packaging
+        run: |
+          $payload = Join-Path $PWD 'dist/BabbleFrameBridge'
+          foreach ($file in @('BabbleFrameBridge.exe', 'runtime/BabbleFrameBridge.Worker.exe', 'START-HERE.txt', 'LICENSE', 'NOTICE.txt', 'THIRD_PARTY_NOTICES.md', 'licenses/VRCFaceTracking-LICENSE.txt')) {
+            if (!(Test-Path -LiteralPath (Join-Path $payload $file) -PathType Leaf)) {
+              throw "Missing distribution file: $file"
+            }
+          }
+          $module = Get-ChildItem -LiteralPath $payload -Recurse -File | Where-Object {
+            $_.Name -eq 'VRCFaceTracking.Baballonia.dll' -or
+            ($_.Extension -eq '.zip' -and $_.Name -like '*Baballonia*')
+          }
+          if ($module) { throw 'The application must not include a Baballonia tracking module.' }
+          $copiedRuntime = Get-ChildItem -LiteralPath $payload -Recurse -File -Filter 'vcruntime140.dll'
+          if ($copiedRuntime) { throw 'Install the official Visual C++ runtime separately; do not package a DLL copied from Windows.' }
+
+      - name: Upload portable build
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: FrameBridge-Windows-x64
+          path: dist/BabbleFrameBridge/
+          if-no-files-found: error
+          retention-days: 14

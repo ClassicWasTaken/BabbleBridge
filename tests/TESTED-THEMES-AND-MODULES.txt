@@ -1,0 +1,35 @@
+FRAME BRIDGE 1.4.1 — SYSTEM THEMES AND SEPARATE MODULE IMPORT
+Validated on Windows x64, 29 October 2026.
+
+APPEARANCE
+- Reads the Windows application light/dark preference before opening the window.
+- Live preference messages switch existing page, card, text, input,
+  notification and scrollbar resources without reopening the application.
+- The native window title bar follows the same preference.
+- Both forest-dark and cream-light previews were visually inspected.
+- Expression monitor removed; VRChat output fills the overview row. Tracking
+  continues in the worker with no change to its expression mapping or output.
+- Automated tests changed the existing window Light -> Dark -> Light,
+  checked readable text contrast, switched already-open success/error notices,
+  and sent a Windows preference notification to the isolated test window.
+- Windows personalization settings were never changed by the tests.
+
+SEPARATE MODULE IMPORT
+- The app, installer and source package contain no Baballonia module ZIP or DLL.
+- A new empty profile shows Add your tracking module, enables Add module ZIP,
+  disables Start, and launches no tracking worker.
+- Existing imported modules remain available and enable Start after relaunch.
+- Closing an empty-profile window is safe even when no worker was started.
+- Upgrading removes only the old installed Assets/Baballonia-module.zip;
+  imported modules and settings stay in the user's AppData profile.
+
+RESULTS
+6 appearance/first-run/publish tests passed.
+8 module package and settings lifecycle tests passed with an external ZIP fixture.
+7 isolated installer lifecycle checks passed, including module-free install and
+  cleanup of the old bundled ZIP on upgrade. Real user data stayed unchanged.
+5 legacy and8 native tracking integration checks passed with an external fixture.
+The test module was supplied separately; no live synthetic tracking was injected.
+
+Tests: BabbleFrameBridge.Appearance.Tests, BabbleFrameBridge.Tests,
+installer_smoke.ps1, integration_test.py, native_integration_test.py.

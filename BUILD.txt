@@ -1,0 +1,72 @@
+BUILDING STEAM FRAME BABBLE BRIDGE
+
+Requirements: Windows x64, .NET 10 SDK, internet access for NuGet restore.
+The native OSC library needs Microsoft's Visual C++ v14 Redistributable (x64)
+on the computer running it. Install that prerequisite from Microsoft's official
+download page; this project does not redistribute a DLL copied from System32.
+https://learn.microsoft.com/en-us/cpp/windows/latest-supported-vc-redist
+The app is WPF; the worker hosts the actual VRCFaceTracking mapper and module.
+
+Run PowerShell from this source folder:
+  .\build.ps1
+
+The result is dist\BabbleFrameBridge with a self-contained .NET app and worker.
+Open dist\BabbleFrameBridge\BabbleFrameBridge.exe.
+The output retains LICENSE, NOTICE.txt, THIRD_PARTY_NOTICES.md and licenses/.
+Keep those files with binary distributions; component-specific terms still apply.
+
+Run tests:
+  dotnet run --project tests/BabbleFrameBridge.Tests -c Release -- 'C:\Path\Baballonia-module.zip'
+  dotnet run --project tests/EyeData.Tests -c Release
+  dotnet run --project tests/BabbleFrameBridge.NativeFace.Tests -c Release
+  dotnet run --project tests/BabbleFrameBridge.Appearance.Tests -c Release -- --module-zip 'C:\Path\Baballonia-module.zip' --publish-dir dist/BabbleFrameBridge
+  python tests/integration_test.py --worker dist/BabbleFrameBridge/runtime/BabbleFrameBridge.Worker.exe --module-zip 'C:\Path\Baballonia-module.zip'
+  python tests/native_integration_test.py --worker dist/BabbleFrameBridge/runtime/BabbleFrameBridge.Worker.exe --module-zip 'C:\Path\Baballonia-module.zip'
+
+The Python integration test uses only the standard library, temporary files,
+loopback sockets, and a simulated Frame. It does not access real hardware or
+alter real VRChat/VRCFaceTracking settings. Python 3.11+ is recommended.
+
+LAYOUT
+  src/BabbleFrameBridge.App      Native Windows interface and worker orchestration
+  src/BabbleFrameBridge.Shared   Package validation, transactional state, settings
+  src/BabbleFrameBridge.Worker   Module host, real VRCFT mapping, avatar discovery
+  vendor                        Pinned VRCFaceTracking Core/SDK and native OSC
+  tests                         ZIP lifecycle and protocol/mapping checks
+  licenses                      Full third-party license notices
+
+The app and source package include no tracking module. Obtain a Baballonia ZIP
+separately for imports and real-module integration tests. This bridge only
+accepts packages of the same Baballonia module family. New ZIPs replace module
+payloads without recompiling the bridge, provided their module API is compatible.
+The worker is a separate process for reliable unload/restart; it is not an OS
+security sandbox. SDK incompatibility fails startup and preserves saved state.
+
+An optional --data absolute-path argument gives the app an isolated data profile.
+The worker also accepts --module DLL --data profile --parent PID. Tests use
+--no-discovery to prevent a running VRChat OSCQuery service from replacing a
+temporary avatar fixture; ordinary app launches use automatic discovery.
+Its stdout is
+JSON lines (log, ready, status, restart, fatal); stdin 'stop' shuts it down.
+
+Native SDK beta avatars are detected through /avatar/avatarfullfacetracking.
+The /tracking/face/v1 sender follows VRChat's documented fixed102-byte blob.
+Legacy OSC output resumes with a complete value refresh when switching back.
+See NOTICE.txt for upstream revisions and compatibility/normalization changes.
+The bridge's original artwork and particle implementation are independent of
+the compatible projects' logos and website source. Font notices remain with
+their original files. Names identify interoperability and imply no endorsement.
+
+
+INSTALLER BUILD
+After publishing the portable app, run:
+  .\installer\build-installer.ps1
+Requires Inno Setup 7.1.1 (or compatible newer compiler). See installer/README.txt
+for version checks, future release instructions, stable application identity,
+SHA-256 output, and per-user update/uninstall behavior.
+The build removes exact obsolete app-folder assets from reused output folders.
+It never modifies separately imported modules in AppData. The installer helper
+requires all top-level distribution notices and rejects payloads containing a
+module archive/DLL, obsolete official artwork, or an app-local vcruntime140.dll.
+The .NET runtime's own vcruntime140_cor3.dll is a separate file and is preserved.
+The isolated installer smoke test also requires -ModuleZip with an external fixture.

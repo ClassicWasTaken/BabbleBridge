@@ -1,0 +1,50 @@
+[
+  {
+    "file": "NuGet/Gameloop.Vdf-0.6.2-LICENSE-MIT.txt",
+    "source": "https://raw.githubusercontent.com/shravan2x/Gameloop.Vdf/v0.6.2/LICENSE",
+    "sha256": "572b6d5a46aa0215e0d4eea4f29857dcf8f9e439fbbb2ad9253800b94abe4284"
+  },
+  {
+    "file": "NuGet/Sentry-6.0.0-LICENSE-MIT.txt",
+    "source": "https://raw.githubusercontent.com/getsentry/sentry-dotnet/6.0.0/LICENSE",
+    "sha256": "b1152cc6eae51c7e295212386c390b68de684acc77f2008f2f0680278c267dc3"
+  },
+  {
+    "file": "NuGet/Microsoft-dotnet-10.0.1-LICENSE-MIT.txt",
+    "source": "https://raw.githubusercontent.com/dotnet/runtime/v10.0.1/LICENSE.TXT",
+    "sha256": "cfc21f5e8bd655ae997eec916138b707b1d290b83272c02a95c9f821b8c87310"
+  },
+  {
+    "file": "Rust/LICENSE-APACHE",
+    "source": "https://raw.githubusercontent.com/rust-lang/rust/07dca489ac2d933c78d3c5158e3f43beefeb02ce/LICENSE-APACHE",
+    "sha256": "62c7a1e35f56406896d7aa7ca52d0cc0d272ac022b5d2796e7d6905db8a3636a"
+  },
+  {
+    "file": "Rust/LICENSE-MIT",
+    "source": "https://raw.githubusercontent.com/rust-lang/rust/07dca489ac2d933c78d3c5158e3f43beefeb02ce/LICENSE-MIT",
+    "sha256": "23f18e03dc49df91622fe2a76176497404e46ced8a715d9d2b67a7446571cca3"
+  },
+  {
+    "file": "Rust/COPYRIGHT",
+    "source": "https://raw.githubusercontent.com/rust-lang/rust/07dca489ac2d933c78d3c5158e3f43beefeb02ce/COPYRIGHT",
+    "sha256": "bd0581fef622b3d8b25836cf70feb7e1a7a6171ea9e440b46dfda74c46a0ed0d"
+  },
+  {
+    "file": "DotNet/Microsoft.NETCore.App.Runtime-10.0.14-LICENSE-MIT.txt",
+    "source": "https://www.nuget.org/packages/microsoft.netcore.app.runtime.win-x64/10.0.14",
+    "packageFile": "LICENSE.TXT",
+    "sha256": "d7a68596ab69b06f51ca278a6545148e4269a9381c26d597c13df5d88e08cf5b"
+  },
+  {
+    "file": "DotNet/Microsoft.NETCore.App.Runtime-10.0.14-THIRD-PARTY-NOTICES.txt",
+    "source": "https://www.nuget.org/packages/microsoft.netcore.app.runtime.win-x64/10.0.14",
+    "packageFile": "THIRD-PARTY-NOTICES.TXT",
+    "sha256": "6d15e10a101c6bfff2ab4429ed061bf76c456fc4b23ad6b03e0d0f8377148a21"
+  },
+  {
+    "file": "DotNet/Microsoft.WindowsDesktop.App.Runtime-10.0.14-LICENSE-MIT.txt",
+    "source": "https://www.nuget.org/packages/microsoft.windowsdesktop.app.runtime.win-x64/10.0.14",
+    "packageFile": "LICENSE",
+    "sha256": "a89886665765362eb77e0f8e26602c924520041d1711b2eedc136434fe4d01ab"
+  }
+]

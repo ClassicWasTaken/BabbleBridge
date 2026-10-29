@@ -1,0 +1,88 @@
+STEAM FRAME BABBLE BRIDGE 1.5.0 — COPYRIGHT AND LICENSE NOTICES
+
+Original bridge code, original bridge artwork, and original particle effect
+Copyright (c) 2026 Frame Bridge contributors.
+Licensed under the Apache License, Version 2.0. The full license is LICENSE.
+This grant covers rights the contributors are entitled to license; it does
+not claim ownership of third-party works, names, fonts, or software.
+
+INDEPENDENT PROJECT / TRADEMARKS
+This is an independent Windows host for Babble Frame Runtime. It is not an
+official release of Project Babble, VRCFaceTracking, Valve, or VRChat, and
+none of those parties sponsors or endorses this project. Names such as Steam
+Frame, Babble, VRCFaceTracking, and VRChat identify compatibility and origin.
+Their respective owners retain their trademarks. No trademark rights are
+granted by this project's software license.
+
+VRCFACETRACKING CORE, SDK, AND NATIVE OSC LIBRARY
+Copyright 2024 benaclejames, as stated in the upstream license.
+Licensed under Apache License 2.0; see licenses/VRCFaceTracking-LICENSE.txt
+and vendor/LICENSE. Original upstream notices remain in the vendored source.
+Source: https://github.com/Project-Babble/VRCFaceTracking
+Pinned revision: b4b39da5c9fe048c960aa3b9e56742834df6ff36
+Module-facing assembly version: 5.4.1.0
+Modified files carry prominent modification notices. Changes include SDK
+reinitialization compatibility, pupil normalization, native-avatar metadata,
+legacy-output suppression/resend behavior, and removal of the System32 DLL
+copy from the project file. The SDK reinitialization API was adapted from
+upstream revision e71cbd086c7e9720634dda6b3e89318d43f6d9d1.
+
+vendor/fti_osc.dll is unchanged from the pinned Apache-licensed upstream
+distribution. SHA-256:
+668628bcaf181617839663fe3624f42eb7d36ae3d16e3434ace40a9545aa982e
+Its embedded Rust standard-library revision is recorded with preserved Rust
+MIT, Apache, copyright, and third-party notices in licenses/Rust/.
+The exact historical native source-to-binary build has not been independently
+reproduced; this notice records the upstream distribution provenance.
+
+IBM PLEX SANS FONT SOFTWARE
+Copyright (c) 2017 IBM Corp. with Reserved Font Name "Plex".
+The unmodified embedded IBM Plex Sans fonts are licensed under the SIL Open
+Font License 1.1. See Assets/Brand/IBM-Plex-OFL.txt in the app distribution,
+or src/BabbleFrameBridge.App/Assets/Brand/IBM-Plex-OFL.txt in the source tree.
+The font license applies to the font software; it does not relicense this app.
+
+NUGET AND .NET COMPONENTS
+CommunityToolkit.Mvvm: Copyright .NET Foundation and Contributors. MIT.
+Gameloop.Vdf: Copyright (c) 2016 Shravan Rajinikanth. MIT.
+Newtonsoft.Json: Copyright (c) 2007 James Newton-King in its license;
+the original NuGet metadata separately states copyright 2008. MIT.
+Sentry: Copyright (c) 2018 Sentry. MIT.
+Microsoft packages: original metadata credits Microsoft Corporation;
+applicable MIT texts also credit .NET Foundation and Contributors.
+The self-contained Microsoft .NET and Windows Desktop runtimes have their
+own preserved runtime licenses and third-party notices in licenses/DotNet/.
+Older dependency metapackages have their exact Microsoft .NET Library terms
+preserved separately. Do not assume the project license replaces those terms.
+
+Full component-specific texts, copyrights, exact versions, and source receipts
+are in licenses/NuGet/, licenses/DotNet/, licenses/Rust/,
+licenses/DEPENDENCY-METADATA.json, and licenses/LICENSE-SOURCES.txt.
+See THIRD_PARTY_NOTICES.md for the source-tree map.
+The Sentry library is a transitive/vendor dependency; this bridge does not
+initialize a Sentry client or telemetry sender.
+
+MICROSOFT VISUAL C++ PREREQUISITE
+The app does not redistribute a vcruntime140.dll copied from Windows.
+When required by the native OSC library, install Microsoft's official Visual
+C++ x64 Redistributable separately, under Microsoft's own applicable terms.
+https://learn.microsoft.com/cpp/windows/latest-supported-vc-redist
+
+SEPARATE MODULE AND HEADSET SOFTWARE — NOT DISTRIBUTED HERE
+The Baballonia tracking module ZIP/DLL and Babble Frame Runtime are separate
+works with their own licenses. Users obtain and supply those independently.
+They are not included in this repository, installer, or portable package.
+Project references:
+https://github.com/Project-Babble/Baballonia
+https://github.com/Project-Babble/Babble-Frame-Runtime
+
+ORIGINAL VISUAL ASSETS
+The original headset mark, app icon, installer illustration, and particle flow in this
+version are original project assets under Apache 2.0. Official Project Babble
+logos, the Babble branding pack, and the previous homepage-animation port are
+not included. The green palette and IBM Plex typeface remain; the procedural
+flow uses independently written code and parameters.
+
+Distribution copies must retain LICENSE, NOTICE.txt, THIRD_PARTY_NOTICES.md,
+the applicable licenses/ files, and the font copyright/license file.
+This notice is informational and does not alter any component's license.

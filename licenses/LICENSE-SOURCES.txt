@@ -1,0 +1,68 @@
+DEPENDENCY LICENSE AND COPYRIGHT PROVENANCE
+Recorded 2026-10-29. Files are reproduced verbatim from the stated upstream
+license files or the exact restored NuGet runtime packages. SHA-256 receipts
+are in LICENSE-SOURCES.json; metadata for all 34 resolved NuGet libraries and
+the two redistributed .NET runtimes is in DEPENDENCY-METADATA.json.
+
+NuGet components
+- CommunityToolkit.Mvvm 8.4.0: MIT, copyright .NET Foundation and Contributors.
+  The package's own License.md and ThirdPartyNotices.txt are retained in NuGet/.
+- Gameloop.Vdf 0.6.2: MIT, copyright (c) 2016 Shravan Rajinikanth.
+  NuGet/Gameloop.Vdf-0.6.2-LICENSE-MIT.txt is from its v0.6.2 tag.
+- Newtonsoft.Json 13.0.4: MIT, copyright (c) 2007 James Newton-King in the
+  package's LICENSE.md (package metadata separately says copyright 2008).
+  Preserve both the actual license and original package metadata.
+- Sentry 6.0.0: MIT, copyright (c) 2018 Sentry in its 6.0.0 license.
+  NuGet/Sentry-6.0.0-LICENSE-MIT.txt is the full upstream license.
+- Microsoft.Extensions.* 10.0.1 and System.Diagnostics.EventLog 10.0.1:
+  MIT. Their package metadata credits Microsoft Corporation; the upstream
+  dotnet/runtime MIT license credits .NET Foundation and Contributors.
+  The full upstream license is NuGet/Microsoft-dotnet-10.0.1-LICENSE-MIT.txt;
+  their packaged THIRD-PARTY-NOTICES.TXT files are retained individually.
+- Microsoft.NETCore.Platforms 1.1.0 and NETStandard.Library 1.6.1: retain
+  the exact packaged Microsoft .NET Library terms and ThirdPartyNotices.txt
+  in NuGet/. Do not replace these older packages' terms with an assumed MIT
+  license expression. The original nuspec license URL is recorded in metadata.
+
+Self-contained .NET runtime components
+The published app uses Microsoft.NETCore.App and Microsoft.WindowsDesktop.App
+10.0.14. Their exact restored runtime packages carry MIT licenses, preserved
+in DotNet/. The exact .NETCore runtime THIRD-PARTY-NOTICES.TXT is there too.
+These files supplement the previously retained Microsoft .NET Library terms
+and SDK third-party notices; those older files are not a substitute for the
+specific runtime package license files. The SDK/build tools are not bundled
+with the application. Source builds restore dependencies through NuGet.
+
+VRCFaceTracking native OSC binary
+vendor/fti_osc.dll is copied unchanged from the Apache-2.0 VRCFaceTracking
+distribution at Project-Babble/VRCFaceTracking revision
+b4b39da5c9fe048c960aa3b9e56742834df6ff36.
+SHA-256: 668628bcaf181617839663fe3624f42eb7d36ae3d16e3434ace40a9545aa982e
+The upstream distribution's full license is vendor/LICENSE and
+VRCFaceTracking-LICENSE.txt; its copyright declaration is 2024 benaclejames.
+
+The DLL contains an embedded Rust standard-library source revision:
+07dca489ac2d933c78d3c5158e3f43beefeb02ce.
+Rust/LICENSE-APACHE, Rust/LICENSE-MIT, and Rust/COPYRIGHT are preserved from
+that exact revision. Rust/COPYRIGHT includes its third-party notices. The
+bundle is intentionally broader than the subset proven to be linked, so those
+upstream notices are retained rather than silently discarded.
+
+https://github.com/benaclejames/SimpleRustOSC has a Cargo package named fti_osc
+and a matching C-export API, but the inspected repository has no separate
+LICENSE file. This is a source-provenance clue, not an independent license
+grant or a verified source-to-binary build match. The redistribution basis
+recorded here is the unchanged binary from the licensed VRCFaceTracking
+distribution, not an invented license for that separate repository.
+
+Microsoft Visual C++ runtime prerequisite
+fti_osc.dll imports VCRUNTIME140.dll. Builds no longer copy a Windows System32
+DLL into this application. The Microsoft Visual C++ Redistributable must be
+installed separately from Microsoft's official distribution when needed.
+Its redistribution is governed by Microsoft's own Visual Studio terms, not
+the project's Apache or MIT notices.
+https://learn.microsoft.com/en-us/cpp/windows/redistributing-visual-cpp-files
+https://learn.microsoft.com/en-us/cpp/windows/latest-supported-vc-redist
+
+This record documents provenance and license-compliance work. It is not a
+legal opinion, a warranty of non-infringement, or a license for trademarks.

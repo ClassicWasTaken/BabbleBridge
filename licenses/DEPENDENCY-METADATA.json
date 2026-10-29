@@ -1,0 +1,434 @@
+[
+  {
+    "package": "CommunityToolkit.Mvvm/8.4.0",
+    "authors": "Microsoft",
+    "copyright": "(c) .NET Foundation and Contributors. All rights reserved.",
+    "license": "MIT",
+    "licenseType": "expression",
+    "licenseUrl": "https://licenses.nuget.org/MIT",
+    "repository": "https://github.com/CommunityToolkit/dotnet",
+    "packagedNotices": [
+      "License.md",
+      "ThirdPartyNotices.txt"
+    ]
+  },
+  {
+    "package": "Gameloop.Vdf/0.6.2",
+    "authors": "Shravan Rajinikanth",
+    "copyright": "Copyright © Shravan Rajinikanth 2016",
+    "license": "MIT",
+    "licenseType": "expression",
+    "licenseUrl": "https://licenses.nuget.org/MIT",
+    "repository": "https://github.com/shravan2x/Gameloop.Vdf",
+    "packagedNotices": []
+  },
+  {
+    "package": "Microsoft.Extensions.Configuration.Abstractions/10.0.1",
+    "authors": "Microsoft",
+    "copyright": "© Microsoft Corporation. All rights reserved.",
+    "license": "MIT",
+    "licenseType": "expression",
+    "licenseUrl": "https://licenses.nuget.org/MIT",
+    "repository": "https://github.com/dotnet/dotnet",
+    "packagedNotices": [
+      "THIRD-PARTY-NOTICES.TXT"
+    ]
+  },
+  {
+    "package": "Microsoft.Extensions.Configuration.Binder/10.0.1",
+    "authors": "Microsoft",
+    "copyright": "© Microsoft Corporation. All rights reserved.",
+    "license": "MIT",
+    "licenseType": "expression",
+    "licenseUrl": "https://licenses.nuget.org/MIT",
+    "repository": "https://github.com/dotnet/dotnet",
+    "packagedNotices": [
+      "THIRD-PARTY-NOTICES.TXT"
+    ]
+  },
+  {
+    "package": "Microsoft.Extensions.Configuration.CommandLine/10.0.1",
+    "authors": "Microsoft",
+    "copyright": "© Microsoft Corporation. All rights reserved.",
+    "license": "MIT",
+    "licenseType": "expression",
+    "licenseUrl": "https://licenses.nuget.org/MIT",
+    "repository": "https://github.com/dotnet/dotnet",
+    "packagedNotices": [
+      "THIRD-PARTY-NOTICES.TXT"
+    ]
+  },
+  {
+    "package": "Microsoft.Extensions.Configuration.EnvironmentVariables/10.0.1",
+    "authors": "Microsoft",
+    "copyright": "© Microsoft Corporation. All rights reserved.",
+    "license": "MIT",
+    "licenseType": "expression",
+    "licenseUrl": "https://licenses.nuget.org/MIT",
+    "repository": "https://github.com/dotnet/dotnet",
+    "packagedNotices": [
+      "THIRD-PARTY-NOTICES.TXT"
+    ]
+  },
+  {
+    "package": "Microsoft.Extensions.Configuration.FileExtensions/10.0.1",
+    "authors": "Microsoft",
+    "copyright": "© Microsoft Corporation. All rights reserved.",
+    "license": "MIT",
+    "licenseType": "expression",
+    "licenseUrl": "https://licenses.nuget.org/MIT",
+    "repository": "https://github.com/dotnet/dotnet",
+    "packagedNotices": [
+      "THIRD-PARTY-NOTICES.TXT"
+    ]
+  },
+  {
+    "package": "Microsoft.Extensions.Configuration.Json/10.0.1",
+    "authors": "Microsoft",
+    "copyright": "© Microsoft Corporation. All rights reserved.",
+    "license": "MIT",
+    "licenseType": "expression",
+    "licenseUrl": "https://licenses.nuget.org/MIT",
+    "repository": "https://github.com/dotnet/dotnet",
+    "packagedNotices": [
+      "THIRD-PARTY-NOTICES.TXT"
+    ]
+  },
+  {
+    "package": "Microsoft.Extensions.Configuration.UserSecrets/10.0.1",
+    "authors": "Microsoft",
+    "copyright": "© Microsoft Corporation. All rights reserved.",
+    "license": "MIT",
+    "licenseType": "expression",
+    "licenseUrl": "https://licenses.nuget.org/MIT",
+    "repository": "https://github.com/dotnet/dotnet",
+    "packagedNotices": [
+      "THIRD-PARTY-NOTICES.TXT"
+    ]
+  },
+  {
+    "package": "Microsoft.Extensions.Configuration/10.0.1",
+    "authors": "Microsoft",
+    "copyright": "© Microsoft Corporation. All rights reserved.",
+    "license": "MIT",
+    "licenseType": "expression",
+    "licenseUrl": "https://licenses.nuget.org/MIT",
+    "repository": "https://github.com/dotnet/dotnet",
+    "packagedNotices": [
+      "THIRD-PARTY-NOTICES.TXT"
+    ]
+  },
+  {
+    "package": "Microsoft.Extensions.DependencyInjection.Abstractions/10.0.1",
+    "authors": "Microsoft",
+    "copyright": "© Microsoft Corporation. All rights reserved.",
+    "license": "MIT",
+    "licenseType": "expression",
+    "licenseUrl": "https://licenses.nuget.org/MIT",
+    "repository": "https://github.com/dotnet/dotnet",
+    "packagedNotices": [
+      "THIRD-PARTY-NOTICES.TXT"
+    ]
+  },
+  {
+    "package": "Microsoft.Extensions.DependencyInjection/10.0.1",
+    "authors": "Microsoft",
+    "copyright": "© Microsoft Corporation. All rights reserved.",
+    "license": "MIT",
+    "licenseType": "expression",
+    "licenseUrl": "https://licenses.nuget.org/MIT",
+    "repository": "https://github.com/dotnet/dotnet",
+    "packagedNotices": [
+      "THIRD-PARTY-NOTICES.TXT"
+    ]
+  },
+  {
+    "package": "Microsoft.Extensions.Diagnostics.Abstractions/10.0.1",
+    "authors": "Microsoft",
+    "copyright": "© Microsoft Corporation. All rights reserved.",
+    "license": "MIT",
+    "licenseType": "expression",
+    "licenseUrl": "https://licenses.nuget.org/MIT",
+    "repository": "https://github.com/dotnet/dotnet",
+    "packagedNotices": [
+      "THIRD-PARTY-NOTICES.TXT"
+    ]
+  },
+  {
+    "package": "Microsoft.Extensions.Diagnostics/10.0.1",
+    "authors": "Microsoft",
+    "copyright": "© Microsoft Corporation. All rights reserved.",
+    "license": "MIT",
+    "licenseType": "expression",
+    "licenseUrl": "https://licenses.nuget.org/MIT",
+    "repository": "https://github.com/dotnet/dotnet",
+    "packagedNotices": [
+      "THIRD-PARTY-NOTICES.TXT"
+    ]
+  },
+  {
+    "package": "Microsoft.Extensions.FileProviders.Abstractions/10.0.1",
+    "authors": "Microsoft",
+    "copyright": "© Microsoft Corporation. All rights reserved.",
+    "license": "MIT",
+    "licenseType": "expression",
+    "licenseUrl": "https://licenses.nuget.org/MIT",
+    "repository": "https://github.com/dotnet/dotnet",
+    "packagedNotices": [
+      "THIRD-PARTY-NOTICES.TXT"
+    ]
+  },
+  {
+    "package": "Microsoft.Extensions.FileProviders.Physical/10.0.1",
+    "authors": "Microsoft",
+    "copyright": "© Microsoft Corporation. All rights reserved.",
+    "license": "MIT",
+    "licenseType": "expression",
+    "licenseUrl": "https://licenses.nuget.org/MIT",
+    "repository": "https://github.com/dotnet/dotnet",
+    "packagedNotices": [
+      "THIRD-PARTY-NOTICES.TXT"
+    ]
+  },
+  {
+    "package": "Microsoft.Extensions.FileSystemGlobbing/10.0.1",
+    "authors": "Microsoft",
+    "copyright": "© Microsoft Corporation. All rights reserved.",
+    "license": "MIT",
+    "licenseType": "expression",
+    "licenseUrl": "https://licenses.nuget.org/MIT",
+    "repository": "https://github.com/dotnet/dotnet",
+    "packagedNotices": [
+      "THIRD-PARTY-NOTICES.TXT"
+    ]
+  },
+  {
+    "package": "Microsoft.Extensions.Hosting.Abstractions/10.0.1",
+    "authors": "Microsoft",
+    "copyright": "© Microsoft Corporation. All rights reserved.",
+    "license": "MIT",
+    "licenseType": "expression",
+    "licenseUrl": "https://licenses.nuget.org/MIT",
+    "repository": "https://github.com/dotnet/dotnet",
+    "packagedNotices": [
+      "THIRD-PARTY-NOTICES.TXT"
+    ]
+  },
+  {
+    "package": "Microsoft.Extensions.Hosting/10.0.1",
+    "authors": "Microsoft",
+    "copyright": "© Microsoft Corporation. All rights reserved.",
+    "license": "MIT",
+    "licenseType": "expression",
+    "licenseUrl": "https://licenses.nuget.org/MIT",
+    "repository": "https://github.com/dotnet/dotnet",
+    "packagedNotices": [
+      "THIRD-PARTY-NOTICES.TXT"
+    ]
+  },
+  {
+    "package": "Microsoft.Extensions.Logging.Abstractions/10.0.1",
+    "authors": "Microsoft",
+    "copyright": "© Microsoft Corporation. All rights reserved.",
+    "license": "MIT",
+    "licenseType": "expression",
+    "licenseUrl": "https://licenses.nuget.org/MIT",
+    "repository": "https://github.com/dotnet/dotnet",
+    "packagedNotices": [
+      "THIRD-PARTY-NOTICES.TXT"
+    ]
+  },
+  {
+    "package": "Microsoft.Extensions.Logging.Configuration/10.0.1",
+    "authors": "Microsoft",
+    "copyright": "© Microsoft Corporation. All rights reserved.",
+    "license": "MIT",
+    "licenseType": "expression",
+    "licenseUrl": "https://licenses.nuget.org/MIT",
+    "repository": "https://github.com/dotnet/dotnet",
+    "packagedNotices": [
+      "THIRD-PARTY-NOTICES.TXT"
+    ]
+  },
+  {
+    "package": "Microsoft.Extensions.Logging.Console/10.0.1",
+    "authors": "Microsoft",
+    "copyright": "© Microsoft Corporation. All rights reserved.",
+    "license": "MIT",
+    "licenseType": "expression",
+    "licenseUrl": "https://licenses.nuget.org/MIT",
+    "repository": "https://github.com/dotnet/dotnet",
+    "packagedNotices": [
+      "THIRD-PARTY-NOTICES.TXT"
+    ]
+  },
+  {
+    "package": "Microsoft.Extensions.Logging.Debug/10.0.1",
+    "authors": "Microsoft",
+    "copyright": "© Microsoft Corporation. All rights reserved.",
+    "license": "MIT",
+    "licenseType": "expression",
+    "licenseUrl": "https://licenses.nuget.org/MIT",
+    "repository": "https://github.com/dotnet/dotnet",
+    "packagedNotices": [
+      "THIRD-PARTY-NOTICES.TXT"
+    ]
+  },
+  {
+    "package": "Microsoft.Extensions.Logging.EventLog/10.0.1",
+    "authors": "Microsoft",
+    "copyright": "© Microsoft Corporation. All rights reserved.",
+    "license": "MIT",
+    "licenseType": "expression",
+    "licenseUrl": "https://licenses.nuget.org/MIT",
+    "repository": "https://github.com/dotnet/dotnet",
+    "packagedNotices": [
+      "THIRD-PARTY-NOTICES.TXT"
+    ]
+  },
+  {
+    "package": "Microsoft.Extensions.Logging.EventSource/10.0.1",
+    "authors": "Microsoft",
+    "copyright": "© Microsoft Corporation. All rights reserved.",
+    "license": "MIT",
+    "licenseType": "expression",
+    "licenseUrl": "https://licenses.nuget.org/MIT",
+    "repository": "https://github.com/dotnet/dotnet",
+    "packagedNotices": [
+      "THIRD-PARTY-NOTICES.TXT"
+    ]
+  },
+  {
+    "package": "Microsoft.Extensions.Logging/10.0.1",
+    "authors": "Microsoft",
+    "copyright": "© Microsoft Corporation. All rights reserved.",
+    "license": "MIT",
+    "licenseType": "expression",
+    "licenseUrl": "https://licenses.nuget.org/MIT",
+    "repository": "https://github.com/dotnet/dotnet",
+    "packagedNotices": [
+      "THIRD-PARTY-NOTICES.TXT"
+    ]
+  },
+  {
+    "package": "Microsoft.Extensions.Options.ConfigurationExtensions/10.0.1",
+    "authors": "Microsoft",
+    "copyright": "© Microsoft Corporation. All rights reserved.",
+    "license": "MIT",
+    "licenseType": "expression",
+    "licenseUrl": "https://licenses.nuget.org/MIT",
+    "repository": "https://github.com/dotnet/dotnet",
+    "packagedNotices": [
+      "THIRD-PARTY-NOTICES.TXT"
+    ]
+  },
+  {
+    "package": "Microsoft.Extensions.Options/10.0.1",
+    "authors": "Microsoft",
+    "copyright": "© Microsoft Corporation. All rights reserved.",
+    "license": "MIT",
+    "licenseType": "expression",
+    "licenseUrl": "https://licenses.nuget.org/MIT",
+    "repository": "https://github.com/dotnet/dotnet",
+    "packagedNotices": [
+      "THIRD-PARTY-NOTICES.TXT"
+    ]
+  },
+  {
+    "package": "Microsoft.Extensions.Primitives/10.0.1",
+    "authors": "Microsoft",
+    "copyright": "© Microsoft Corporation. All rights reserved.",
+    "license": "MIT",
+    "licenseType": "expression",
+    "licenseUrl": "https://licenses.nuget.org/MIT",
+    "repository": "https://github.com/dotnet/dotnet",
+    "packagedNotices": [
+      "THIRD-PARTY-NOTICES.TXT"
+    ]
+  },
+  {
+    "package": "Microsoft.NETCore.Platforms/1.1.0",
+    "authors": "Microsoft",
+    "copyright": "© Microsoft Corporation.  All rights reserved.",
+    "license": "",
+    "licenseType": "",
+    "licenseUrl": "http://go.microsoft.com/fwlink/?LinkId=329770",
+    "repository": "",
+    "packagedNotices": [
+      "ThirdPartyNotices.txt",
+      "dotnet_library_license.txt"
+    ]
+  },
+  {
+    "package": "NETStandard.Library/1.6.1",
+    "authors": "Microsoft",
+    "copyright": "© Microsoft Corporation.  All rights reserved.",
+    "license": "",
+    "licenseType": "",
+    "licenseUrl": "http://go.microsoft.com/fwlink/?LinkId=329770",
+    "repository": "",
+    "packagedNotices": [
+      "ThirdPartyNotices.txt",
+      "dotnet_library_license.txt"
+    ]
+  },
+  {
+    "package": "Newtonsoft.Json/13.0.4",
+    "authors": "James Newton-King",
+    "copyright": "Copyright © James Newton-King 2008",
+    "license": "MIT",
+    "licenseType": "expression",
+    "licenseUrl": "https://licenses.nuget.org/MIT",
+    "repository": "https://github.com/JamesNK/Newtonsoft.Json",
+    "packagedNotices": [
+      "LICENSE.md"
+    ]
+  },
+  {
+    "package": "Sentry/6.0.0",
+    "authors": "Sentry Team and Contributors",
+    "copyright": "",
+    "license": "MIT",
+    "licenseType": "expression",
+    "licenseUrl": "https://licenses.nuget.org/MIT",
+    "repository": "https://github.com/getsentry/sentry-dotnet",
+    "packagedNotices": []
+  },
+  {
+    "package": "System.Diagnostics.EventLog/10.0.1",
+    "authors": "Microsoft",
+    "copyright": "© Microsoft Corporation. All rights reserved.",
+    "license": "MIT",
+    "licenseType": "expression",
+    "licenseUrl": "https://licenses.nuget.org/MIT",
+    "repository": "https://github.com/dotnet/dotnet",
+    "packagedNotices": [
+      "THIRD-PARTY-NOTICES.TXT"
+    ]
+  },
+  {
+    "package": "microsoft.netcore.app.runtime.win-x64/10.0.14",
+    "authors": "Microsoft",
+    "copyright": "© Microsoft Corporation. All rights reserved.",
+    "license": "MIT",
+    "licenseType": "expression",
+    "licenseUrl": "https://licenses.nuget.org/MIT",
+    "repository": "https://github.com/dotnet/dotnet",
+    "packagedNotices": [
+      "LICENSE.TXT",
+      "THIRD-PARTY-NOTICES.TXT"
+    ]
+  },
+  {
+    "package": "microsoft.windowsdesktop.app.runtime.win-x64/10.0.14",
+    "authors": "Microsoft",
+    "copyright": "© Microsoft Corporation. All rights reserved.",
+    "license": "MIT",
+    "licenseType": "expression",
+    "licenseUrl": "https://licenses.nuget.org/MIT",
+    "repository": "https://github.com/dotnet/dotnet",
+    "packagedNotices": [
+      "LICENSE"
+    ]
+  }
+]

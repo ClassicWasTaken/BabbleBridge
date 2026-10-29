@@ -1,0 +1,56 @@
+# Build and IDE output
+**/bin/
+**/obj/
+**/dist/
+.vs/
+.idea/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+*.nupkg
+*.snupkg
+*.pdb
+*.exe
+*.zip
+TestResults/
+coverage/
+
+# Task scratch data, local profiles, diagnostics, and module fixtures
+/work/
+/outputs/
+/artifacts/
+/local-data/
+/module-fixtures/
+**/__pycache__/
+*.pyc
+*.log
+*.dmp
+*.etl
+*.jsonl
+**/settings.json
+**/BabbleConfig.json
+**/module-state.json*
+**/module-fixture*/
+**/Baballonia-module*.zip
+**/VRCFaceTracking.Baballonia*.zip
+**/VRCFaceTracking.Baballonia.dll
+
+# Local secrets and signing material
+.env
+.env.*
+!.env.example
+*.pfx
+*.p12
+*.key
+*.snk
+
+# Installer products and local test output
+FrameBridge-Setup-*.exe
+FrameBridge-Setup-*.exe.sha256
+installer/test-output/
+
+# OS metadata
+.DS_Store
+Thumbs.db
+Desktop.ini

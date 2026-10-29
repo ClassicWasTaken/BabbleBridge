@@ -1,0 +1,25 @@
+* text=auto
+
+*.cs text eol=lf
+*.csproj text eol=lf
+*.props text eol=lf
+*.xaml text eol=lf
+*.md text eol=lf
+*.txt text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
+*.py text eol=lf
+*.ps1 text eol=crlf
+*.iss text eol=crlf
+*.dll binary
+*.exe binary
+*.png binary
+*.ico binary
+*.ttf binary
+*.zip binary
+
+# Preserve collected license texts byte-for-byte so provenance hashes survive checkout.
+licenses/** -text
+vendor/LICENSE -text
+LICENSE -text
+src/BabbleFrameBridge.App/Assets/Brand/IBM-Plex-OFL.txt -text

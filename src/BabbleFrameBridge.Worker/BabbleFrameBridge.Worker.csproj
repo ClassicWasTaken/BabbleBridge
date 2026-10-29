@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <AssemblyName>BabbleFrameBridge.Worker</AssemblyName>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../../vendor/VRCFaceTracking.Core/VRCFaceTracking.Core.csproj" />
+    <ProjectReference Include="../../vendor/VRCFaceTracking.SDK/VRCFaceTracking.SDK.csproj" />
+    <ProjectReference Include="../BabbleFrameBridge.Shared/BabbleFrameBridge.Shared.csproj" />
+  </ItemGroup>
+</Project>
