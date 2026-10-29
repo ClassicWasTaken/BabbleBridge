@@ -38,8 +38,11 @@ from [Microsoft's official distribution](https://learn.microsoft.com/cpp/windows
 and follow its applicable terms. Build tools and the installer compiler are
 not included in the app package.
 
-Baballonia module packages, the headset runtime, VRChat, and headset software
-are not distributed here. They remain governed by their own licenses. Official
+Baballonia, [Virtual Desktop](https://github.com/guygodin/VirtualDesktop.VRCFaceTracking)
+and [Ykeara LinkFT](https://github.com/ykeara/LinkFT) module packages, the headset
+runtime, VRChat, and headset/streaming software are not distributed here. They
+remain governed by their own licenses. The app's Apache license does not
+relicense those separately obtained modules or their dependencies. Official
 Project Babble logo assets and the previous website-animation port were removed
 from this version; no permission to use another project's trademarks is implied.
 

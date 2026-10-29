@@ -35,6 +35,8 @@ coverage/
 **/Baballonia-module*.zip
 **/VRCFaceTracking.Baballonia*.zip
 **/VRCFaceTracking.Baballonia.dll
+**/VirtualDesktop.FaceTracking.dll
+**/SteamLinkVRCFTModule.dll
 
 # Local secrets and signing material
 .env

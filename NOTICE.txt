@@ -23,8 +23,12 @@ Pinned revision: b4b39da5c9fe048c960aa3b9e56742834df6ff36
 Module-facing assembly version: 5.4.1.0
 Modified files carry prominent modification notices. Changes include SDK
 reinitialization compatibility, pupil normalization, native-avatar metadata,
-legacy-output suppression/resend behavior, and removal of the System32 DLL
-copy from the project file. The SDK reinitialization API was adapted from
+legacy-output suppression/resend behavior, synchronized 90 Hz frame scheduling,
+stationary-gaze heartbeats, immutable OSC packet snapshots, obsolete binary
+parameter cleanup, mDNS startup/discovery fixes, and removal of the System32
+DLL copy from the project file. TrackingFrameClock.cs and MdnsClientResolver.cs
+are original Apache-2.0 bridge additions within the vendored Core directory.
+The SDK reinitialization API was adapted from
 upstream revision e71cbd086c7e9720634dda6b3e89318d43f6d9d1.
 
 vendor/fti_osc.dll is unchanged from the pinned Apache-licensed upstream
@@ -69,12 +73,15 @@ C++ x64 Redistributable separately, under Microsoft's own applicable terms.
 https://learn.microsoft.com/cpp/windows/latest-supported-vc-redist
 
 SEPARATE MODULE AND HEADSET SOFTWARE — NOT DISTRIBUTED HERE
-The Baballonia tracking module ZIP/DLL and headset runtime are separate
-works with their own licenses. Users obtain and supply those independently.
+Baballonia, Virtual Desktop and Ykeara LinkFT tracking module ZIPs/DLLs,
+Babble Frame Runtime, and headset/streaming software are separate works with
+their own licenses. Users obtain and supply those independently.
 They are not included in this repository, installer, or portable package.
 Project references:
 https://github.com/Project-Babble/Baballonia
 https://github.com/Project-Babble/Babble-Frame-Runtime
+https://github.com/guygodin/VirtualDesktop.VRCFaceTracking
+https://github.com/ykeara/LinkFT
 
 ORIGINAL VISUAL ASSETS
 The original headset mark, app icon, installer illustration, and particle flow in this

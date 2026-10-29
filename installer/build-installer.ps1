@@ -53,7 +53,7 @@ foreach ($requiredFile in $requiredFiles) {
     }
 }
 $unwantedModule = Get-ChildItem -LiteralPath $payloadPath -Recurse -File | Where-Object {
-    $_.Name -eq 'VRCFaceTracking.Baballonia.dll' -or ($_.Extension -eq '.zip' -and $_.Name -like '*Baballonia*')
+    $_.Name -in @('VRCFaceTracking.Baballonia.dll', 'VirtualDesktop.FaceTracking.dll', 'SteamLinkVRCFTModule.dll') -or ($_.Extension -eq '.zip' -and $_.Name -like '*Baballonia*')
 } | Select-Object -First 1
 if ($unwantedModule) {
     throw "The app payload contains a tracking module: $($unwantedModule.FullName). Remove it and publish the module-free app again. Users must provide their own ZIP."

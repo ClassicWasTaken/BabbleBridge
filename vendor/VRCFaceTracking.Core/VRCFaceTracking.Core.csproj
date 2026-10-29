@@ -1,6 +1,8 @@
 <!-- Frame Bridge modification notice (2026-10-29): removed automatic copying of
      vcruntime140.dll from Windows System32. The Microsoft Visual C++ runtime is
      a separately installed prerequisite, not a repository-distributed DLL.
+     Also excludes Sentry build/source-generator assets to prevent embedding
+     local project paths; its runtime dependency and notices are retained.
      Upstream: Project-Babble/VRCFaceTracking b4b39da5c9fe048c960aa3b9e56742834df6ff36.
      Copyright 2024 benaclejames. Apache-2.0; see vendor/LICENSE. -->
 <Project Sdk="Microsoft.NET.Sdk">
@@ -14,7 +16,10 @@
     <PackageReference Include="Microsoft.Extensions.Hosting" />
     <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" />
     <PackageReference Include="Newtonsoft.Json" />
-    <PackageReference Include="Sentry" />
+    <PackageReference Include="Sentry" ExcludeAssets="build;buildMultitargeting;buildTransitive;analyzers" PrivateAssets="contentfiles;build;buildMultitargeting;buildTransitive;analyzers" />
+  </ItemGroup>
+  <ItemGroup>
+    <Using Include="Sentry" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\VRCFaceTracking.SDK\VRCFaceTracking.SDK.csproj" />

@@ -1,4 +1,7 @@
-﻿using System.Net;
+// Babble Bridge modification notice (2026-10-29): remove discovery startup gate, match DNS records, support unicast and release sockets.
+// Upstream: Project-Babble/VRCFaceTracking b4b39da5c9fe048c960aa3b9e56742834df6ff36.
+// Copyright 2024 benaclejames. Apache-2.0; see vendor/LICENSE and NOTICE.txt.
+using System.Net;
 using System.Net.NetworkInformation;
 using System.Net.Sockets;
 using CommunityToolkit.Mvvm.ComponentModel;
@@ -7,7 +10,7 @@ using VRCFaceTracking.Core.OSC.Query.mDNS;
 
 namespace VRCFaceTracking.Core.mDNS;
 
-public partial class MulticastDnsService : ObservableObject
+public partial class MulticastDnsService : ObservableObject, IDisposable
 {
     private static readonly IPAddress MulticastIp = IPAddress.Parse("224.0.0.251");
     private const int MulticastPost = 5353;
@@ -15,9 +18,11 @@ public partial class MulticastDnsService : ObservableObject
     private readonly List<IPAddress> _localIpAddresses;
     private readonly ILogger<MulticastDnsService> _logger;
 
-    private static readonly Dictionary<IPAddress, UdpClient> Senders = new();
-    private static readonly Dictionary<UdpClient, CancellationToken> Receivers = new();
-    private static readonly Dictionary<string, AdvertisedService> Services = new();
+    private readonly Dictionary<IPAddress, UdpClient> Senders = new();
+    private readonly Dictionary<UdpClient, CancellationToken> Receivers = new();
+    private readonly CancellationTokenSource lifetime = new();
+    private int disposed;
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<string, AdvertisedService> Services = new();
 
     public Action OnVrcClientDiscovered = () => { };
 
@@ -27,8 +32,7 @@ public partial class MulticastDnsService : ObservableObject
         .Where(net =>
             net.OperationalStatus == OperationalStatus.Up &&
             net.NetworkInterfaceType != NetworkInterfaceType.Loopback &&
-            net.SupportsMulticast &&
-            net.GetIPProperties().MulticastAddresses.Any())
+            net.SupportsMulticast)
         .ToList();
 
     // Get the first ipv4 address from a specific network interface
@@ -41,10 +45,10 @@ public partial class MulticastDnsService : ObservableObject
     {
         _logger = logger;
 
-        _localIpAddresses = GetIpv4NetInterfaces().Select(GetIpv4Address).Where(addr => addr != null).ToList();
+        _localIpAddresses = GetIpv4NetInterfaces().Select(GetIpv4Address).OfType<IPAddress>().Distinct().ToList();
 
         // Create listeners for all interfaces
-        var cts = new CancellationTokenSource();
+        var cts = lifetime;
         var receiver = new UdpClient(AddressFamily.InterNetwork);
         receiver.Client.ExclusiveAddressUse = false;
         receiver.Client.SetSocketOption(SocketOptionLevel.Socket, SocketOptionName.ReuseAddress, true);
@@ -71,15 +75,15 @@ public partial class MulticastDnsService : ObservableObject
 
         foreach (var sender in Receivers)
         {
-            Listen(sender.Key, sender.Value);
+            _ = Listen(sender.Key, sender.Value);
         }
     }
 
-    private async void ResolveDnsQueries(DnsPacket packet, IPEndPoint remoteEndpoint)
+    private async Task ResolveDnsQueries(DnsPacket packet, IPEndPoint remoteEndpoint)
     {
-        // Me when having to wait for vrchat to resolve itself
-        // https://www.youtube.com/watch?v=wLg04uu2j2o
-        if (packet.OPCODE != 0 || VrchatClientEndpoint == null)
+        // Answer immediately; waiting until we discover VRChat creates a circular
+        // startup dependency when VRChat is also waiting to discover this bridge.
+        if (packet.OPCODE != 0 || packet.QUERYRESPONSE)
         {
             return;
         }
@@ -160,110 +164,60 @@ public partial class MulticastDnsService : ObservableObject
                     continue;
                 }
 
-                //var unicastClientIp4 = new UdpClient(AddressFamily.InterNetwork);
-                //await unicastClientIp4.SendAsync(bytes, bytes.Length, remoteEndpoint);
+                using var unicast = new UdpClient(AddressFamily.InterNetwork);
+                await unicast.SendAsync(bytes, remoteEndpoint, lifetime.Token);
             }
         }
     }
 
-    public async void SendQuery(string labels)
+    public void SendQuery(string labels) => _ = SendQuerySafely(labels);
+
+    private async Task SendQuerySafely(string labels)
     {
-        var dnsPacket = new DnsPacket();
-        var dnsQuestion = new DnsQuestion(labels.Split('.').ToList(), 255, 1);
-        dnsPacket.questions = new[] { dnsQuestion };
-        dnsPacket.QUERYRESPONSE = false;
-        dnsPacket.OPCODE = 0;
-        dnsPacket.TRUNCATION = false;
-
-        var bytes = dnsPacket.Serialize();
-        foreach (var sender in Senders)
+        try
         {
-            await sender.Value.SendAsync(bytes, bytes.Length, MdnsEndpointIp4);
+            var packet = new DnsPacket { QUERYRESPONSE = false, questions = new[] { new DnsQuestion(labels.Split('.').ToList(), 255, 1) } };
+            var bytes = packet.Serialize();
+            foreach (var sender in Senders.Values)
+                await sender.SendAsync(bytes, MdnsEndpointIp4, lifetime.Token);
         }
-
-        //var unicastClientIp4 = new UdpClient(AddressFamily.InterNetwork);
-        //await unicastClientIp4.SendAsync(bytes, bytes.Length, remoteEndpoint);
+        catch (Exception e) when (e is OperationCanceledException or ObjectDisposedException) { }
+        catch (Exception e) { _logger.LogDebug("mDNS query failed: {Message}", e.Message); }
     }
 
     public void ResolveVrChatClient(DnsPacket packet, IPEndPoint remoteEndpoint)
     {
-        if (!packet.QUERYRESPONSE || packet.answers.Length <= 0 || packet.answers[0].Type != 12)
-        {
-            return;
-        }
-
-        var ptrRecord = packet.answers[0].Data as PTRRecord;
-        if (ptrRecord.DomainLabels.Count != 4
-            || (!ptrRecord.DomainLabels[0].StartsWith("VRChat-Client") && !ptrRecord.DomainLabels[0].StartsWith("ChilloutVR-GameClient")))
-        {
-            return;
-        }
-
-        if (packet.answers[0].Labels.Count != 3 || packet.answers[0].Labels[0] != "_oscjson" ||
-            packet.answers[0].Labels[1] != "_tcp" || packet.answers[0].Labels[2] != "local")
-        {
-            return;
-        }
-
-        // Now we find the first A record in the additional records
-        var aRecord = packet.additionals.FirstOrDefault(r => r.Type == 1);
-        var srvRecord = packet.additionals.FirstOrDefault(r => r.Type == 33);
-        if (aRecord == null || srvRecord == null)
-        {
-            return;
-        }
-
-        var vrChatClientIp = aRecord.Data as ARecord;
-        var vrChatClientPort = srvRecord.Data as SRVRecord;
-
-        if (vrChatClientIp?.Address == null || vrChatClientPort?.Port == null)
-        {
-            return;
-        }
-
-        var hostAddress = vrChatClientIp.Address;
-
-        // If the host address is a loopback address (127.0.0.1) but isn't our local machine,
-        // manually set the correspondence address to where we heard the mdns response come from
-        // This is due to VRC ALWAYS using 127.0.0.1 as the A record address
-        if (IPAddress.IsLoopback(hostAddress) && !_localIpAddresses.Contains(remoteEndpoint.Address))
-        {
-            hostAddress = remoteEndpoint.Address;
-        }
-
-        VrchatClientEndpoint = new IPEndPoint(hostAddress, vrChatClientPort.Port);
+        if (!MdnsClientResolver.TryResolve(packet, remoteEndpoint.Address, _localIpAddresses, out var endpoint)) return;
+        if (endpoint.Equals(VrchatClientEndpoint)) return;
+        VrchatClientEndpoint = endpoint;
         OnVrcClientDiscovered();
     }
 
-    private async void Listen(UdpClient client, CancellationToken ct)
+    private async Task Listen(UdpClient client, CancellationToken ct)
     {
         while (!ct.IsCancellationRequested)
         {
-            var result = await client.ReceiveAsync(ct);
-
-            if (!_localIpAddresses.Any(i => i.Equals(result.RemoteEndPoint.Address)))
-            {
-                // Wouldn't want to steal control of other people's faces on LAN now, would we!
-                // (On second thought, that'd be pretty funny)
-                continue;
-            }
-
             try
             {
-                var reader = new BigReader(result.Buffer);
-                var packet = new DnsPacket(reader);
-
-                // I'm aware this is cringe, but we do this first as it's a lot more likely vrchat beats us to the punch responding to the query
+                var result = await client.ReceiveAsync(ct);
+                // Discovery only controls a game on this computer, including loopback.
+                if (!MdnsClientResolver.IsLocal(result.RemoteEndPoint.Address, _localIpAddresses)) continue;
+                var packet = new DnsPacket(new BigReader(result.Buffer));
                 ResolveVrChatClient(packet, result.RemoteEndPoint);
-                ResolveDnsQueries(packet, result.RemoteEndPoint);
+                await ResolveDnsQueries(packet, result.RemoteEndPoint);
             }
-            catch (Exception e)
-            {
-                SentrySdk.CaptureException(e, scope => scope.SetExtra("bytes", result.Buffer));
-            }
+            catch (Exception e) when (ct.IsCancellationRequested && (e is OperationCanceledException or ObjectDisposedException or SocketException)) { break; }
+            catch (Exception e) { _logger.LogDebug("mDNS packet ignored: {Message}", e.Message); }
         }
     }
 
+    public void Dispose()
+    {
+        if (Interlocked.Exchange(ref disposed, 1) != 0) return;
+        lifetime.Cancel();
+        foreach (var receiver in Receivers.Keys) receiver.Dispose();
+        lifetime.Dispose();
+    }
     public void Advertise(string serviceName, AdvertisedService advertisement)
     {
         _logger.LogDebug($"Advertising service {serviceName} with advertisement {advertisement}");

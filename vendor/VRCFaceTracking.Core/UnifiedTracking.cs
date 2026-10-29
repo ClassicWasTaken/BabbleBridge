@@ -1,4 +1,7 @@
-﻿using VRCFaceTracking.Core.Params;
+// Babble Bridge modification notice (2026-10-29): synchronous frame updates; preserve Task API.
+// Upstream: Project-Babble/VRCFaceTracking b4b39da5c9fe048c960aa3b9e56742834df6ff36.
+// Copyright 2024 benaclejames. Apache-2.0; see vendor/LICENSE and NOTICE.txt.
+using VRCFaceTracking.Core.Params;
 using VRCFaceTracking.Core.Params.Data;
 using VRCFaceTracking.Core.Params.Expressions;
 using VRCFaceTracking.Core.Params.Expressions.Legacy.Eye;
@@ -64,6 +67,11 @@ namespace VRCFaceTracking
         /// <summary>
         /// Central update function that updates all output parameter data and pushes the latest expressions from VRCFaceTracking modules into the internal expressions buffer.
         /// </summary>
-        public static async Task UpdateData(CancellationToken ct) => OnUnifiedDataUpdated.Invoke(await Task.Run(() => Mutator.MutateData(Data), ct));
+        public static Task UpdateData(CancellationToken ct)
+        {
+            ct.ThrowIfCancellationRequested();
+            OnUnifiedDataUpdated.Invoke(Mutator.MutateData(Data));
+            return Task.CompletedTask;
+        }
     }
 }

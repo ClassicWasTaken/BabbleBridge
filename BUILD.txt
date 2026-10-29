@@ -14,6 +14,8 @@ The result is dist\BabbleFrameBridge with a self-contained .NET app and worker.
 Open dist\BabbleFrameBridge\BabbleFrameBridge.exe.
 The output retains LICENSE, NOTICE.txt, THIRD_PARTY_NOTICES.md and licenses/.
 Keep those files with binary distributions; component-specific terms still apply.
+Directory.Build.props maps local source paths to /_/ and omits Release debug
+symbols. build.ps1 removes stale PDBs from reused publish folders.
 
 Run tests:
   dotnet run --project tests/BabbleFrameBridge.Tests -c Release -- 'C:\Path\Baballonia-module.zip'
@@ -35,10 +37,15 @@ LAYOUT
   tests                         ZIP lifecycle and protocol/mapping checks
   licenses                      Full third-party license notices
 
-The app and source package include no tracking module. Obtain a Baballonia ZIP
-separately for imports and real-module integration tests. This bridge only
-accepts packages of the same Baballonia module family. New ZIPs replace module
-payloads without recompiling the bridge, provided their module API is compatible.
+The app and source package include no tracking module. Obtain compatible
+VRCFaceTracking SDK module ZIPs separately. The supported connection families
+are Babble Headset Runtime, Baballonia desktop, Virtual Desktop, and Steam Link
+using Ykeara LinkFT. See START-HERE.txt for their setup and source links.
+Baballonia ZIPs are used by the real-module integration commands above; other
+hardware/module combinations need their own checks. Installed modules can be
+selected independently, with a separate saved input profile for each connection.
+New ZIPs can update module payloads without recompiling the bridge when their
+module API remains compatible.
 The worker is a separate process for reliable unload/restart; it is not an OS
 security sandbox. SDK incompatibility fails startup and preserves saved state.
 
@@ -70,3 +77,12 @@ requires all top-level distribution notices and rejects payloads containing a
 module archive/DLL, obsolete official artwork, or an app-local vcruntime140.dll.
 The .NET runtime's own vcruntime140_cor3.dll is a separate file and is preserved.
 The isolated installer smoke test also requires -ModuleZip with an external fixture.
+
+ADDITIONAL PROVIDER / SEND TESTS
+  dotnet run --project tests/BabbleBridge.Sending.Tests -c Release
+  python tests/provider_integration_test.py --worker dist/BabbleFrameBridge/runtime/BabbleFrameBridge.Worker.exe --babble-zip "path/to/Baballonia.zip" --virtual-desktop-zip "path/to/VirtualDesktop.VRCFaceTracking.zip" --steam-link-zip "path/to/LinkFTModule.zip"
+
+Provider tests use synthetic data with the real separately supplied DLLs. They
+skip fixed-port/shared-memory fixtures if a live provider is already using
+those resources. A hardware/VRChat session is still needed to verify a user's
+complete headset and avatar setup.

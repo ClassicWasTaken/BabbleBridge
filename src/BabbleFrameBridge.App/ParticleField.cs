@@ -36,6 +36,7 @@ public sealed class ParticleField : FrameworkElement
     private Point pointer;
     private TimeSpan? lastFrame;
     private double seconds;
+    private double pathSeconds = double.NaN, pathWidth, pathHeight;
 
     public bool AnimationsEnabled
     {
@@ -49,6 +50,7 @@ public sealed class ParticleField : FrameworkElement
         RenderOptions.SetBitmapScalingMode(this, BitmapScalingMode.LowQuality);
         Loaded += OnLoaded; Unloaded += OnUnloaded;
         IsVisibleChanged += (_, _) => UpdateAnimationState();
+        SizeChanged += (_, _) => UpdateAnimationState();
     }
 
     private static void OnAnimationPreferenceChanged(DependencyObject sender, DependencyPropertyChangedEventArgs args)
@@ -92,7 +94,8 @@ public sealed class ParticleField : FrameworkElement
     private void UpdateAnimationState()
     {
         if (!Dispatcher.CheckAccess()) { Dispatcher.BeginInvoke(new Action(UpdateAnimationState)); return; }
-        var active = loaded && IsVisible && AnimationsEnabled && SystemParameters.ClientAreaAnimation
+        var active = loaded && IsVisible && ActualWidth > 0 && ActualHeight > 0
+            && AnimationsEnabled && SystemParameters.ClientAreaAnimation
             && owner?.WindowState != WindowState.Minimized;
         if (active == attached) return;
         attached = active; lastFrame = null;
@@ -164,6 +167,9 @@ public sealed class ParticleField : FrameworkElement
 
     private void UpdatePath()
     {
+        // Cursor simulation and drawing share the same path for this display tick.
+        if (pathSeconds == seconds && pathWidth == ActualWidth && pathHeight == ActualHeight) return;
+        pathSeconds = seconds; pathWidth = ActualWidth; pathHeight = ActualHeight;
         // Smooth deterministic control-point drift changes the loop without wave-layer equations.
         var interval = (int)(seconds / 27); var t = seconds / 27 - interval;
         t = t * t * (3 - 2 * t);

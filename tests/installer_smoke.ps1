@@ -50,7 +50,8 @@ function Get-PayloadVersion([string]$Directory) {
 $initialVersion = if ($previousPayload) { Get-PayloadVersion $previousPayload } else { '1.2.0' }
 $upgradeVersion = if ($previousPayload) { Get-PayloadVersion $payloadSource } else { '1.2.1' }
 $migrationTargetVersion = if ($upgradeVersion.StartsWith('1.0.', [StringComparison]::Ordinal)) { $upgradeVersion } else { '1.0.5' }
-if ($previousPayload -and ([Version]$upgradeVersion -le [Version]$initialVersion)) {
+$publicReset = $upgradeVersion -eq '1.0.0' -and $initialVersion -in @('1.0.1', '1.0.2', '1.0.3', '1.0.4', '1.0.5')
+if ($previousPayload -and !$publicReset -and ([Version]$upgradeVersion -le [Version]$initialVersion)) {
     throw 'PreviousPayloadDirectory must contain an older real app version than PayloadDirectory.'
 }
 
@@ -229,7 +230,9 @@ try {
     Assert-OwnedStartShortcuts
     Assert-ForeignShortcutUnchanged
     Assert-True (!(Test-Path -LiteralPath (Join-Path $installPath 'Assets/Baballonia-module.zip'))) 'The installer included a module archive.'
-    Assert-True (@(Get-ChildItem -LiteralPath $installPath -Recurse -File -Filter 'VRCFaceTracking.Baballonia.dll').Count -eq 0) 'The installer included a module DLL.'
+    foreach ($moduleDll in @('VRCFaceTracking.Baballonia.dll', 'VirtualDesktop.FaceTracking.dll', 'SteamLinkVRCFTModule.dll')) {
+        Assert-True (@(Get-ChildItem -LiteralPath $installPath -Recurse -File -Filter $moduleDll).Count -eq 0) "The installer included an external module DLL: $moduleDll"
+    }
     Add-Check 'First install created one test uninstall entry and extracted the complete verified app payload.'
 
     $exitCode = Invoke-TestSetup $firstSetup 'reinstall' $false $true
@@ -241,6 +244,10 @@ try {
     Add-Check 'Same-version reinstall reused the installation directory and uninstall entry.'
     Add-Check 'An unrelated same-name desktop shortcut survived unchecked installation and explicitly selected reinstallation.'
 
+    if ($publicReset) {
+        # Reproduce the real private preview registration, which had no generation marker.
+        Remove-ItemProperty -LiteralPath $registryKey -Name BabbleBridgeReleaseGeneration -ErrorAction SilentlyContinue
+    }
     if ($previousPayload) {
         Assert-OwnedPath $payload
         Remove-Item -LiteralPath $payload -Recurse -Force
@@ -269,6 +276,7 @@ try {
     Assert-True ($exitCode -eq 0) "Newer-version upgrade failed with $exitCode."
     $registration = Read-TestRegistration
     Assert-True ($registration.DisplayVersion -eq $upgradeVersion) 'Upgrade did not update DisplayVersion.'
+    Assert-True ((Get-ItemPropertyValue -LiteralPath $registryKey -Name BabbleBridgeReleaseGeneration) -eq 2) 'Upgrade did not register public release generation 2.'
     Assert-True ((Get-Content -LiteralPath (Join-Path $installPath 'installer-smoke-marker.txt') -Raw) -eq 'upgraded-release') 'Upgrade did not replace the payload marker.'
     Assert-True (!(Test-Path -LiteralPath (Join-Path $legacyAssets 'Baballonia-module.zip'))) 'Upgrade retained the legacy baked-in archive.'
     Assert-InstalledPayload $payloadSource
@@ -279,6 +287,9 @@ try {
     else { Add-Check 'A newer synthetic release replaced installed files and updated the same uninstall entry.' }
     Assert-ForeignShortcutUnchanged
     Assert-OwnedStartShortcuts
+    if ($publicReset) {
+        Add-Check "The private preview $initialVersion migrated to public release $upgradeVersion and registered generation 2 for future downgrade protection."
+    }
 
     # Exercise both sides of the historical numbering exception without ever
     # touching the production registration. Every metadata change is confined
@@ -330,12 +341,58 @@ try {
     }
     Add-Check 'Both former development product names permitted their known-version migration to the stable series.'
 
-    $exitCode = Invoke-TestSetup $firstSetup 'downgrade'
-    Assert-True ($exitCode -ne 0) 'The old installer unexpectedly allowed a downgrade.'
-    $registration = Read-TestRegistration
-    Assert-True ($registration.DisplayVersion -eq $upgradeVersion) 'Downgrade rejection changed the installed version.'
-    Assert-True ((Get-Content -LiteralPath (Join-Path $installPath 'installer-smoke-marker.txt') -Raw) -eq 'upgraded-release') 'Downgrade rejection changed installed files.'
-    Add-Check 'An older installer was rejected before changing installed version or files.'
+    if ($publicReset) {
+        try {
+            Set-ItemProperty -LiteralPath $registryKey -Name DisplayVersion -Value '1.0.5'
+            $exitCode = Invoke-TestSetup $upgradeSetup 'generation-two-downgrade'
+            Assert-True ($exitCode -ne 0) 'Public generation 2 incorrectly received the private preview numbering exception.'
+            Assert-True ((Read-TestRegistration).DisplayVersion -eq '1.0.5') 'Rejected generation 2 downgrade changed registration.'
+        }
+        finally { Set-ItemProperty -LiteralPath $registryKey -Name DisplayVersion -Value $upgradeVersion }
+        Assert-InstalledPayload $payloadSource
+        Assert-ForeignShortcutUnchanged
+        Assert-OwnedStartShortcuts
+        Add-Check 'The one-time private preview reset does not allow future generation 2 releases to downgrade.'
+
+        # A preview user can skip 1.0.0 and install the next public release.
+        # Once that install writes generation 2, the same numeric transition
+        # must no longer be allowed, even for this later public target.
+        $skippedFirstPublicVersion = '1.0.1'
+        Compile-TestInstaller $skippedFirstPublicVersion
+        $skippedFirstPublicSetup = Join-Path $compiledPath "FrameBridgeTest-$skippedFirstPublicVersion.exe"
+        try {
+            Set-ItemProperty -LiteralPath $registryKey -Name DisplayVersion -Value '1.0.5'
+            Remove-ItemProperty -LiteralPath $registryKey -Name BabbleBridgeReleaseGeneration
+            $exitCode = Invoke-TestSetup $skippedFirstPublicSetup 'preview-skipped-first-public-version'
+            Assert-True ($exitCode -eq 0) 'A private preview user could not migrate after skipping public version 1.0.0.'
+            $registration = Read-TestRegistration
+            Assert-True ($registration.DisplayVersion -eq $skippedFirstPublicVersion) 'The skipped-version migration registered the wrong public release.'
+            Assert-True ((Get-ItemPropertyValue -LiteralPath $registryKey -Name BabbleBridgeReleaseGeneration) -eq 2) 'The skipped-version migration did not write generation 2.'
+            Set-ItemProperty -LiteralPath $registryKey -Name DisplayVersion -Value '1.0.5'
+            $exitCode = Invoke-TestSetup $skippedFirstPublicSetup 'later-public-generation-two-downgrade'
+            Assert-True ($exitCode -ne 0) 'A later public installer incorrectly allowed a generation 2 downgrade.'
+            Assert-True ((Read-TestRegistration).DisplayVersion -eq '1.0.5') 'A rejected later-public downgrade changed registration.'
+            Assert-InstalledPayload $payloadSource
+            Assert-ForeignShortcutUnchanged
+            Assert-OwnedStartShortcuts
+        }
+        finally {
+            if (Test-Path -LiteralPath $registryKey) {
+                Set-ItemProperty -LiteralPath $registryKey -Name DisplayVersion -Value $upgradeVersion
+                Set-ItemProperty -LiteralPath $registryKey -Name DisplayName -Value 'Babble Bridge'
+                Set-ItemProperty -LiteralPath $registryKey -Name BabbleBridgeReleaseGeneration -Value 2
+            }
+        }
+        Add-Check 'Preview users can skip public version 1.0.0, while later public installers still reject generation 2 downgrades.'
+    }
+    else {
+        $exitCode = Invoke-TestSetup $firstSetup 'downgrade'
+        Assert-True ($exitCode -ne 0) 'The old installer unexpectedly allowed a downgrade.'
+        $registration = Read-TestRegistration
+        Assert-True ($registration.DisplayVersion -eq $upgradeVersion) 'Downgrade rejection changed the installed version.'
+        Assert-True ((Get-Content -LiteralPath (Join-Path $installPath 'installer-smoke-marker.txt') -Raw) -eq 'upgraded-release') 'Downgrade rejection changed installed files.'
+        Add-Check 'An older installer was rejected before changing installed version or files.'
+    }
 
     $python = (Get-Command python.exe -CommandType Application | Select-Object -First 1).Source
     # Use the existing diagnostic mapping mode so a real local VRChat OSCQuery
@@ -419,6 +476,8 @@ finally {
         Result = $result; TestAppId = $testId; TestInstallDirectory = $installPath
         ProductionAppIdUsed = $false; Versions = @($initialVersion, $upgradeVersion)
         RealPayloadUpgrade = [bool]$previousPayload
+        PrivatePreviewReset = [bool]$publicReset
+        PublicReleaseGeneration = 2
         DevelopmentMigrationTarget = $migrationTargetVersion
         ShortcutDirectories = @($desktopIconDirectory, $groupIconDirectory)
         AvatarDiscovery = 'Not tested; existing --all-parameters diagnostic mode avoids any running VRChat client.'

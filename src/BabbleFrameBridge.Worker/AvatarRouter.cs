@@ -38,7 +38,6 @@ internal sealed class AvatarRouter : IAsyncDisposable
     private int avatarRevision;
     private string configurationKey = "";
     private Task? queryLoop;
-    private readonly object mappingLock = new();
     public string AvatarName { get; private set; } = "Waiting for VRChat";
     public int ParameterCount { get; private set; }
 
@@ -146,9 +145,9 @@ internal sealed class AvatarRouter : IAsyncDisposable
                             var key = info.Id + "|" + native + "|" + string.Join("|", info.Parameters.Select(p => p.Address + ":" + p.Type));
                             if (key != configurationKey)
                             {
-                                var file = await FindAvatar(info.Id);
-                                if (revision != Volatile.Read(ref avatarRevision)) continue;
-                                Bind(info.Parameters, file?.name ?? info.Name ?? info.Id ?? "VRChat avatar", key);
+                                // OSCQuery already provides a complete mapping. Scanning every
+                                // cached avatar for a friendly name must not delay eye tracking.
+                                Bind(info.Parameters, info.Name ?? info.Id ?? "VRChat avatar", key);
                             }
                         }
                     }
@@ -184,7 +183,7 @@ internal sealed class AvatarRouter : IAsyncDisposable
 
     private void Bind(IParameterDefinition[] parameters, string name, string key)
     {
-        lock (mappingLock)
+        lock (ParameterSenderService.FrameLock)
         {
             ParameterSenderService.Clear();
             ParameterSenderService.RequestFullResend();
@@ -201,8 +200,11 @@ internal sealed class AvatarRouter : IAsyncDisposable
 
     private void SetNativeMode(bool enabled)
     {
-        sender.LegacyOutputEnabled = !enabled;
-        nativeFace.Enabled = enabled;
+        lock (ParameterSenderService.FrameLock)
+        {
+            sender.LegacyOutputEnabled = !enabled;
+            nativeFace.Enabled = enabled;
+        }
     }
 
     private static async Task<AvatarConfigFile?> FindAvatar(string? id)
@@ -264,6 +266,7 @@ internal sealed class AvatarRouter : IAsyncDisposable
         stop.Cancel();
         receiver?.Dispose();
         listener?.Close();
+        discovery?.Dispose();
         http.Dispose();
         if (queryLoop != null) { try { await queryLoop.WaitAsync(TimeSpan.FromSeconds(2)); } catch { } }
         stop.Dispose();

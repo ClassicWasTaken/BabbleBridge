@@ -1,102 +1,95 @@
-﻿using System.ComponentModel.DataAnnotations;
+// Babble Bridge modification notice (2026-10-29): snapshot packets before async
+// sends and serialize destination changes with delivery to prevent corruption.
+// Upstream: Project-Babble/VRCFaceTracking b4b39da5c9fe048c960aa3b9e56742834df6ff36.
+// Copyright 2024 benaclejames. Apache-2.0; see vendor/LICENSE and NOTICE.txt.
 using System.Net;
 using System.Net.Sockets;
 using Microsoft.Extensions.Logging;
 using VRCFaceTracking.Core.Contracts;
 using VRCFaceTracking.Core.OSC;
-
 namespace VRCFaceTracking.Core.Services;
-
-/**
- * OscSendService is responsible for encoding osc messages and sending them over OSC
- */
-public class OscSendService
+public class OscSendService : IDisposable
 {
     private readonly ILogger<OscSendService> _logger;
     private readonly IOscTarget _oscTarget;
-
-    private Socket _sendSocket;
-    private readonly byte[] _sendBuffer = new byte[4096];
-
-    private CancellationTokenSource _cts;
+    private readonly SemaphoreSlim sendGate = new(1, 1);
+    private Socket? sendSocket;
+    private IPEndPoint? currentEndpoint;
+    private bool disposed;
     public Action<int> OnMessagesDispatched = _ => { };
-
-    public OscSendService(
-        ILogger<OscSendService> logger,
-        IOscTarget oscTarget
-    )
+    public OscSendService(ILogger<OscSendService> logger, IOscTarget oscTarget)
+    { _logger = logger; _oscTarget = oscTarget; }
+    // Encode synchronously: callers can release their frame lock when this returns.
+    public Task Send(OscMessage message, CancellationToken ct)
     {
-        _logger = logger;
-        _cts = new CancellationTokenSource();
-
-        _oscTarget = oscTarget;
-
-        _oscTarget.PropertyChanged += (_, args) =>
-        {
-            if (args.PropertyName is not nameof(IOscTarget.OutPort))
-            {
-                return;
-            }
-
-            if (_oscTarget.OutPort == default)
-            {
-                return;
-            }
-
-            if (string.IsNullOrEmpty(_oscTarget.DestinationAddress))
-            {
-                _oscTarget.DestinationAddress = "127.0.0.1";
-            }
-
-            UpdateTarget(new IPEndPoint(IPAddress.Parse(_oscTarget.DestinationAddress), _oscTarget.OutPort));
-        };
+        ct.ThrowIfCancellationRequested();
+        var buffer = new byte[4096];
+        var length = fti_osc.create_osc_message(buffer, ref message._meta);
+        if (length <= 0 || length > buffer.Length) throw new InvalidDataException("OSC message exceeds the packet buffer.");
+        return SendPackets(new[] { (buffer[..length], 1) }, ct);
     }
-
-    private void UpdateTarget(IPEndPoint endpoint)
+    public Task Send(OscMessage[] messages, CancellationToken ct)
     {
-        _cts.Cancel();
-        _sendSocket?.Close();
-        _oscTarget.IsConnected = false;
-
-        _sendSocket = new Socket(AddressFamily.InterNetwork, SocketType.Dgram, ProtocolType.Udp);
-
+        ct.ThrowIfCancellationRequested();
+        var metas = messages.Select(message => message._meta).ToArray();
+        var packets = new List<(byte[] Bytes, int Count)>();
+        var index = 0;
+        while (index < metas.Length)
+        {
+            ct.ThrowIfCancellationRequested();
+            var before = index;
+            var buffer = new byte[4096];
+            var length = fti_osc.create_osc_bundle(buffer, metas, metas.Length, ref index);
+            if (length <= 0 || length > buffer.Length || index <= before || index > metas.Length)
+                throw new InvalidDataException("OSC bundle serialization made no progress or exceeded the packet buffer.");
+            packets.Add((buffer[..length], index - before));
+        }
+        return SendPackets(packets, ct);
+    }
+    private async Task SendPackets(IEnumerable<(byte[] Bytes, int Count)> packets, CancellationToken ct)
+    {
+        await sendGate.WaitAsync(ct).ConfigureAwait(false);
         try
         {
-            _sendSocket.Connect(endpoint);
-            _oscTarget.IsConnected = true;
+            ObjectDisposedException.ThrowIf(disposed, this);
+            var host = string.IsNullOrWhiteSpace(_oscTarget.DestinationAddress) ? "127.0.0.1" : _oscTarget.DestinationAddress;
+            var endpoint = new IPEndPoint(IPAddress.Parse(host), _oscTarget.OutPort);
+            if (!endpoint.Equals(currentEndpoint))
+            {
+                sendSocket?.Dispose();
+                sendSocket = new Socket(endpoint.AddressFamily, SocketType.Dgram, ProtocolType.Udp);
+                sendSocket.Connect(endpoint);
+                currentEndpoint = endpoint;
+                _oscTarget.IsConnected = true;
+            }
+            foreach (var packet in packets)
+            {
+                var count = await sendSocket!.SendAsync(packet.Bytes, SocketFlags.None, ct).ConfigureAwait(false);
+                if (count != packet.Bytes.Length) throw new IOException("Incomplete OSC datagram.");
+                OnMessagesDispatched(packet.Count);
+            }
         }
-        catch (SocketException ex)
+        catch (SocketException e)
         {
-            _logger.LogWarning($"Failed to bind to sender endpoint: {endpoint}. {ex.Message}");
+            _oscTarget.IsConnected = false;
+            currentEndpoint = null;
+            _logger.LogWarning("OSC delivery failed: {Message}", e.Message);
+            throw;
         }
-        finally
-        {
-            _cts = new CancellationTokenSource();
-        }
+        finally { sendGate.Release(); }
     }
-
-    public async Task Send(OscMessage message, CancellationToken ct)
+    public void Dispose()
     {
-        var nextByteIndex =await  message.Encode(_sendBuffer, ct);
-        if (nextByteIndex > 4096)
+        sendGate.Wait();
+        try
         {
-            _logger.LogError("OSC message too large to send! Skipping this batch of messages.");
-            return;
+            if (disposed) return;
+            disposed = true;
+            sendSocket?.Dispose();
+            sendSocket = null;
+            currentEndpoint = null;
+            _oscTarget.IsConnected = false;
         }
-
-        await _sendSocket?.SendAsync(_sendBuffer[..nextByteIndex])!;
-        OnMessagesDispatched(1);
-    }
-
-    public async Task Send(OscMessage[] messages, CancellationToken ct)
-    {
-        var cbt = messages.Select(m => m._meta).ToArray();
-        var index = 0;
-        while (index < cbt.Length)
-        {
-            var length = await Task.Run(() => fti_osc.create_osc_bundle(_sendBuffer, cbt, messages.Length, ref index), ct);
-            await _sendSocket?.SendAsync(_sendBuffer[..length])!;
-        }
-        OnMessagesDispatched(index);
+        finally { sendGate.Release(); }
     }
 }

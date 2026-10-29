@@ -1,4 +1,5 @@
-// Frame Bridge modification notice (2026-10-29): resend cached values when output mode or avatar changes.
+// Babble Bridge modification notice (2026-10-29): synchronize cached values and
+// avatar rebinding with frame serialization; support periodic full resends.
 // Upstream: Project-Babble/VRCFaceTracking b4b39da5c9fe048c960aa3b9e56742834df6ff36.
 // Copyright 2024 benaclejames. Apache-2.0; see vendor/LICENSE and repository NOTICE.txt.
 using System.Text.RegularExpressions;
@@ -64,20 +65,33 @@ public class BaseParam<T> : Parameter where T : struct
         get => (T)OscMessage.Value;
         set
         {
-            var generation = ParameterSenderService.ResendGeneration;
-            if (value.Equals(_lastValue) && lastResendGeneration == generation)
+            lock (ParameterSenderService.FrameLock)
             {
-                return;
-            }
+                var generation = ParameterSenderService.ResendGeneration;
+                if (value.Equals(_lastValue) && lastResendGeneration == generation)
+                {
+                    return;
+                }
 
-            OscMessage.Value = value;
-            _lastValue = value;
-            lastResendGeneration = generation;
-            Enqueue();
+                OscMessage.Value = value;
+                _lastValue = value;
+                lastResendGeneration = generation;
+                Enqueue();
+            }
         }
     }
 
     private void Enqueue() => ParameterSenderService.Enqueue(OscMessage);
+
+    internal void Deactivate()
+    {
+        lock (ParameterSenderService.FrameLock)
+        {
+            Relevant = false;
+            _lastValue = null;
+            lastResendGeneration = -1;
+        }
+    }
 
     protected readonly OscMessage OscMessage;
 
@@ -91,6 +105,11 @@ public class BaseParam<T> : Parameter where T : struct
     }
 
     public override Parameter[] ResetParam(IParameterDefinition[] newParams)
+    {
+        lock (ParameterSenderService.FrameLock) return ResetParamLocked(newParams);
+    }
+
+    private Parameter[] ResetParamLocked(IParameterDefinition[] newParams)
     {
         if (ParameterSenderService.AllParametersRelevantStatic)
         {

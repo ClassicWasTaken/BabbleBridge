@@ -1,0 +1,21 @@
+<!-- Copyright (c) 2026 Frame Bridge contributors. SPDX-License-Identifier: Apache-2.0 -->
+<Project>
+  <PropertyGroup>
+    <!-- Map source document paths before compilation, including vendored projects.
+         Local release builds must not embed the developer's Windows profile path. -->
+    <PathMap Condition="'$(PathMap)' != ''">$(MSBuildThisFileDirectory)=/_/,$(PathMap)</PathMap>
+    <PathMap Condition="'$(PathMap)' == ''">$(MSBuildThisFileDirectory)=/_/</PathMap>
+    <Deterministic>true</Deterministic>
+    <!-- Sentry is an upstream runtime dependency only; the bridge initializes
+         no client. Disable generator/upload tooling that can capture build paths. -->
+    <SentryDisableSourceGenerator>true</SentryDisableSourceGenerator>
+    <UseSentryCLI>false</UseSentryCLI>
+    <!-- Release distributions do not need developer symbols or PE debug paths. -->
+    <DebugType Condition="'$(Configuration)' == 'Release'">none</DebugType>
+    <DebugSymbols Condition="'$(Configuration)' == 'Release'">false</DebugSymbols>
+  </PropertyGroup>
+  <ItemGroup>
+    <!-- This stays visible even when Sentry's transitive MSBuild targets are excluded. -->
+    <CompilerVisibleProperty Include="SentryDisableSourceGenerator" />
+  </ItemGroup>
+</Project>

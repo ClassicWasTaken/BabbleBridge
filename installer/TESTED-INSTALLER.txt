@@ -4,7 +4,7 @@ Result: PASS
 
 Isolated per-user install, reinstall, upgrade, downgrade rejection and uninstall.
 The test used a separate random application identity and workspace install and shortcut folders.
-Real application payloads tested: 1.0.4 to 1.0.5.
+Real application payloads tested: 1.0.5 to 1.0.0.
 Shortcut collision protection and running-application install/uninstall guards were exercised.
 Installed-worker mapping used the existing --all-parameters diagnostic mode.
 VRChat avatar discovery was excluded to avoid interference with a running local game.
@@ -13,10 +13,12 @@ VRChat avatar discovery was excluded to avoid interference with a running local 
 - Same-version reinstall reused the installation directory and uninstall entry.
 - An unrelated same-name desktop shortcut survived unchecked installation and explicitly selected reinstallation.
 - Setup rejected an update while the isolated application mutex existed, before changing version or files.
-- Real app binaries upgraded from 1.0.4 to 1.0.5; installed app and worker hashes match the new payload.
+- Real app binaries upgraded from 1.0.5 to 1.0.0; installed app and worker hashes match the new payload.
+- The private preview 1.0.5 migrated to public release 1.0.0 and registered generation 2 for future downgrade protection.
 - A future stable version sharing an old development version number was rejected before changing files or registration.
 - Both former development product names permitted their known-version migration to the stable series.
-- An older installer was rejected before changing installed version or files.
+- The one-time private preview reset does not allow future generation 2 releases to downgrade.
+- Preview users can skip public version 1.0.0, while later public installers still reject generation 2 downgrades.
 - The installed worker passed real-module BFR discovery, exact diagnostic OSC mapping, and mode-change restart checks.
 - The isolated uninstaller removed installed app files and its test registration.
 - Uninstall removed this installation's Start menu and guide shortcuts and preserved the unrelated desktop shortcut.

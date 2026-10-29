@@ -3,7 +3,7 @@ BABBLE BRIDGE INSTALLER
 The Windows installer installs Babble Bridge for the current user, creates its
 Start menu shortcut, offers a desktop shortcut, and adds an uninstaller to
 Windows Installed Apps. The application and its .NET runtime are included.
-The tracking module is separate: users import their own Baballonia ZIP after
+Tracking modules are separate: users import compatible VRCFaceTracking ZIPs after
 opening the app. Existing imported modules stay available through upgrades.
 The setup wizard and uninstaller also follow Windows light/dark preferences.
 
@@ -36,7 +36,7 @@ Setup 7 installation directories. It uses Inno Setup 7's long command-line
 switches. Older compilers are rejected before compilation because they may lack
 the installer styling and directives used here.
 It never installs the compiled package automatically or deletes existing files.
-It rejects payloads containing a module ZIP or Baballonia DLL. On upgrade, the
+It rejects payloads containing a module ZIP or external module DLL. On upgrade, the
 installer removes the obsolete baked-in Assets\Baballonia-module.zip from old
 app folders; it preserves separately imported modules under AppData.
 
@@ -51,6 +51,10 @@ Keep the production AppId in FrameBridge.iss unchanged across releases. Keep the
 per-user and 64-bit installation modes consistent, and preserve the existing
 installation directory. These values identify the same application to Windows
 and Inno Setup, allowing one installed app entry to be updated over time.
+Keep the BabbleBridgeReleaseGeneration registry marker at 2 in future installers.
+It distinguishes public releases from the retired private previews numbered
+1.0.1 through 1.0.5. Those previews can migrate to any public 1.0.x installer,
+including when users skip 1.0.0. Once migrated, normal downgrade protection applies.
 New installations use %LOCALAPPDATA%\Programs\Babble Bridge. Upgrades reuse
 the existing installation directory automatically, including older app paths.
 The installer rejects an older release being installed over a newer release.

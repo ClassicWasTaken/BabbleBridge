@@ -82,10 +82,8 @@ public sealed class AppSettings
             throw new ArgumentException("The VRChat destination must be an IPv4 address, such as 127.0.0.1.");
         if (OutputPort is < 1 or > 65535 || ReceivePort is < 1 or > 65535 || LinkPort is < 1 or > 65535)
             throw new ArgumentException("Ports must be between 1 and 65535.");
-        if (ReceivePort == LinkPort || ReceivePort == 8888 || LinkPort == 8888)
-            throw new ArgumentException("The receive, Headset Link, and Baballonia OSC (8888) ports must be different.");
-        if (OutputPort == ReceivePort || OutputPort == LinkPort || OutputPort == 8888)
-            throw new ArgumentException("The VRChat output port must differ from the app's listening ports.");
+        if (OutputPort == ReceivePort)
+            throw new ArgumentException("The VRChat output and feedback ports must be different.");
         if (!EyeEnabled && !FaceEnabled)
             throw new ArgumentException("Enable eye tracking, face tracking, or both.");
     }

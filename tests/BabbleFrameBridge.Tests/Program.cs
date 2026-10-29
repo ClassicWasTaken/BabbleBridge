@@ -98,6 +98,34 @@ try
             }
             Check(!File.Exists(Path.Combine(root, "escaped.txt")), "Traversal wrote outside the release directory.");
         });
+        Test("Babble input profiles have isolated configuration and remember the selected module", () =>
+        {
+            var dataRoot = Path.Combine(root, "library");
+            var store = new ModuleStore(dataRoot);
+            var headset = store.Prepare(suppliedZip);
+            Check(headset.Kind == ModuleKind.BabbleHeadsetRuntime && headset.SupportsHeadset, "Runtime capability was not detected.");
+            var desktop = store.CreateCompanion(headset);
+            Check(desktop.Kind == ModuleKind.BaballoniaDesktop && desktop.DirectoryPath != headset.DirectoryPath, "Input profiles share mutable configuration.");
+            store.Register(headset); store.Register(desktop); store.Activate(desktop);
+            File.WriteAllText(Path.Combine(desktop.DirectoryPath, "profile-test.txt"), "desktop");
+            Check(!File.Exists(Path.Combine(headset.DirectoryPath, "profile-test.txt")), "Desktop mutated the headset profile.");
+            store = new ModuleStore(dataRoot);
+            Check(store.Installed.Count == 2 && store.Current == desktop, "Library/selection did not persist.");
+            store.Activate(headset);
+            Check(store.Previous == desktop && store.Rollback() == desktop, "Hot swap lost the previous selection.");
+        });
+        Test("legacy selected desktop profile migrates without changing its ports", () =>
+        {
+            var dataRoot = Path.Combine(root, "legacy-library");
+            var store = new ModuleStore(dataRoot);
+            var release = store.Install(suppliedZip);
+            var statePath = Path.Combine(dataRoot, "modules", "module-state.json");
+            File.WriteAllText(statePath, JsonSerializer.Serialize(new { Schema = 1, Current = release.Id, Previous = (string?)null }));
+            store = new ModuleStore(dataRoot); store.MigrateLegacyProfiles(TrackingInputSource.BaballoniaDesktop);
+            Check(store.Current?.Id == release.Id && store.Current.Kind == ModuleKind.BaballoniaDesktop, "Migration reset the desktop selection.");
+            Check(store.Installed.Count == 2, "Migration did not add a separate headset profile.");
+            Check(new ModuleStore(dataRoot).Current?.Kind == ModuleKind.BaballoniaDesktop, "Migrated selection did not persist.");
+        });
         Test("prepared releases cannot be activated in another store", () =>
         {
             var a = NewStore("store-a");
@@ -107,6 +135,18 @@ try
             Check(b.Current is null, "Foreign release changed state.");
             ExpectFailure(() => a.Activate(release with { DirectoryPath = root }), "tampered-release");
             Check(a.Current is null, "Tampered release changed state.");
+        });
+        Test("semantically invalid saved state recovers its valid atomic backup", () =>
+        {
+            var dataRoot = Path.Combine(root, "semantic-recovery");
+            var store = new ModuleStore(dataRoot);
+            var first = store.Install(suppliedZip);
+            store.Install(Package("semantic-next", entries => SetManifest(entries, "Version", "4.0.3")));
+            var path = Path.Combine(dataRoot, "modules", "module-state.json");
+            File.WriteAllText(path, JsonSerializer.Serialize(new { Schema = 999, Current = first.Id, Previous = (string?)null }));
+            Check(new ModuleStore(dataRoot).Current == first, "An unsupported state schema skipped its valid backup.");
+            File.WriteAllText(path, JsonSerializer.Serialize(new { Schema = 2, Current = "not-a-release-id", Previous = (string?)null }));
+            Check(new ModuleStore(dataRoot).Current == first, "An invalid release ID skipped its valid backup.");
         });
         Test("corrupt state recovers the last atomically replaced manifest", () =>
         {
@@ -119,6 +159,15 @@ try
             Check(store.Current == first, "State backup recovery did not restore the previous valid manifest.");
         });
     }
+    Test("provider transports have distinct automatic inputs", () =>
+    {
+        Check(ModuleCatalog.Get(ModuleKind.BabbleHeadsetRuntime).InputPort == 6767, "Wrong headset input.");
+        Check(ModuleCatalog.Get(ModuleKind.BaballoniaDesktop).InputPort == 8888, "Wrong desktop input.");
+        Check(ModuleCatalog.Get(ModuleKind.VirtualDesktop).InputPort == 0, "Virtual Desktop must not open a UDP input.");
+        Check(ModuleCatalog.Get(ModuleKind.SteamLink).InputPort == 9015, "Wrong LinkFT input.");
+        ExpectFailure(() => ModuleCatalog.Identify(Guid.NewGuid().ToString(), "Other.dll"), "unknown-provider");
+        ExpectFailure(() => ModuleCatalog.Get((ModuleKind)999), "unknown-kind");
+    });
     Test("settings persist and validation rejects conflicting listening ports", () =>
     {
         var dataRoot = Path.Combine(root, "settings");
@@ -130,7 +179,7 @@ try
         settings.Save(dataRoot);
         var reloaded = AppSettings.Load(dataRoot);
         Check(reloaded.OutputHost == settings.OutputHost && reloaded.OutputPort == 19000 && reloaded.AutoStart, "Settings did not persist.");
-        foreach (var invalidPort in new[] { 0, 65536, 6767, 8888, settings.ReceivePort })
+        foreach (var invalidPort in new[] { 0, 65536, settings.ReceivePort })
         {
             settings.OutputPort = invalidPort;
             ExpectFailure(() => settings.Save(dataRoot), "invalid-port");

@@ -7,7 +7,7 @@
   #define AppPayload "..\dist\BabbleFrameBridge"
 #endif
 #ifndef AppVersion
-  #define AppVersion "1.0.5"
+  #define AppVersion "1.0.0"
 #endif
 #ifndef BuildIdentity
   #define BuildIdentity "FrameBridge.Desktop.8E250247-8BA9-42B7-A698-94D2A52E880A"
@@ -116,9 +116,9 @@ Filename: "{app}\BabbleFrameBridge.exe"; Description: "Open &Babble Bridge"; Wor
 
 [Messages]
 WelcomeLabel1=Meet Babble Bridge.
-WelcomeLabel2=Your headset expressions, connected to VRChat.%n%nSetup will install this independent bridge for your Windows account.%n%nThe Microsoft Visual C++ v14 Redistributable (x64) must be installed separately from Microsoft.%n%nFuture versions can be installed over this one. Your settings and Baballonia modules stay in place.
+WelcomeLabel2=Your headset expressions, connected to VRChat.%n%nSetup will install this independent bridge for your Windows account.%n%nThe Microsoft Visual C++ v14 Redistributable (x64) must be installed separately from Microsoft.%n%nFuture versions can be installed over this one. Your settings and imported modules stay in place.
 FinishedHeadingLabel=You’re ready to express yourself.
-FinishedLabel=Babble Bridge is installed.%n%nOpen Babble Bridge and add your own Baballonia module ZIP, then start the headset runtime.%n%nExisting imported modules are preserved. To update the app later, run its newer setup file. To update only the module, import a new ZIP inside the app.
+FinishedLabel=Babble Bridge is installed.%n%nOpen Babble Bridge and add a compatible module ZIP from its official author, then connect your tracking provider.%n%nExisting imported modules are preserved. To update the app later, run its newer setup file. To update only the module, import a new ZIP inside the app.
 BeveledLabel=Independent runtime bridge
 
 [Code]
@@ -197,6 +197,14 @@ var
   OldGroup: String;
 begin
   if CurStep = ssPostInstall then begin
+    { Inno recreates its uninstall key after processing [Registry] entries.
+      Write the generation only after that key has been saved, or an upgrade
+      would silently lose the marker and permit a later downgrade. }
+    if not RegWriteDWordValue(HKCU,
+      'Software\Microsoft\Windows\CurrentVersion\Uninstall\{#BuildIdentity}_is1',
+      'BabbleBridgeReleaseGeneration', 2) then
+      RaiseException('Setup could not record the public release generation. Run Setup again before installing another release.');
+    Log('Recorded public release generation 2 after saving uninstall information.');
     if '{#BuildIdentity}' = 'FrameBridge.Desktop.8E250247-8BA9-42B7-A698-94D2A52E880A' then begin
       { Retire an old link only after its replacement was actually created.
         A name collision with another app must not remove the only owned link. }
@@ -267,6 +275,7 @@ end;
 function InitializeSetup: Boolean;
 var
   InstalledVersion, InstalledName: String;
+  ReleaseGeneration: Cardinal;
 begin
   Result := True;
   if RegQueryStringValue(HKCU,
@@ -277,6 +286,18 @@ begin
       RegQueryStringValue(HKCU,
         'Software\Microsoft\Windows\CurrentVersion\Uninstall\{#BuildIdentity}_is1',
         'DisplayName', InstalledName);
+      { The private preview series used 1.0.1–1.0.5. Users may skip the
+        first public installer, so allow migration throughout public 1.0.x,
+        only while the installation still predates generation 2. }
+      if (Pos('1.0.', '{#AppVersion}') = 1) and (CompareText(InstalledName, 'Babble Bridge') = 0) and
+        ((InstalledVersion = '1.0.1') or (InstalledVersion = '1.0.2') or
+         (InstalledVersion = '1.0.3') or (InstalledVersion = '1.0.4') or (InstalledVersion = '1.0.5')) and
+        not RegQueryDWordValue(HKCU,
+          'Software\Microsoft\Windows\CurrentVersion\Uninstall\{#BuildIdentity}_is1',
+          'BabbleBridgeReleaseGeneration', ReleaseGeneration) then begin
+        Log('Migrating the private preview series to public release {#AppVersion}.');
+        Exit;
+      end;
       if (Pos('1.0.', '{#AppVersion}') = 1) and
         IsKnownDevelopmentBuild(InstalledVersion, InstalledName) then begin
         Log('Transitioning a known development installation to the first stable release.');

@@ -1,150 +1,119 @@
-BABBLE BRIDGE 1.0.5 — WINDOWS x64
+BABBLE BRIDGE 1.0.0 — WINDOWS x64
 
 PREREQUISITE
 Install the Microsoft Visual C++ v14 Redistributable (x64) from Microsoft:
 https://learn.microsoft.com/en-us/cpp/windows/latest-supported-vc-redist
-The application does not bundle a Visual C++ DLL copied from Windows, and the
-setup does not download or install this prerequisite automatically. The packaged
-application includes its separate .NET runtime and its accompanying notices.
+Setup does not download this prerequisite. The app includes its separate .NET
+runtime and accompanying notices.
 
 GET STARTED
-1. Run Babble-Bridge-Setup.exe and follow the setup wizard. It installs for
-   your Windows account and adds Babble Bridge to the Start menu. An optional
-   desktop shortcut is available. The portable ZIP is also supported: extract
-   the entire folder and keep its runtime and Assets folders.
-2. Close VRCFaceTracking on this PC, then open Babble Bridge from Start, or run
-   BabbleFrameBridge.exe from a portable folder.
-3. Add your own VRCFaceTracking.Baballonia module ZIP using 'Add module ZIP',
-   or drop the ZIP onto the app. No module is included or installed automatically.
-   Get the module separately from https://github.com/Project-Babble/Baballonia .
-   Existing imported modules remain available after an app update.
-4. On your headset, start its runtime and enable the tracking you want.
-   The headset and PC must be on the same reachable network. The bridge listens
-   for BFR Link on UDP 6767. If Windows asks about network access, you choose
-   whether to allow access on your trusted private network.
-5. Open VRChat on this PC, enable OSC, and use an avatar with face tracking.
-   OSCQuery discovers the avatar and its tracking parameters automatically.
-   If VRChat was already running, reselect your avatar if needed.
+1. Run Babble-Bridge-Setup.exe. Setup installs for your Windows account and
+   offers an optional desktop shortcut. For a portable build, extract the
+   entire folder and keep its runtime, Assets, licenses and notice files.
+2. Close the separate VRCFaceTracking app and open Babble Bridge.
+3. Import your VRCFaceTracking module ZIP. Modules are obtained separately;
+   none is included or downloaded automatically. You can keep multiple
+   imported modules and select the one you want to use.
+4. Start the matching headset runtime or desktop tracking app. Enable the
+   tracking permissions and forwarding settings it requires (see below).
+5. Enable OSC in VRChat and select an avatar with face tracking. OSCQuery
+   discovers a local VRChat instance and its avatar parameters automatically.
+   Reselect the avatar if VRChat was already running and needs a refresh.
 
-This app replaces the PC-side VRCFaceTracking bridge for a compatible headset runtime.
-The runtime still runs on your headset; this app does not install it there.
-The regular Baballonia desktop camera/inference app is not needed for that path.
-This independent app is based on VRCFaceTracking. The Baballonia module is a
-separate download that you supply. It is not an official Project Babble release.
+The selected module and its connection settings are remembered. Switching
+modules restarts the tracking worker and applies the appropriate input.
+Only one module is active at a time. Avoid running another tracking app that
+uses the same input or VRChat output ports.
 
-DESKTOP BABALLONIA INPUT
-The first launch selects Headset Runtime. After you choose a source and click
-'Save connection', the app restores that saved selection on future launches.
-If your tracking comes from the Baballonia desktop app instead of Headset Runtime,
-open Connection, choose 'Baballonia desktop', and click 'Save connection'. Enable
-Baballonia's VRCFaceTracking output to 127.0.0.1:8888. Keep Baballonia running and
-close the separate VRCFaceTracking app. Desktop mode enables both eye and face
-inputs even when an older module ZIP defaults to face only. It does not listen
-for BFR Link. Choose Headset Runtime again for tracking sent from the headset.
-The desktop input status indicates the listener is enabled; it does not claim a
-headset connection or prove that the desktop app is currently sending data.
+MODULE CONNECTIONS
+Babble Headset Runtime
+  Import the Baballonia VRCFaceTracking module and select its headset-runtime
+  connection. Start Babble Frame Runtime on the headset. The headset and PC
+  must be able to reach each other on the network. BFR Link uses UDP 6767.
+  If Windows asks about network access, allow it on your trusted network as
+  appropriate. This app does not install the headset runtime or edit firewall
+  rules. If discovery is blocked, try the runtime's PC IP fallback.
+  Module: https://github.com/Project-Babble/Baballonia
+  Runtime: https://github.com/Project-Babble/Babble-Frame-Runtime
 
-UPDATE THE MODULE
-Click 'Add module ZIP' for the first module, or 'Import module ZIP' for an update,
-and choose a VRCFaceTracking.Baballonia ZIP.
-You can also drop one ZIP onto the app. The app validates the package, stops the
-old worker, loads the new DLL, and activates it only after initialization succeeds.
-The bridge starts using the new module automatically. 'Restore previous' switches
-back to the last active module and starts it. A rejected ZIP leaves the old module
-installed; a failed startup attempts to resume the old worker.
+Baballonia desktop
+  Import the Baballonia module and select its desktop connection. Keep the
+  desktop Baballonia app running with VRCFaceTracking output enabled toward
+  127.0.0.1:8888. Desktop input uses UDP 8888, including both eye and face input.
+  https://github.com/Project-Babble/Baballonia
 
-Use module packages from Project Babble. A module DLL runs code on your computer.
-ZIP validation checks its format and identity; it does not authenticate the author.
-Updates must retain the Baballonia module ID and a compatible VRCFT module API.
-A future breaking SDK or .NET change can require an update to this bridge too.
-An invalid startup is caught before the new module becomes the saved default;
-initialization does not prove every behavior of a new module is compatible.
+Virtual Desktop
+  Import the VirtualDesktop.VRCFaceTracking module. Run Virtual Desktop
+  Streamer 1.30 or later and enable eye/face tracking forwarding and the
+  headset's required permissions. This module reads local shared memory;
+  it does not use a tracking-input UDP port.
+  https://github.com/guygodin/VirtualDesktop.VRCFaceTracking
 
-STATUS AND SETTINGS
-The app distinguishes a linked headset from recently received expression data.
-The overview shows headset connection, VRChat output and the active module.
-Expression processing continues in the background without an on-screen monitor.
-Output counts are sent OSC messages, not confirmation that VRChat has applied them.
-In Headset Runtime mode, eyes and face follow the headset's settings. The module saves those choices;
-the bridge restarts it automatically when the claimed tracking mode changes.
-Connection settings let you change the VRChat IPv4 address and send/receive ports.
-The tracking input port appears beside the selected source and updates automatically:
-Headset Runtime uses BFR Link (normally 6767), and desktop Baballonia uses the module's
-OSC port (normally 8888). VRChat send/feedback ports are labeled separately.
-Success notifications fade away after four seconds. Use the close button to dismiss
-any notification; error notifications remain visible until dismissed or a new action.
-Default output is 127.0.0.1:9000; avatar-change input is 127.0.0.1:9001.
-When defaults are used, OSCQuery can negotiate VRChat's actual output port.
-Automatic avatar discovery is intended for VRChat running on this PC.
-The app uses the module's loopback OSC listener on 8888 as well as BFR Link 6767.
-Desktop mode uses only the loopback OSC listener on 8888.
-Close other tracking apps if either port is already occupied.
+Steam Link
+  Import the Ykeara LinkFT module. In Steam Link advanced settings, enable OSC,
+  share the available eye/face tracking data, and set OSC Output Port to 9015.
+  This module receives local UDP on 127.0.0.1:9015.
+  https://github.com/ykeara/LinkFT
+
+Available expressions depend on your headset, module and avatar. The current
+Virtual Desktop and LinkFT modules use a fixed pupil diameter rather than
+measuring pupil dilation. The bridge cannot generate measurements the source
+does not provide. LinkFT is described as experimental by its publisher.
+
+AVATARS AND OUTPUT
+Traditional VRCFaceTracking parameters, including Jerry's templates, are
+supported when the avatar exposes them. Native VRChat face-tracking SDK beta
+avatars use /tracking/face/v1 when their avatar tracking settings enable it.
+The output mode follows the avatar's advertised support. An avatar still needs
+the blendshapes and setup required to display the expressions it receives.
+
+Default VRChat output is 127.0.0.1:9000 and avatar-change feedback is on
+127.0.0.1:9001. OSCQuery can negotiate a local VRChat instance's actual port.
+These are separate from each module's tracking-input port. Save connection
+persists your connection edits; it does not install a module or change VRChat's
+avatar setup. The send count records transmitted OSC messages, rather than
+confirming that an avatar has visibly applied every value.
+
+MODULE UPDATES AND SWITCHING
+Import a new module ZIP to add or update a module. Select an installed module
+to switch to it; the current worker stops before the new worker starts. The app
+keeps installed releases available. A rejected package preserves the active
+module, and a failed activation attempts to restore the previous worker.
+
+Use ZIPs from publishers you trust. A module contains executable code and runs
+with your Windows account's permissions. Format/API checks do not authenticate
+the publisher. The separate worker enables clean restarts and is not a security
+sandbox. Modules and headset software retain their own licenses. A future
+breaking SDK or .NET change may require a bridge update as well.
 
 YOUR FILES
-Settings, module versions and activity logs are in:
+Settings, imported module versions and activity logs are stored in:
   %LOCALAPPDATA%\BabbleFrameBridge
-The app never imports other VRCFaceTracking modules or edits that installation.
-Logs stay on your computer. No telemetry sender is initialized by this app.
-Closing the window stops its tracking worker.
+Existing VRCFaceTracking installations are not imported or modified. Logs stay
+on your PC; the bridge does not initialize a telemetry sender. Closing the app
+stops its tracking worker. Do not post logs containing avatar IDs, usernames,
+network addresses or other private data without removing those details.
 
-IF THE HEADSET DOES NOT CONNECT
-Check that the headset runtime is running, the PC and headset
-can reach each other, and another app is not using UDP 6767 or 8888. If discovery
-is blocked on your network, use the runtime's PC IP fallback. Check the activity
-log for module errors. You may need to allow the runtime worker through your
-firewall on your private network; the app does not change firewall settings.
-
-IF THE HEADSET CONNECTS BUT THE AVATAR DOES NOT MOVE
-Check VRChat OSC, select a compatible avatar, and reselect that avatar. Check
-that a named avatar and compatible parameters appear in the activity log.
-Traditional custom face expressions require an avatar set up for VRCFaceTracking.
-VRChat SDK beta avatars with Face Tracking / Use All Tracking Keys enabled use
-the native /tracking/face/v1 feed automatically. The output card identifies this
-mode. Native frames include independent eye closure, widening and opposing pupil
-dilation/constriction. The older eye/parameter output is paused in native mode.
-
-VALIDATION
-Tested on this Windows PC with a separately supplied v4.0.0 DLL. Automated loopback tests
-verify BFR discovery/heartbeat, exact eye and jaw OSC mapping, mode-change
-restart, persistence, and relaunch. ZIP tests verify update/rollback and invalid
-package handling and rollback. The Windows window was visually checked.
-Live headset input was checked while VRChat was running: both eyelids blinked,
-eye widening changed and pupil values varied. The native protocol is covered by
-byte-level and real-module loopback tests. Sent packets alone do not confirm the
-avatar's blendshapes have visually applied every value.
-Desktop Baballonia-style OSC and BFR Link also pass a Jerry-template parameter
-fixture: eye/lip enable flags, gaze, independent lids/widen, supported brow/squint,
-pupils, binary parameters and mouth output. A face-only ZIP startup is covered.
-Isolated installer tests cover a real 1.0.4 to 1.0.5 payload upgrade, reinstall,
-downgrade guards, running-app protection, shortcut collisions and uninstall.
-Actual-window module tests cover ZIP activation, failed-start recovery, rollback
-and persistence after reopening. Test profiles and network ports are isolated.
-
-PROJECT REFERENCES
-VRCFaceTracking: https://github.com/Project-Babble/VRCFaceTracking
-Baballonia module: https://github.com/Project-Babble/Baballonia
-Headset runtime: https://github.com/Project-Babble/Babble-Frame-Runtime
-See LICENSE, NOTICE.txt, THIRD_PARTY_NOTICES.md and licenses for the applicable
-source provenance, copyrights and third-party terms. Compatibility references
-do not imply affiliation with or endorsement by the named projects or companies.
-
-APPEARANCE AND MOTION
-The interface uses the application's original bridge artwork and independently
-implemented particle motion. IBM Plex Sans typography is included under the
-SIL Open Font License; the font notice is retained with the app.
-Light and dark modes follow the Windows app color preference automatically,
-including changes while open. Pages transition into place and buttons respond
-to hover. Motion is built in and automatically respects Windows reduced-motion
-preferences. Particle drawing pauses on other pages and while minimized.
-
+APPEARANCE
+Light and dark modes automatically follow the Windows app color preference.
+The original headset artwork and particle animation are included. Motion
+respects Windows reduced-motion preferences and pauses while minimized.
+IBM Plex Sans is included with its SIL Open Font License notice.
 
 UPDATE OR REMOVE THE APP
-Run a newer Babble Bridge setup file to update the existing installation.
-You do not need to uninstall first. Close Babble Bridge before starting setup.
-The setup reuses the existing installation directory and preserves settings,
-logs, imported module versions and rollback data in %LOCALAPPDATA%\BabbleFrameBridge.
-Older setup files cannot replace a newer installed app version.
+Run a newer Babble Bridge installer over the existing app; close the app first.
+Setup keeps the installation directory and your separate settings, logs and
+module library. The first public 1.0.0 release also supports migration from the
+retired private release series. Future releases use normal version ordering.
 Uninstall through Windows Installed Apps. Normal uninstall removes app files
-and shortcuts while keeping your settings and modules for a future reinstall.
-App updates are supplied as newer setup files; module updates still use ZIPs
-inside the app. There is no configured online automatic-update service.
+and shortcuts while preserving the separate AppData profile for a reinstall.
+There is no configured online automatic-update service. App updates use setup
+files, while module updates use ZIP imports inside the app.
+
+COPYRIGHTS AND SOURCES
+https://github.com/ClassicWasTaken/BabbleBridge
+https://github.com/Project-Babble/VRCFaceTracking
+https://babble.diy/
+See LICENSE, NOTICE.txt, THIRD_PARTY_NOTICES.md and licenses/ for component
+copyrights, provenance and terms. This project is independent; compatibility
+names do not imply sponsorship or endorsement by the named projects.

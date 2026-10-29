@@ -53,6 +53,9 @@ jobs:
       - name: Check themes and module-free first run
         run: dotnet run --project tests/BabbleFrameBridge.Appearance.Tests -c Release -- --publish-dir dist/BabbleFrameBridge
 
+      - name: Check OSC cadence, concurrency and stationary gaze refresh
+        run: dotnet run --project tests/BabbleBridge.Sending.Tests -c Release
+
       - name: Verify distribution notices and separate-module packaging
         run: |
           $payload = Join-Path $PWD 'dist/BabbleFrameBridge'
@@ -62,7 +65,7 @@ jobs:
             }
           }
           $module = Get-ChildItem -LiteralPath $payload -Recurse -File | Where-Object {
-            $_.Name -eq 'VRCFaceTracking.Baballonia.dll' -or
+            $_.Name -in @('VRCFaceTracking.Baballonia.dll', 'VirtualDesktop.FaceTracking.dll', 'SteamLinkVRCFTModule.dll') -or
             ($_.Extension -eq '.zip' -and $_.Name -like '*Baballonia*')
           }
           if ($module) { throw 'The application must not include a Baballonia tracking module.' }

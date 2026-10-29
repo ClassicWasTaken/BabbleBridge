@@ -8,20 +8,24 @@
   <a href="https://babble.diy/">Visit the Project Babble website ↗</a>
 </p>
 
-A Windows app that bridges your headset’s eye and face tracking to VRChat through compatible **VRCFaceTracking SDK** modules. Supports traditional VRCFT avatars and VRChat’s native face-tracking SDK beta.
+A Windows app that bridges eye and face tracking to VRChat through compatible **VRCFaceTracking SDK** modules. Supports Babble Headset Runtime, Baballonia desktop, Virtual Desktop, and Steam Link, with Jerry’s templates and VRChat’s native face-tracking SDK beta.
 
 ![Babble Bridge running on Windows](docs/images/app-running.jpg)
 
 ## Get started
 
-1. Install the app and import your **Baballonia module ZIP**. The module is not included.
-2. Start your **headset runtime**, on the same network as your PC.
+1. Install the app and import your **VRCFaceTracking module ZIP**. Modules are supplied separately.
+2. Select your module and start its **headset runtime or desktop tracking app**.
 3. Enable **OSC** in VRChat and select a face-tracking avatar.
 
-First launch selects **Headset Runtime**; later launches restore your saved source. For desktop Baballonia, select **Connection → Baballonia desktop → Save connection** and enable its VRCFaceTracking output to `127.0.0.1:8888`. Jerry’s templates are supported.
+Your selected module is remembered, with its own connection settings. Jerry’s templates are supported.
+
+Only import ZIPs from publishers you trust: modules run code on your PC under their own licenses.
 
 Windows 10/11 x64. [Setup & requirements](START-HERE.txt) · [Build from source](BUILD.txt)
 
 Original code: [Apache 2.0](LICENSE). [Copyrights & third-party licenses](THIRD_PARTY_NOTICES.md).
+
+[Pull requests welcome](CONTRIBUTING.md) · [Report a security issue privately](SECURITY.md)
 
 Independent project; not endorsed by Project Babble, VRCFaceTracking, Valve, or VRChat.

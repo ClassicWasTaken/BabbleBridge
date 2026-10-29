@@ -1,4 +1,7 @@
-﻿using System.Linq;
+// Babble Bridge modification notice (2026-10-29): detach obsolete binary child parameters on avatar changes.
+// Upstream: Project-Babble/VRCFaceTracking b4b39da5c9fe048c960aa3b9e56742834df6ff36.
+// Copyright 2024 benaclejames. Apache-2.0; see vendor/LICENSE and NOTICE.txt.
+using System.Linq;
 using System.Text.RegularExpressions;
 using VRCFaceTracking.Core.Contracts;
 using VRCFaceTracking.Core.Params;
@@ -53,6 +56,13 @@ public class BinaryBaseParameter : Parameter
      */
     public override Parameter[] ResetParam(IParameterDefinition[] newParams)
     {
+        lock (VRCFaceTracking.Core.Services.ParameterSenderService.FrameLock)
+            return ResetParamLocked(newParams);
+    }
+
+    private Parameter[] ResetParamLocked(IParameterDefinition[] newParams)
+    {
+        foreach (var parameter in _params) parameter.Deactivate();
         _params.Clear();
         var negativeRelevancy = _negativeParam.ResetParam(newParams);
 

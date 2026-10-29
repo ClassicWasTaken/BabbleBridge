@@ -38,6 +38,7 @@ internal static class Program
     {
         using var stop = new CancellationTokenSource();
         ExtTrackingModule? module = null;
+        OscSendService? send = null;
         ParameterSenderService? sender = null;
         AvatarRouter? router = null;
         NativeFaceSender? nativeFace = null;
@@ -60,30 +61,58 @@ internal static class Program
 
             var moduleDirectory = Path.GetDirectoryName(modulePath)!;
             Directory.SetCurrentDirectory(moduleDirectory);
-            var desktopSource = settings.InputSource == TrackingInputSource.BaballoniaDesktop;
-            // A linked headset negotiates its claims. This host owns the sole desktop module, so desktop OSC
-            // must claim both channels even when an imported legacy ZIP defaults to face tracking only.
-            var configPath = Path.Combine(moduleDirectory, "BabbleConfig.json");
-            var config = File.Exists(configPath) ? JsonNode.Parse(File.ReadAllText(configPath)) as JsonObject ?? new() : new JsonObject();
-            config["Host"] ??= "127.0.0.1";
-            config["Port"] ??= 8888;
-            if (desktopSource)
+            var explicitKind = args.Contains("--kind");
+            var kind = settings.InputSource == TrackingInputSource.BaballoniaDesktop
+                ? ModuleKind.BaballoniaDesktop : ModuleKind.BabbleHeadsetRuntime;
+            if (explicitKind && (!Enum.TryParse(Arg("--kind"), ignoreCase: true, out kind) || !Enum.IsDefined(kind)))
+                throw new ArgumentException("Choose a supported tracking module.");
+            var provider = ModuleCatalog.Get(kind);
+            var babbleModule = kind is ModuleKind.BabbleHeadsetRuntime or ModuleKind.BaballoniaDesktop;
+            var headsetSource = kind == ModuleKind.BabbleHeadsetRuntime;
+            var desktopSource = kind == ModuleKind.BaballoniaDesktop;
+            var inputPort = !explicitKind && headsetSource ? settings.LinkPort : provider.InputPort;
+            if (args.Contains("--input-port"))
             {
-                config["IsEyeSupported"] = true;
-                config["IsFaceSupported"] = true;
+                if (!babbleModule) throw new ArgumentException($"{provider.Name} manages its tracking input automatically.");
+                inputPort = int.Parse(Arg("--input-port"));
             }
-            else
+            if (inputPort is < 0 or > 65535 || (babbleModule && inputPort == 0))
+                throw new ArgumentException("The tracking input port must be between 1 and 65535.");
+            if (inputPort != 0 && (inputPort == settings.OutputPort || inputPort == settings.ReceivePort))
+                throw new ArgumentException("The tracking input port must differ from the VRChat send and receive ports.");
+
+            if (babbleModule)
             {
-                config["IsEyeSupported"] ??= true;
-                config["IsFaceSupported"] ??= true;
+                // The two Babble profiles share a DLL but have different listeners. Other providers
+                // own their configuration and must never receive a BabbleConfig.json file.
+                var configPath = Path.Combine(moduleDirectory, "BabbleConfig.json");
+                var config = File.Exists(configPath) ? JsonNode.Parse(File.ReadAllText(configPath)) as JsonObject ?? new() : new JsonObject();
+                config["Host"] ??= "127.0.0.1";
+                config["Port"] ??= 8888;
+                if (desktopSource)
+                {
+                    // Legacy ZIPs can default to face only; this profile owns both tracking channels.
+                    config["IsEyeSupported"] = true;
+                    config["IsFaceSupported"] = true;
+                    if (explicitKind || args.Contains("--input-port")) config["Port"] = inputPort;
+                    else inputPort = config["Port"]!.GetValue<int>();
+                }
+                else
+                {
+                    config["IsEyeSupported"] ??= true;
+                    config["IsFaceSupported"] ??= true;
+                }
+                config["LinkEnabled"] = headsetSource;
+                config["LinkPort"] = headsetSource ? inputPort : settings.LinkPort;
+                var desktopInputPort = config["Port"]!.GetValue<int>();
+                if (desktopInputPort is < 1 or > 65535 || desktopInputPort == settings.OutputPort
+                    || desktopInputPort == settings.ReceivePort || (headsetSource && desktopInputPort == inputPort))
+                    throw new ArgumentException("The Baballonia OSC port must differ from the Headset Link and VRChat ports.");
+                File.WriteAllText(configPath, config.ToJsonString(new() { WriteIndented = true }));
+                if (headsetSource) CheckPort(inputPort, IPAddress.Any);
+                CheckPort(desktopInputPort, IPAddress.Parse(config["Host"]!.GetValue<string>()));
             }
-            config["LinkEnabled"] = !desktopSource;
-            config["LinkPort"] = settings.LinkPort;
-            File.WriteAllText(configPath, config.ToJsonString(new() { WriteIndented = true }));
-            if (!desktopSource) CheckPort(settings.LinkPort, IPAddress.Any);
-            var desktopInputPort = config["Port"]!.GetValue<int>();
-            CheckPort(desktopInputPort, IPAddress.Loopback);
-            var inputPort = desktopSource ? desktopInputPort : settings.LinkPort;
+            else if (kind == ModuleKind.SteamLink) CheckPort(inputPort, IPAddress.Loopback);
 
             _ = Task.Run(async () =>
             {
@@ -119,7 +148,7 @@ internal static class Program
             var mutator = new UnifiedTrackingMutator(logs.CreateLogger<UnifiedTrackingMutator>(), new NoSettings());
             mutator.Enabled = false;
             var target = new WorkerOscTarget();
-            var send = new OscSendService(logs.CreateLogger<OscSendService>(), target);
+            send = new OscSendService(logs.CreateLogger<OscSendService>(), target);
             long messages = 0;
             send.OnMessagesDispatched = n => Interlocked.Add(ref messages, n);
             target.DestinationAddress = settings.OutputHost;
@@ -135,31 +164,45 @@ internal static class Program
             };
             var assembly = AssemblyLoadContext.Default.LoadFromAssemblyPath(modulePath);
             var types = assembly.GetTypes().Where(t => !t.IsAbstract && typeof(ExtTrackingModule).IsAssignableFrom(t)).ToArray();
-            if (types.Length != 1) throw new InvalidDataException("The package must contain exactly one Baballonia tracking module.");
+            if (types.Length != 1) throw new InvalidDataException("The package must contain exactly one VRCFaceTracking module.");
             module = (ExtTrackingModule)Activator.CreateInstance(types[0])!;
-            module.Logger = logs.CreateLogger("Baballonia");
+            module.Logger = logs.CreateLogger(provider.Name);
             var claims = module.Initialize(true, true);
+            // A headset can have both channels disabled in its saved configuration. Its
+            // live BFR Link still needs to negotiate the next headset session's claims.
+            if (!claims.eyeSuccess && !claims.expressionSuccess && !headsetSource)
+                throw new InvalidOperationException(kind == ModuleKind.VirtualDesktop
+                    ? "Virtual Desktop could not initialize. Start Virtual Desktop Streamer 1.30 or later, enable 'Forward tracking data to PC', and connect your headset before starting the bridge."
+                    : $"{provider.Name} did not enable eye or face tracking. Check the module's tracking settings and start its tracking software before trying again.");
             module.Status = ModuleState.Active;
             // The VRCFT mapping exposes these static status values to EyeTrackingActive / ExpressionTrackingActive.
             SetCoreStatus("EyeStatus", claims.eyeSuccess);
             SetCoreStatus("ExpressionStatus", claims.expressionSuccess);
-            if (!desktopSource && module.GetType().GetField("babbleLink", BindingFlags.Instance | BindingFlags.NonPublic) != null && GetField(module, "babbleLink") == null)
-                throw new InvalidOperationException("Baballonia could not start BFR Link. Close other tracking apps using UDP " + settings.LinkPort + ".");
+            if (headsetSource)
+            {
+                if (module.GetType().GetField("babbleLink", BindingFlags.Instance | BindingFlags.NonPublic) == null)
+                    throw new InvalidOperationException("This Babble module does not support the headset runtime. Import a current runtime-compatible module ZIP, or select its Baballonia desktop profile.");
+                if (GetField(module, "babbleLink") == null)
+                    throw new InvalidOperationException("Baballonia could not start BFR Link. Close other tracking apps using UDP " + inputPort + ".");
+            }
             // A newer compatible SDK may expose the reinitialization event; support it without requiring that API in v5.4.1.
             var reinitEvent = module.GetType().GetEvent("ReinitializeRequested", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
             Action requestRestart = () =>
             {
-                Emit(new { type = "restart", message = desktopSource
-                    ? "Baballonia changed its eye or mouth tracking mode."
-                    : "The headset changed its eye or mouth tracking mode." });
+                Emit(new { type = "restart", message = headsetSource
+                    ? "The headset changed its eye or mouth tracking mode."
+                    : $"{provider.Name} changed its eye or mouth tracking mode." });
                 stop.Cancel();
             };
             if (reinitEvent?.EventHandlerType == typeof(Action)) reinitEvent.AddEventHandler(module, requestRestart);
 
             // Set the source policy before every mapper/sender callback, including the first frame.
             // The disabled mutator passes through this same data object.
-            prepareEyes = data => data.Eye.NormalizedPupilRange = GetHeadsetEyeInputs(module).NormalizedDilation ? (2f, 8f) : null;
-            UnifiedTracking.OnUnifiedDataUpdated = prepareEyes + UnifiedTracking.OnUnifiedDataUpdated;
+            if (babbleModule)
+            {
+                prepareEyes = data => data.Eye.NormalizedPupilRange = GetHeadsetEyeInputs(module).NormalizedDilation ? (2f, 8f) : null;
+                UnifiedTracking.OnUnifiedDataUpdated = prepareEyes + UnifiedTracking.OnUnifiedDataUpdated;
+            }
             nativeFace = new NativeFaceSender(target, logs.CreateLogger<NativeFaceSender>());
             nativeFace.Start();
             router = new AvatarRouter(logs, target, sender, settings, args.Contains("--all-parameters"), nativeFace, args.Contains("--no-discovery"));
@@ -168,13 +211,18 @@ internal static class Program
             Emit(new
             {
                 type = "ready", eye = claims.eyeSuccess, face = claims.expressionSuccess,
-                source = settings.InputSource.ToString(), inputPort,
-                message = desktopSource
-                    ? $"Module initialized; listening for Baballonia desktop OSC on UDP {inputPort}."
-                    : "Module initialized; waiting for the headset."
+                source = kind.ToString(), inputPort,
+                message = kind switch
+                {
+                    ModuleKind.BabbleHeadsetRuntime => "Module initialized; waiting for the headset.",
+                    ModuleKind.BaballoniaDesktop => $"Module initialized; listening for Baballonia desktop OSC on UDP {inputPort}.",
+                    ModuleKind.VirtualDesktop => "Module initialized; connected to Virtual Desktop Streamer.",
+                    _ => $"Module initialized; listening for Steam Link OSC on UDP {inputPort}."
+                }
             });
             var clock = Stopwatch.StartNew();
             long lastMessages = 0;
+            long lastFrames = 0;
             long lastPackets = 0;
             var lastDataAt = DateTime.MinValue;
             double lastStatus = -1;
@@ -184,22 +232,26 @@ internal static class Program
                 if (clock.Elapsed.TotalSeconds - lastStatus < .25) continue;
                 var elapsed = clock.Elapsed.TotalSeconds - Math.Max(0, lastStatus);
                 lastStatus = clock.Elapsed.TotalSeconds;
-                var link = GetField(module, "babbleLink");
+                var link = headsetSource ? GetField(module, "babbleLink") : null;
                 var sid = GetField(link, "_sid") as string;
                 var lastSeen = GetField(link, "_lastSeen") is DateTime date ? date : DateTime.MinValue;
                 var packetCount = GetField(link, "_rx") is long rx ? rx : 0;
-                var connected = sid != null && DateTime.UtcNow - lastSeen < TimeSpan.FromSeconds(3.5);
+                var connected = headsetSource ? sid != null && DateTime.UtcNow - lastSeen < TimeSpan.FromSeconds(3.5) : true;
                 if (packetCount != lastPackets) { lastDataAt = DateTime.UtcNow; lastPackets = packetCount; }
                 var dataAge = lastDataAt == DateTime.MinValue ? -1 : Math.Max(0, (DateTime.UtcNow - lastDataAt).TotalSeconds);
-                var eyeInputs = GetHeadsetEyeInputs(module);
+                var eyeInputs = babbleModule ? GetHeadsetEyeInputs(module) : (NormalizedDilation: false, Pupil: false, Widen: claims.eyeSuccess);
+                var receivingKnown = headsetSource || kind == ModuleKind.VirtualDesktop;
+                var receiving = headsetSource ? connected && dataAge is >= 0 and < 2.5
+                    : kind == ModuleKind.VirtualDesktop && GetField(module, "_isTracking") is true;
                 var total = Interlocked.Read(ref messages) + nativeFace.FramesSent;
+                var frames = sender.FramesProcessed;
                 Emit(new
                 {
                     type = "status", eye = claims.eyeSuccess, face = claims.expressionSuccess,
-                    source = settings.InputSource.ToString(), inputPort,
-                    connected, receiving = connected && dataAge is >= 0 and < 2.5,
-                    headset = connected ? GetField(link, "_headsetName") as string ?? "Headset" : "",
-                    path = connected ? GetField(link, "_activePath") as string ?? "" : "",
+                    source = kind.ToString(), inputPort,
+                    connected, receiving, receivingKnown,
+                    headset = headsetSource && connected ? GetField(link, "_headsetName") as string ?? "Headset" : "",
+                    path = headsetSource && connected ? GetField(link, "_activePath") as string ?? "" : "",
                     packets = packetCount, packetAge = dataAge,
                     eyeLeft = Finite(UnifiedTracking.Data.Eye.Left.Openness), eyeRight = Finite(UnifiedTracking.Data.Eye.Right.Openness),
                     eyeWideLeft = Finite(UnifiedTracking.Data.Shapes[(int)UnifiedExpressions.EyeWideLeft].Weight),
@@ -209,11 +261,14 @@ internal static class Program
                     pupilAvailable = eyeInputs.Pupil, widenAvailable = eyeInputs.Widen,
                     jawOpen = Finite(UnifiedTracking.Data.Shapes[(int)UnifiedExpressions.JawOpen].Weight),
                     messages = total, rate = Math.Round((total - lastMessages) / Math.Max(.01, elapsed)),
+                    trackingRate = Math.Round((frames - lastFrames) / Math.Max(.01, elapsed)),
+                    targetRate = ParameterSenderService.TargetRateHz,
                     avatar = router.AvatarName, parameters = router.ParameterCount,
                     nativeFaceTracking = nativeFace.Enabled, nativeFrames = nativeFace.FramesSent,
                     outputHost = target.DestinationAddress, outputPort = target.OutPort
                 });
                 lastMessages = total;
+                lastFrames = frames;
                 var restartMethod = module.GetType().GetMethod("RestartNeeded", BindingFlags.Instance | BindingFlags.NonPublic);
                 if (restartMethod?.Invoke(module, null) is true)
                 {
@@ -237,6 +292,7 @@ internal static class Program
             if (prepareEyes != null) UnifiedTracking.OnUnifiedDataUpdated -= prepareEyes;
             if (sender != null) { try { await sender.StopAsync(CancellationToken.None).WaitAsync(TimeSpan.FromSeconds(2)); } catch { } }
             if (router != null) await router.DisposeAsync();
+            send?.Dispose();
             if (module != null) { try { module.Teardown(); } catch (Exception e) { Emit(new { type = "log", message = "Module shutdown: " + e.Message }); } }
         }
     }

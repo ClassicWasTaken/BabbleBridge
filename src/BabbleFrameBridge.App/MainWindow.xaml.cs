@@ -23,6 +23,7 @@ public partial class MainWindow : Window
     private readonly string _workerExecutable;
     private AppSettings _settings;
     private Process? _worker;
+    private ModuleRelease? _sessionRelease;
     private TaskCompletionSource<bool>? _ready;
     private bool _busy, _initialized, _closing, _allowClose, _running, _pendingRestart;
     private readonly string _logPath;
@@ -54,9 +55,7 @@ public partial class MainWindow : Window
         HostBox.Text = _settings.OutputHost;
         PortBox.Text = _settings.OutputPort.ToString();
         ReceiveBox.Text = _settings.ReceivePort.ToString();
-        DesktopSourceButton.IsChecked = DesktopSource;
-        HeadsetSourceButton.IsChecked = !DesktopSource;
-        UpdateTrackingInput();
+        _store.MigrateLegacyProfiles(_settings.InputSource);
         UpdateSourceLabels();
         AutoStartBox.IsChecked = _settings.AutoStart;
         ApplyMotionPreference();
@@ -74,9 +73,9 @@ public partial class MainWindow : Window
             }
             else
             {
-                SetState("Add your tracking module", "Choose your Baballonia module ZIP to start tracking.", false);
+                SetState("Add your tracking module", "Choose a supported module ZIP to start tracking.", false);
                 TrackingRoute.Text = "Add a module to begin";
-                Log("No tracking module installed. Choose your Baballonia module ZIP or drop it onto this window.");
+                Log("No tracking module installed. Choose a supported module ZIP or drop it onto this window.");
             }
         });
         Closing += ClosingAsync;
@@ -98,22 +97,68 @@ public partial class MainWindow : Window
         ImportButton.IsEnabled = !_busy && _initialized;
         RollbackButton.IsEnabled = !_busy && _store.Previous is not null;
         SaveButton.IsEnabled = !_busy && _initialized;
+        AutoStartBox.IsEnabled = !_busy && _initialized;
         StartButton.Content = _running ? "Stop bridge" : "Start bridge";
+        RefreshLibrary();
     }
 
     private void RefreshModule()
     {
         var current = _store.Current;
-        ModuleLabel.Text = current is null ? "No module installed" : $"{current.ModuleName}  /  {current.Version}";
-        HashLabel.Text = current is null ? "" : $"SHA-256  {current.Sha256[..Math.Min(24, current.Sha256.Length)].ToLowerInvariant()}…";
-        ImportButton.Content = current is null ? "Add module ZIP  ↑" : "Import module ZIP  ↑";
-        PackageDetail.Text = current is null
-            ? "Provide your own Baballonia ZIP. Choose a file or drop it onto this window."
-            : _store.Previous is null ? "Ready for updates. Import a new ZIP or drop it onto this window."
-            : $"Previous version {_store.Previous.Version} is saved and ready to restore.";
-        UpdateTrackingInput();
+        ModuleLabel.Text = current is null ? "No module selected" : $"{ModuleCatalog.Get(current.Kind).Name}  /  {current.Version}";
+        HashLabel.Text = "";
+        ImportButton.Content = "Add module ZIP  ↑";
+        PackageDetail.Text = current is null ? "Open Modules to add your tracking module ZIP."
+            : $"{ConnectionFor(current)} · input selected automatically";
+        ProviderTag.Text = current is null ? "MODULES" : ModuleCatalog.Get(current.Kind).Name.ToUpperInvariant();
         RefreshButtons();
     }
+
+    private sealed record ModuleCard(ModuleRelease Release, string Name, string Detail, string Hint, string Action, bool CanSelect);
+    private void RefreshLibrary()
+    {
+        ModuleLibrary.ItemsSource = _store.Installed.Select(release => new ModuleCard(release,
+            ModuleCatalog.Get(release.Kind).Name, $"Version {release.Version} · {ConnectionFor(release)}",
+            ModuleCatalog.Get(release.Kind).Instructions,
+            release.Id == _store.Current?.Id ? "Selected ✓" : "Use module",
+            !_busy && _initialized && release.Id != _store.Current?.Id)).ToArray();
+    }
+
+    private async void SelectModule_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is Button { Tag: ModuleRelease release })
+            await RunOperation(() => SwitchModule(release));
+    }
+
+    private int InputPortFor(ModuleRelease release)
+    {
+        if (release.Kind == ModuleKind.BabbleHeadsetRuntime) return _settings.LinkPort;
+        if (release.Kind != ModuleKind.BaballoniaDesktop) return ModuleCatalog.Get(release.Kind).InputPort;
+        return BaballoniaOscPortFor(release);
+    }
+    private static int BaballoniaOscPortFor(ModuleRelease release)
+    {
+        try
+        {
+            using var config = JsonDocument.Parse(File.ReadAllText(Path.Combine(release.DirectoryPath, "BabbleConfig.json")));
+            if (config.RootElement.ValueKind == JsonValueKind.Object && config.RootElement.TryGetProperty("Port", out var port) && port.TryGetInt32(out var value) && value is > 0 and <= 65535) return value;
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException or JsonException) { }
+        return 8888;
+    }
+    private void ValidateConnection(AppSettings settings, ModuleRelease? release)
+    {
+        settings.Validate();
+        if (release is null) return;
+        var inputs = new List<int> { InputPortFor(release) };
+        // The Babble DLL also owns its OSC listener while BFR Link is active.
+        if (release.Kind == ModuleKind.BabbleHeadsetRuntime) inputs.Add(BaballoniaOscPortFor(release));
+        foreach (var port in inputs.Where(port => port > 0))
+            if (port == settings.ReceivePort || port == settings.OutputPort)
+                throw new InvalidOperationException($"{ModuleCatalog.Get(release.Kind).Name} uses input port {port}. Choose different VRChat ports in Connection.");
+    }
+    private string ConnectionFor(ModuleRelease release) => InputPortFor(release) is var port && port > 0 ? $"UDP {port}" : "Shared memory · Virtual Desktop Streamer";
+    private ModuleDefinition Provider => ModuleCatalog.Get((_sessionRelease ?? _store.Current)?.Kind ?? ModuleKind.BabbleHeadsetRuntime);
 
     private void SetState(string title, string detail, bool live, bool error = false)
     {
@@ -121,25 +166,16 @@ public partial class MainWindow : Window
         StateDot.Fill = new SolidColorBrush((Color)ColorConverter.ConvertFromString(error ? "#F4C2C2" : live ? "#BDE5D1" : "#A6C5B8"));
     }
 
-    private bool DesktopSource => _settings.InputSource == TrackingInputSource.BaballoniaDesktop;
-
-    private void UpdateSourceLabels()
-    {
-        HeadsetState.Text = DesktopSource ? "Baballonia · stopped" : "Headset · waiting";
-    }
+    private void UpdateSourceLabels() => HeadsetState.Text = _sessionRelease is null && _store.Current is null ? "Waiting for module" : Provider.Name + " · ready";
 
     private void SetStoppedState()
     {
         UpdateSourceLabels();
-        if (_store.Current is null) SetState("Add your tracking module", "Choose your Baballonia module ZIP to start tracking.", false);
-        else SetState("Bridge stopped", DesktopSource
-            ? "Start the bridge to accept tracking from Baballonia on this computer."
-            : "Start the bridge to listen for your headset.", false);
+        if (_store.Current is null) SetState("Add your tracking module", "Choose a supported module ZIP to start tracking.", false);
+        else SetState("Bridge stopped", "Start the bridge with " + Provider.Name + ".", false);
     }
 
-    private void SetListeningState() => SetState(DesktopSource ? "Baballonia desktop input" : "Listening for headset", DesktopSource
-        ? $"Send Baballonia’s VRCFaceTracking output to this computer on port {ConfiguredDesktopPort()}."
-        : "Start the runtime on your headset. Discovery is automatic.", true);
+    private void SetListeningState() => SetState(Provider.Name, Provider.Instructions, true);
 
     private void ShowNotice(string message, bool error = false)
     {
@@ -171,37 +207,6 @@ public partial class MainWindow : Window
 
     private void DismissNotice_Click(object sender, RoutedEventArgs e) => DismissNotice();
 
-    private int ConfiguredDesktopPort()
-    {
-        if (_store.Current is not { } current) return 8888;
-        try
-        {
-            using var config = JsonDocument.Parse(File.ReadAllText(Path.Combine(current.DirectoryPath, "BabbleConfig.json")));
-            if (config.RootElement.ValueKind == JsonValueKind.Object && config.RootElement.TryGetProperty("Port", out var port)
-                && port.ValueKind == JsonValueKind.Number && port.TryGetInt32(out var value) && value is > 0 and <= 65535)
-                return value;
-        }
-        catch (Exception e) when (e is IOException or UnauthorizedAccessException or JsonException) { }
-        return 8888;
-    }
-
-    private void UpdateTrackingInput()
-    {
-        var desktop = DesktopSourceButton.IsChecked == true;
-        var port = desktop ? ConfiguredDesktopPort() : _settings.LinkPort;
-        TrackingInputPort.Text = $"UDP {port}";
-        TrackingInputHint.Text = desktop
-            ? $"Enable Baballonia’s VRCFaceTracking output to 127.0.0.1:{port}."
-            : "The headset runtime discovers this computer automatically on your local network.";
-    }
-
-    private void TrackingSource_Changed(object sender, RoutedEventArgs e)
-    {
-        if (_settings is null) return;
-        UpdateTrackingInput();
-        DismissNotice();
-    }
-
     private void Log(string message)
     {
         var line = $"{DateTime.Now:HH:mm:ss}  {message}";
@@ -222,6 +227,9 @@ public partial class MainWindow : Window
     {
         if (_closing) throw new OperationCanceledException("The app is closing.");
         if (_worker is not null) await StopWorker();
+        _sessionRelease = release;
+        var inputPort = InputPortFor(release);
+        ValidateConnection(_settings, release);
         var executable = _workerExecutable;
         if (!File.Exists(executable)) throw new FileNotFoundException("The runtime folder is missing. Extract the entire portable app ZIP before starting.", executable);
         var start = new ProcessStartInfo(executable) {
@@ -230,6 +238,8 @@ public partial class MainWindow : Window
         };
         start.ArgumentList.Add("--module"); start.ArgumentList.Add(Path.Combine(release.DirectoryPath, release.DllFileName));
         start.ArgumentList.Add("--data"); start.ArgumentList.Add(_root);
+        start.ArgumentList.Add("--kind"); start.ArgumentList.Add(release.Kind.ToString());
+        if (release.Kind is ModuleKind.BabbleHeadsetRuntime or ModuleKind.BaballoniaDesktop) { start.ArgumentList.Add("--input-port"); start.ArgumentList.Add(inputPort.ToString()); }
         start.ArgumentList.Add("--parent"); start.ArgumentList.Add(Environment.ProcessId.ToString());
         if (!_useDiscovery) start.ArgumentList.Add("--no-discovery");
         var process = new Process { StartInfo = start, EnableRaisingEvents = true };
@@ -248,10 +258,10 @@ public partial class MainWindow : Window
             _ready?.TrySetException(new InvalidOperationException("The tracking runtime exited. Check the activity log for details."));
             SetState("Runtime stopped", "Check the activity log, then start the bridge again.", false, true);
             ShowNotice("The runtime stopped. Check the activity log, then start the bridge again.", true);
-            HeadsetState.Text = DesktopSource ? "Baballonia · stopped" : "Headset · disconnected";
-            OutputRate.Text = "0 msgs/s"; RefreshButtons();
+            HeadsetState.Text = Provider.Name + " · stopped";
+            OutputRate.Text = "0 msgs/s"; SenderCadence.Text = "Bridge idle"; RefreshButtons();
         }));
-        SetState("Starting bridge", $"Loading Baballonia {release.Version}…", false);
+        SetState("Starting bridge", $"Loading {Provider.Name} {release.Version}…", false);
         Log($"Starting module {release.Version}.");
         try
         {
@@ -283,11 +293,12 @@ public partial class MainWindow : Window
             } catch (InvalidOperationException) { }
             finally { process.Dispose(); }
         }
-        OutputRate.Text = "0 msgs/s";
-        HeadsetState.Text = DesktopSource ? "Baballonia · stopped" : "Headset · waiting";
+        _sessionRelease = null;
+        OutputRate.Text = "0 msgs/s"; SenderCadence.Text = "Bridge idle";
+        UpdateSourceLabels();
         TrackingRoute.Text = "Bridge stopped";
         if (_store.Current is null)
-            SetState("Add your tracking module", "Choose your Baballonia module ZIP to start tracking.", false);
+            SetState("Add your tracking module", "Choose a supported module ZIP to start tracking.", false);
         else
             SetStoppedState();
         RefreshButtons();
@@ -303,9 +314,7 @@ public partial class MainWindow : Window
             using var document = JsonDocument.Parse(line);
             var item = document.RootElement;
             switch (Str(item, "type")) {
-                case "ready": _ready?.TrySetResult(true); Log(DesktopSource
-                    ? "Module loaded. Desktop Baballonia eye and face inputs are enabled."
-                    : "Module loaded. Listening for the headset."); break;
+                case "ready": _ready?.TrySetResult(true); Log(Provider.Name + " loaded. " + Provider.Instructions); break;
                 case "fatal":
                     var message = Str(item, "message", "Tracking runtime failed."); Log("ERROR: " + message);
                     _ready?.TrySetException(new InvalidOperationException(message));
@@ -323,8 +332,9 @@ public partial class MainWindow : Window
     private void UpdateStatus(JsonElement item)
     {
         var linked = Bool(item, "linked") || Bool(item, "connected") || Bool(item, "bfrConnected");
-        HeadsetState.Text = DesktopSource ? "Baballonia · input enabled" : linked ? "Headset · connected" : "Headset · waiting";
+        HeadsetState.Text = Provider.Name + (linked ? " · connected" : " · ready");
         OutputRate.Text = $"{Number(item, "rate"):N0} msgs/s";
+        SenderCadence.Text = $"Tracking processed at {Number(item, "trackingRate"):N0} Hz";
         var avatar = Str(item, "avatar");
         AvatarLabel.Text = string.IsNullOrWhiteSpace(avatar) ? "Avatar · waiting for VRChat" : "Avatar · " + avatar;
         TrackingRoute.Text = Bool(item, "nativeFaceTracking") ? "Native face tracking · SDK beta"
@@ -335,13 +345,10 @@ public partial class MainWindow : Window
         TargetLabel.Text = $"{actualHost} : {(actualPort > 0 ? actualPort : _settings.OutputPort):0}";
         if (_running && !_busy)
         {
-            if (DesktopSource)
-            {
-                var inputPort = Number(item, "inputPort");
-                SetState("Baballonia desktop input", $"Send Baballonia’s VRCFaceTracking output to this computer on port {(inputPort > 0 ? inputPort : 8888):0}.", true);
-            }
-            else SetState(linked ? "Headset connected" : "Listening for headset",
-                receiving ? "Receiving expressions from the headset runtime." : linked ? "Connected. Waiting for expression data from the headset." : "Start the runtime on your headset. Discovery is automatic.", true);
+            if (Provider.Kind == ModuleKind.BabbleHeadsetRuntime)
+                SetState(linked ? "Headset connected" : "Listening for headset",
+                    receiving ? "Receiving expressions from the headset runtime." : linked ? "Connected. Waiting for expression data from the headset." : Provider.Instructions, true);
+            else SetState(Provider.Name, Bool(item, "receivingKnown") && receiving ? "Receiving tracking data. Your expressions are connected." : Provider.Instructions, true);
         }
     }
 
@@ -358,12 +365,12 @@ public partial class MainWindow : Window
     private async void Start_Click(object sender, RoutedEventArgs e) => await RunOperation(async () => {
         if (_running) await StopWorker();
         else if (_store.Current is { } current) await StartWorker(current);
-        else ShowNotice("Add your Baballonia module ZIP before starting the bridge.");
+        else ShowNotice("Add a supported module ZIP before starting the bridge.");
     });
 
     private async void Import_Click(object sender, RoutedEventArgs e)
     {
-        var picker = new OpenFileDialog { Title = "Import Baballonia module ZIP", Filter = "Baballonia module ZIP (*.zip)|*.zip", CheckFileExists = true };
+        var picker = new OpenFileDialog { Title = "Add tracking module ZIP", Filter = "Module ZIP (*.zip)|*.zip", CheckFileExists = true };
         if (picker.ShowDialog(this) == true) await UpdateModule(picker.FileName);
     }
 
@@ -371,6 +378,15 @@ public partial class MainWindow : Window
         SetState("Checking module ZIP", "Validating the package before switching modules…", false);
         var release = await Task.Run(() => _store.Prepare(zipPath));
         if (_closing) return;
+        _store.Register(release);
+        if (release.SupportsHeadset)
+        {
+            var companion = await Task.Run(() => _store.CreateCompanion(release));
+            _store.Register(companion);
+            // Preserve a desktop user's selected transport when updating its shared Babble package.
+            if (_store.Current?.Kind == companion.Kind) release = companion;
+        }
+        RefreshModule();
         await SwitchModule(release);
     });
 
@@ -378,6 +394,7 @@ public partial class MainWindow : Window
     {
         var old = _store.Current;
         var wasRunning = _running;
+        _pendingRestart = false;
         await StopWorker();
         try {
             await StartWorker(release);
@@ -408,14 +425,31 @@ public partial class MainWindow : Window
         if (!int.TryParse(PortBox.Text, out var port) || !int.TryParse(ReceiveBox.Text, out var receive)) throw new InvalidOperationException("Enter valid port numbers.");
         var updated = new AppSettings { OutputHost = HostBox.Text.Trim(), OutputPort = port, ReceivePort = receive,
             LinkPort = _settings.LinkPort, EyeEnabled = _settings.EyeEnabled, FaceEnabled = _settings.FaceEnabled,
-            InputSource = DesktopSourceButton.IsChecked == true ? TrackingInputSource.BaballoniaDesktop : TrackingInputSource.HeadsetRuntime,
+            InputSource = _settings.InputSource,
             AutoStart = AutoStartBox.IsChecked == true };
-        updated.Validate(); updated.Save(_root); _settings = updated;
-        UpdateTrackingInput();
+        ValidateConnection(updated, _store.Current);
+        var previous = _settings;
+        var wasRunning = _running;
+        updated.Save(_root); _settings = updated;
+        try
+        {
+            if (wasRunning) { await StopWorker(); await StartWorker(_store.Current!); }
+        }
+        catch (Exception failure)
+        {
+            await StopWorker();
+            previous.Save(_root); _settings = previous;
+            HostBox.Text = previous.OutputHost; PortBox.Text = previous.OutputPort.ToString(); ReceiveBox.Text = previous.ReceivePort.ToString();
+            if (wasRunning && _store.Current is { } current)
+            {
+                try { await StartWorker(current); }
+                catch (Exception restoreFailure) { Log("Previous connection could not restart: " + restoreFailure.Message); }
+            }
+            throw new InvalidOperationException("The new connection could not start. Your previous connection settings were restored. " + failure.Message);
+        }
         TargetLabel.Text = $"{updated.OutputHost} : {updated.OutputPort}";
         Log("Connection settings saved.");
-        if (_running) { await StopWorker(); await StartWorker(_store.Current!); }
-        else SetStoppedState();
+        if (!wasRunning) SetStoppedState();
         ShowNotice("Connection settings saved.");
     });
 
@@ -441,7 +475,7 @@ public partial class MainWindow : Window
     private async void Window_Drop(object sender, DragEventArgs e) {
         if (_busy || !_initialized) return;
         if (e.Data.GetData(DataFormats.FileDrop) is string[] files && files.Length == 1 && Path.GetExtension(files[0]).Equals(".zip", StringComparison.OrdinalIgnoreCase)) await UpdateModule(files[0]);
-        else Log("Choose one Baballonia module ZIP to import.");
+        else Log("Choose one tracking module ZIP to import.");
     }
     private void Logs_Click(object sender, RoutedEventArgs e) => Process.Start(new ProcessStartInfo("explorer.exe", Path.Combine(_root, "logs")) { UseShellExecute = true });
     private void Guide_Click(object sender, RoutedEventArgs e) {
@@ -464,7 +498,7 @@ public partial class MainWindow : Window
         FrameworkElement selected = page switch { "modules" => ModulesPage, "settings" => SettingsPage, "activity" => ActivityPage, _ => OverviewPage };
         if (_currentPage != selected) { _currentPage = selected; Motion.Transition(selected, _motionEnabled); }
         (PageTitle.Text, PageSubtitle.Text) = page switch {
-            "modules" => ("Module & updates", "A fresh module, whenever you’re ready."),
+            "modules" => ("Modules", "Your headset. Your choice of module."),
             "settings" => ("Connection", "Keep your expressions flowing."),
             "activity" => ("Activity log", "A clear view of your tracking session."),
             _ => ("Babble Bridge", "A little more you, in VR.")
@@ -485,6 +519,6 @@ public partial class MainWindow : Window
         _closing = true; IsEnabled = false;
         await StopWorker();
         _allowClose = true;
-        Dispatcher.BeginInvoke(new Action(Close));
+        _ = Dispatcher.BeginInvoke(new Action(Close));
     }
 }

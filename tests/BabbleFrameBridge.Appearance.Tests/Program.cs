@@ -36,6 +36,8 @@ internal static class Program
 
         var suppliedZip = Argument("--module-zip");
         var published = Argument("--publish-dir");
+        var virtualDesktopZip = Argument("--virtual-desktop-zip");
+        var steamLinkZip = Argument("--steam-link-zip");
         var renderDirectory = Argument("--render-dir");
         var testParent = Path.GetFullPath(Path.Combine(Environment.CurrentDirectory, "work", "appearance-tests"));
         Directory.CreateDirectory(testParent);
@@ -60,9 +62,8 @@ internal static class Program
                 Check(AppSettings.Load(emptyProfile).AutoStart, "Fixture did not exercise default auto-start.");
                 Check(AppSettings.Load(emptyProfile).InputSource == TrackingInputSource.HeadsetRuntime,
                     "First launch did not save Headset Runtime as the initial source.");
-                Check(Named<RadioButton>(window, "HeadsetSourceButton").IsChecked == true
-                    && Named<RadioButton>(window, "DesktopSourceButton").IsChecked == false,
-                    "First launch did not select Headset Runtime in the interface.");
+                Check(new ModuleStore(emptyProfile).Installed.Count == 0,
+                    "An empty profile created an installed module library entry.");
                 Check(new ModuleStore(emptyProfile).Current is null, "First run installed a module.");
                 Check(!Directory.EnumerateFiles(emptyProfile, "*.dll", SearchOption.AllDirectories).Any(),
                     "First run copied module payload into the profile.");
@@ -130,21 +131,105 @@ internal static class Program
                     "Displayed window did not follow the restored automatic palette.");
             });
 
-            Test("source selection previews its tracking port without changing the VRChat connection", () =>
+            Test("the interface uses its module library without obsolete source controls or sidebar cards", () =>
             {
-                var send = Named<TextBox>(window, "PortBox").Text;
-                var receive = Named<TextBox>(window, "ReceiveBox").Text;
-                Check(Named<TextBlock>(window, "TrackingInputPort").Text.Contains("6767"), "Headset input port was not shown.");
-                Named<RadioButton>(window, "DesktopSourceButton").IsChecked = true;
-                Pump();
-                Check(Named<TextBlock>(window, "TrackingInputPort").Text.Contains("8888"), "Desktop selection did not show its input port.");
-                Named<RadioButton>(window, "HeadsetSourceButton").IsChecked = true;
-                Pump();
-                Check(Named<TextBlock>(window, "TrackingInputPort").Text.Contains("6767"), "Returning to Frame did not restore its input port.");
-                Check(Named<TextBox>(window, "PortBox").Text == send && Named<TextBox>(window, "ReceiveBox").Text == receive,
-                    "Choosing a tracking source changed the separate VRChat send/receive ports.");
-                Check(AppSettings.Load(emptyProfile).InputSource == TrackingInputSource.HeadsetRuntime,
-                    "Previewing a source saved it before Save connection.");
+                foreach (var name in new[] { "HeadsetSourceButton", "DesktopSourceButton", "TrackingInputPort", "MotionBox" })
+                    Check(window.FindName(name) is null, "An obsolete control remains: " + name);
+                var text = string.Join("\n", Descendants(window).OfType<TextBlock>().Select(block => block.Text));
+                foreach (var removed in new[] { "Made for your headset", "Appearance follows Windows", "Updates, with a way back", "Keep VRCFaceTracking closed" })
+                    Check(!text.Contains(removed, StringComparison.OrdinalIgnoreCase), "An obsolete information card remains: " + removed);
+                Check(Named<ItemsControl>(window, "ModuleLibrary").Items.Count == 0,
+                    "The empty library displays a module that was not imported.");
+            });
+
+            Test("interrupted page and button motion settle cleanly and reduced motion cancels transforms", () =>
+            {
+                var previous = Motion.Enabled;
+                var page = Named<StackPanel>(window, "OverviewPage");
+                var button = Named<Button>(window, "ImportButton");
+                try
+                {
+                    Motion.Enabled = true;
+                    Motion.Transition(page, true);
+                    if (SystemParameters.ClientAreaAnimation)
+                    {
+                        PumpFor(TimeSpan.FromMilliseconds(65));
+                        var displayed = page.Opacity;
+                        Motion.Transition(page, true);
+                        Check(page.Opacity >= displayed - .025, "Restarting a transition flashed the page back to zero opacity.");
+                        PumpUntil(() => page.Opacity >= .999, "interrupted page settled");
+                        PumpFor(TimeSpan.FromMilliseconds(80));
+                        Motion.Transition(page, true);
+                        PumpFor(TimeSpan.FromMilliseconds(35));
+                        Check(page.Opacity < .98, "Returning to a completed page did not play its entrance again.");
+                        PumpUntil(() => page.Opacity >= .999, "revisited page settled");
+                        Motion.SetPressed(button, true);
+                        PumpFor(TimeSpan.FromMilliseconds(70));
+                        Check(button.RenderTransform.Value.M11 < .999, "Press feedback did not animate on the render transform.");
+                        var width = button.ActualWidth;
+                        Motion.SetPressed(button, false);
+                        PumpUntil(() => button.RenderTransform.Value.M11 >= .999, "interrupted press feedback settled");
+                        Check(Math.Abs(button.ActualWidth - width) < .001,
+                            "Press feedback changed layout instead of its render transform.");
+                    }
+                    Motion.Enabled = false;
+                    Motion.Transition(page, true);
+                    Motion.SetPressed(button, true);
+                    Check(Math.Abs(page.Opacity - 1) < .001 && Math.Abs(page.RenderTransform.Value.OffsetY) < .001,
+                        "Reduced motion left a partially faded or displaced page.");
+                    Check(Math.Abs(button.RenderTransform.Value.M11 - 1) < .001
+                        && Math.Abs(button.RenderTransform.Value.OffsetY) < .001,
+                        "Reduced motion left press or hover transforms active.");
+                }
+                finally
+                {
+                    button.ClearValue(Motion.PressedProperty);
+                    Motion.Enabled = previous;
+                    Motion.Transition(page, false);
+                }
+            });
+
+            Test("particle motion follows display time and pauses on hidden pages, minimized windows and reduced motion", () =>
+            {
+                var particles = Named<ParticleField>(window, "HeroParticles");
+                var preference = particles.AnimationsEnabled;
+                try
+                {
+                    Named<RadioButton>(window, "OverviewNav").IsChecked = true;
+                    Pump();
+                    if (SystemParameters.ClientAreaAnimation)
+                    {
+                        PumpUntil(() => Field<bool>(particles, "attached"), "visible particle animation attached");
+                        if (Field<TimeSpan?>(particles, "lastFrame") is null) RenderParticlesAt(particles, TimeSpan.Zero);
+                        var last = Field<TimeSpan?>(particles, "lastFrame")!.Value;
+                        var before = Field<double>(particles, "seconds");
+                        var next = last + TimeSpan.FromSeconds(1.0 / 144);
+                        RenderParticlesAt(particles, next);
+                        var advanced = Field<double>(particles, "seconds");
+                        RenderParticlesAt(particles, next);
+                        Check(Math.Abs(advanced - before - 1.0 / 144) < .00002,
+                            "High-refresh motion did not use elapsed display time.");
+                        Check(Field<double>(particles, "seconds") == advanced,
+                            "A duplicate display tick advanced the particle simulation twice.");
+                        Named<RadioButton>(window, "SettingsNav").IsChecked = true;
+                        PumpUntil(() => !Field<bool>(particles, "attached"), "hidden page detached particle rendering");
+                        var paused = Field<double>(particles, "seconds");
+                        PumpFor(TimeSpan.FromMilliseconds(80));
+                        Check(Field<double>(particles, "seconds") == paused, "Hidden particles continued animating.");
+                        Named<RadioButton>(window, "OverviewNav").IsChecked = true;
+                        PumpUntil(() => Field<bool>(particles, "attached"), "visible page resumed particles");
+                        window.WindowState = WindowState.Minimized;
+                        PumpUntil(() => !Field<bool>(particles, "attached"), "minimized window detached particle rendering");
+                        window.WindowState = WindowState.Normal;
+                        PumpUntil(() => Field<bool>(particles, "attached"), "restored window resumed particles");
+                    }
+                    particles.AnimationsEnabled = false;
+                    Check(!Field<bool>(particles, "attached"), "Reduced motion retained its rendering callback.");
+                    var stopped = Field<double>(particles, "seconds");
+                    PumpFor(TimeSpan.FromMilliseconds(60));
+                    Check(Field<double>(particles, "seconds") == stopped, "Reduced-motion particles advanced.");
+                }
+                finally { particles.AnimationsEnabled = preference; }
             });
 
             Test("Save connection confirmation dismisses itself after its readable display time", () =>
@@ -179,46 +264,29 @@ internal static class Program
                     "manual notification dismissal");
             });
 
-            Test("a later launch restores the saved source and connection preferences", () =>
+            Test("a later launch restores connection preferences without a tracking source selector", () =>
             {
-                Check(Named<RadioButton>(window, "HeadsetSourceButton").IsChecked == true,
-                    "An existing/default profile changed away from Headset Runtime.");
-                Named<RadioButton>(window, "DesktopSourceButton").IsChecked = true;
                 Named<CheckBox>(window, "AutoStartBox").IsChecked = false;
                 Named<TextBox>(window, "HostBox").Text = "127.0.0.2";
                 Named<TextBox>(window, "PortBox").Text = "19000";
                 Named<TextBox>(window, "ReceiveBox").Text = "19001";
                 Method(window, "Save_Click").Invoke(window, [window, new RoutedEventArgs()]);
-                PumpUntil(() => !Field<bool>(window, "_busy"), "desktop source saved");
-                Check(AppSettings.Load(emptyProfile).InputSource == TrackingInputSource.BaballoniaDesktop,
-                    "Save connection did not persist desktop input.");
+                PumpUntil(() => !Field<bool>(window, "_busy"), "connection preferences saved");
                 var noticeTimer = Field<DispatcherTimer>(window, "_noticeTimer");
                 CloseWindow();
                 Check(!noticeTimer.IsEnabled, "Closing the window left its notification timer running.");
                 window = CreateWindow(emptyProfile);
                 themes.AttachWindow(window);
                 window.Show();
-                PumpUntil(() => Field<bool>(window, "_initialized") && !Field<bool>(window, "_busy"), "desktop profile reopened");
-                Check(Named<RadioButton>(window, "DesktopSourceButton").IsChecked == true,
-                    "Reopening did not restore desktop source selection.");
-                Check(Named<TextBlock>(window, "TrackingInputPort").Text.Contains("8888"),
-                    "Reopening did not restore the desktop input port display.");
+                PumpUntil(() => Field<bool>(window, "_initialized") && !Field<bool>(window, "_busy"), "saved profile reopened");
                 var restored = AppSettings.Load(emptyProfile);
                 Check(restored.OutputHost == "127.0.0.2" && restored.OutputPort == 19000
                     && restored.ReceivePort == 19001 && !restored.AutoStart,
-                    "Reopening changed other saved connection preferences.");
-                Named<RadioButton>(window, "HeadsetSourceButton").IsChecked = true;
-                Method(window, "Save_Click").Invoke(window, [window, new RoutedEventArgs()]);
-                PumpUntil(() => !Field<bool>(window, "_busy"), "Headset source saved");
-                CloseWindow();
-                window = CreateWindow(emptyProfile);
-                themes.AttachWindow(window);
-                window.Show();
-                PumpUntil(() => Field<bool>(window, "_initialized") && !Field<bool>(window, "_busy"), "Headset profile reopened");
-                Check(Named<RadioButton>(window, "HeadsetSourceButton").IsChecked == true
-                    && AppSettings.Load(emptyProfile).InputSource == TrackingInputSource.HeadsetRuntime,
-                    "A later launch did not restore the explicitly saved Headset source.");
-                Check(Field<object?>(window, "_worker") is null, "Changing source launched a worker without a module.");
+                    "Reopening changed saved connection preferences.");
+                Check(Named<TextBox>(window, "PortBox").Text == "19000"
+                    && Named<TextBox>(window, "ReceiveBox").Text == "19001",
+                    "The visible VRChat ports did not restore their saved values.");
+                Check(Field<object?>(window, "_worker") is null, "Connection edits launched a worker without a module.");
                 Named<RadioButton>(window, "SettingsNav").IsChecked = true;
                 PumpUntil(() => Named<StackPanel>(window, "SettingsPage").Opacity >= .999,
                     "settings entrance finished before preview capture");
@@ -248,20 +316,90 @@ internal static class Program
                     Check(Named<Button>(window, "StartButton").IsEnabled, "Imported module did not enable Start.");
                     Check(Named<Button>(window, "ImportButton").IsEnabled, "Imported module disabled future imports.");
                     Check(Field<object?>(window, "_worker") is null, "AutoStart=false launched a worker.");
-                    Check(Named<TextBlock>(window, "TrackingInputPort").Text.Contains("23456"), "Custom Headset Link port was not shown.");
+                    Check(expected.Kind == ModuleKind.BabbleHeadsetRuntime,
+                        "The first compatible Babble import did not default to headset runtime.");
+                    Check(Named<TextBlock>(window, "PackageDetail").Text.Contains("23456"), "Custom headset input port was not shown.");
                     PumpUntil(() => Named<StackPanel>(window, "OverviewPage").Opacity >= .999,
                         "module overview entrance finished before preview capture");
                     SavePreview(window, renderDirectory, "module-ready.png");
+                    CloseWindow();
+                    var store = new ModuleStore(profile);
+                    var desktop = store.CreateCompanion(expected);
+                    store.Register(desktop);
+                    store.Activate(desktop);
+                    window = CreateWindow(profile);
+                    themes.AttachWindow(window);
+                    window.Show();
+                    PumpUntil(() => Field<bool>(window, "_initialized") && !Field<bool>(window, "_busy"), "desktop library selection reopened");
+                    Check(new ModuleStore(profile).Current == desktop, "Reopening did not restore the selected desktop module.");
+                    Check(Field<object?>(window, "_worker") is null, "Restoring the selected library entry ignored AutoStart=false.");
+                    Check(Named<TextBlock>(window, "PackageDetail").Text.Contains("42424"), "Custom desktop module input port was not shown.");
+                    Check(JsonNode.Parse(File.ReadAllText(configPath))!["Port"]!.GetValue<int>() == 42424,
+                        "Selecting the cloned desktop profile changed the original module's configured port.");
+                    Check(desktop.DirectoryPath != expected.DirectoryPath,
+                        "Desktop and headset selections shared their mutable module directory.");
                     Named<RadioButton>(window, "ModulesNav").IsChecked = true;
                     PumpUntil(() => Named<StackPanel>(window, "ModulesPage").Opacity >= .999,
                         "module page entrance finished before preview capture");
+                    Check(Named<ItemsControl>(window, "ModuleLibrary").Items.Count == 2,
+                        "The saved library did not retain both Babble connection profiles.");
+                    var cards = string.Join("\n", Descendants(Named<ItemsControl>(window, "ModuleLibrary"))
+                        .OfType<TextBlock>().Select(block => block.Text));
+                    Check(cards.Contains("UDP 23456") && cards.Contains("UDP 42424"),
+                        "The library did not show the distinct input ports of both profiles.");
+                    CheckLibraryLayout();
                     SavePreview(window, renderDirectory, "modules.png");
-                    Named<RadioButton>(window, "DesktopSourceButton").IsChecked = true;
-                    Pump();
-                    Check(Named<TextBlock>(window, "TrackingInputPort").Text.Contains("42424"), "Custom module desktop input port was not shown.");
-                    Check(JsonNode.Parse(File.ReadAllText(configPath))!["Port"]!.GetValue<int>() == 42424,
-                        "Previewing the desktop source overwrote its configured module port.");
+                    var desktopConfig = Path.Combine(desktop.DirectoryPath, "BabbleConfig.json");
+                    File.WriteAllText(desktopConfig, "42");
+                    Method(window, "RefreshModule").Invoke(window, []);
+                    Check(Named<TextBlock>(window, "PackageDetail").Text.Contains("8888"),
+                        "Scalar module settings crashed library refresh or failed to use the fallback input port.");
                     CloseWindow();
+                });
+            }
+
+            if (suppliedZip is not null && virtualDesktopZip is not null && steamLinkZip is not null)
+            {
+                Test("all four imported connection profiles show their own input and retain their selected entry", () =>
+                {
+                    var profile = Path.Combine(root, "provider-library-profile");
+                    new AppSettings { AutoStart = false }.Save(profile);
+                    var store = new ModuleStore(profile);
+                    var headset = store.Prepare(suppliedZip);
+                    var desktop = store.CreateCompanion(headset);
+                    var virtualDesktop = store.Prepare(virtualDesktopZip);
+                    var steamLink = store.Prepare(steamLinkZip);
+                    var releases = new[] { headset, desktop, virtualDesktop, steamLink };
+                    foreach (var release in releases) store.Register(release);
+                    foreach (var release in releases)
+                    {
+                        store.Activate(release);
+                        window = CreateWindow(profile);
+                        themes.AttachWindow(window);
+                        window.Show();
+                        PumpUntil(() => Field<bool>(window, "_initialized") && !Field<bool>(window, "_busy"), "provider library reopened");
+                        Check(new ModuleStore(profile).Current == release, "The selected provider changed on reopening.");
+                        var expectedInput = release.Kind switch
+                        {
+                            ModuleKind.BabbleHeadsetRuntime => "6767",
+                            ModuleKind.BaballoniaDesktop => "8888",
+                            ModuleKind.VirtualDesktop => "Shared memory",
+                            ModuleKind.SteamLink => "9015",
+                            _ => throw new InvalidOperationException()
+                        };
+                        Check(Named<TextBlock>(window, "PackageDetail").Text.Contains(expectedInput),
+                            "The selected provider displayed the wrong input: " + release.Kind);
+                        Check(Named<TextBox>(window, "PortBox").Text == "9000"
+                            && Named<TextBox>(window, "ReceiveBox").Text == "9001",
+                            "Selecting a module overwrote the separate VRChat ports.");
+                        Check(Named<ItemsControl>(window, "ModuleLibrary").Items.Count == 4,
+                            "Reopening lost entries from the four-provider library.");
+                        Named<RadioButton>(window, "ModulesNav").IsChecked = true;
+                        Pump();
+                        CheckLibraryLayout();
+                        if (release.Kind == ModuleKind.SteamLink) SavePreview(window, renderDirectory, "all-modules.png");
+                        CloseWindow();
+                    }
                 });
             }
 
@@ -302,6 +440,43 @@ internal static class Program
                         Check(Field<Process>(window, "_worker").StartInfo.ArgumentList.Contains("--no-discovery"),
                             "The isolated worker could discover a live VRChat session.");
                         var originalPid = Field<Process>(window, "_worker").Id;
+                        var settingsPath = Path.Combine(profile, "settings.json");
+                        var savedConnection = File.ReadAllText(settingsPath);
+                        Named<TextBox>(window, "PortBox").Text = inputPort.ToString();
+                        InvokeSaveConnection();
+                        Check(Field<bool>(window, "_running") && Field<Process>(window, "_worker").Id == originalPid,
+                            "Rejecting a tracking-input/VRChat-port collision stopped the active worker.");
+                        Check(File.ReadAllText(settingsPath) == savedConnection,
+                            "An invalid connection was persisted before validation.");
+                        Named<TextBox>(window, "PortBox").Text = PortOf(output).ToString();
+                        Named<TextBox>(window, "ReceiveBox").Text = PortOf(occupied).ToString();
+                        InvokeSaveConnection();
+                        Check(Field<bool>(window, "_running") && File.ReadAllText(settingsPath) == savedConnection,
+                            "An occupied new feedback port did not restore the saved connection and live worker.");
+                        Check(Named<TextBox>(window, "ReceiveBox").Text == receivePort.ToString(),
+                            "Failed connection startup left the invalid feedback port in the interface.");
+                        Check(Named<TextBlock>(window, "GlobalNoticeText").Text.Contains("previous connection settings were restored"),
+                            "Failed connection startup did not explain that the previous settings were restored.");
+                        Check(original!.Kind == ModuleKind.BabbleHeadsetRuntime,
+                            "The first real Babble import did not select headset runtime.");
+                        var library = new ModuleStore(profile).Installed;
+                        var desktop = library.Single(release => release.Kind == ModuleKind.BaballoniaDesktop);
+                        Check(library.Count == 2 && desktop.DirectoryPath != original.DirectoryPath,
+                            "The imported Babble ZIP did not add isolated headset and desktop profiles.");
+                        InvokeModuleSelection(desktop);
+                        Check(new ModuleStore(profile).Current == desktop && Field<bool>(window, "_running"),
+                            "Selecting the desktop library entry did not activate its worker.");
+                        Check(WorkerArgument("--kind") == ModuleKind.BaballoniaDesktop.ToString()
+                            && WorkerArgument("--input-port") == inputPort.ToString(),
+                            "Desktop hot swap started the wrong input transport or port.");
+                        Check(Field<Process>(window, "_worker").Id != originalPid,
+                            "Hot swap left the old worker running.");
+                        InvokeModuleSelection(original);
+                        Check(new ModuleStore(profile).Current == original && Field<bool>(window, "_running"),
+                            "Switching back did not restore the headset module.");
+                        Check(WorkerArgument("--kind") == ModuleKind.BabbleHeadsetRuntime.ToString()
+                            && WorkerArgument("--input-port") == linkPort.ToString(),
+                            "Returning to headset runtime did not restore its input port.");
 
                         InvokeModuleImport(updateZip);
                         var updated = new ModuleStore(profile).Current;
@@ -343,13 +518,14 @@ internal static class Program
 
             if (published is not null)
             {
-                Test("the published app contains no bundled Baballonia module archive or DLL", () =>
+                Test("the published app contains no bundled tracking module archive, DLL or developer symbols", () =>
                 {
                     Check(Directory.Exists(published), "Published app directory does not exist.");
+                    var externalDlls = ModuleCatalog.All.Select(module => module.DllFileName).ToHashSet(StringComparer.OrdinalIgnoreCase);
                     var payload = Directory.EnumerateFiles(published, "*", SearchOption.AllDirectories)
-                        .Where(path => Path.GetFileName(path).Equals("VRCFaceTracking.Baballonia.dll", StringComparison.OrdinalIgnoreCase)
-                            || (Path.GetExtension(path).Equals(".zip", StringComparison.OrdinalIgnoreCase)
-                                && Path.GetFileName(path).Contains("Baballonia", StringComparison.OrdinalIgnoreCase)))
+                        .Where(path => externalDlls.Contains(Path.GetFileName(path))
+                            || Path.GetExtension(path).Equals(".zip", StringComparison.OrdinalIgnoreCase)
+                            || Path.GetExtension(path).Equals(".pdb", StringComparison.OrdinalIgnoreCase))
                         .ToArray();
                     Check(payload.Length == 0, "Published payload includes a module: " + string.Join(", ", payload));
                 });
@@ -383,6 +559,13 @@ internal static class Program
             WindowStartupLocation = WindowStartupLocation.Manual, Left = -20000, Top = -20000
         };
         return result;
+    }
+
+    private static void RenderParticlesAt(ParticleField particles, TimeSpan timestamp)
+    {
+        var frame = (RenderingEventArgs)Activator.CreateInstance(typeof(RenderingEventArgs),
+            BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic, null, [timestamp], null)!;
+        Method(particles, "OnRendering").Invoke(particles, [null, frame]);
     }
 
     private static UdpClient ReservePort()
@@ -439,6 +622,54 @@ internal static class Program
         PumpUntil(() => operation?.IsCompleted == true, "module import transaction completed", TimeSpan.FromSeconds(90));
         operation!.GetAwaiter().GetResult();
         PumpUntil(() => !Field<bool>(window, "_busy"), "module import operation finished");
+    }
+
+    private static void CheckLibraryLayout()
+    {
+        window!.UpdateLayout();
+        foreach (var button in Descendants(Named<ItemsControl>(window, "ModuleLibrary")).OfType<Button>()
+            .Where(candidate => candidate.Tag is ModuleRelease))
+        {
+            var grid = (Grid)VisualTreeHelper.GetParent(button);
+            var details = grid.Children.OfType<StackPanel>().Single();
+            var buttonBounds = button.TransformToAncestor(grid).TransformBounds(new Rect(button.RenderSize));
+            var detailsBounds = details.TransformToAncestor(grid).TransformBounds(new Rect(details.RenderSize));
+            Check(!buttonBounds.IntersectsWith(detailsBounds), "A module selection button overlaps its name or connection details.");
+        }
+    }
+
+    private static string? WorkerArgument(string name)
+    {
+        var arguments = Field<Process>(window!, "_worker").StartInfo.ArgumentList.ToArray();
+        var index = Array.IndexOf(arguments, name);
+        return index >= 0 && index + 1 < arguments.Length ? arguments[index + 1] : null;
+    }
+
+    private static void InvokeSaveConnection()
+    {
+        var started = false;
+        window!.Dispatcher.BeginInvoke(new Action(() =>
+        {
+            Method(window, "Save_Click").Invoke(window, [window, new RoutedEventArgs()]);
+            started = true;
+        }));
+        PumpUntil(() => started && !Field<bool>(window, "_busy"), "connection save completed", TimeSpan.FromSeconds(90));
+    }
+
+    private static void InvokeModuleSelection(ModuleRelease release)
+    {
+        Named<RadioButton>(window!, "ModulesNav").IsChecked = true;
+        Pump(); window!.UpdateLayout();
+        var button = Descendants(Named<ItemsControl>(window, "ModuleLibrary")).OfType<Button>()
+            .Single(candidate => candidate.Tag is ModuleRelease module && module.Id == release.Id);
+        Check(button.IsEnabled, "An inactive installed module could not be selected.");
+        var started = false;
+        window.Dispatcher.BeginInvoke(new Action(() =>
+        {
+            button.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            started = true;
+        }));
+        PumpUntil(() => started && !Field<bool>(window, "_busy"), "module selection completed", TimeSpan.FromSeconds(90));
     }
 
     private static void InvokeRollback()

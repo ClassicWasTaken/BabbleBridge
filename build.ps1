@@ -27,8 +27,16 @@ foreach ($relative in $legacyFiles) {
 if ($LASTEXITCODE -ne 0) { throw 'Windows app publish failed.' }
 & $Dotnet publish (Join-Path $projectRoot 'src/BabbleFrameBridge.Worker/BabbleFrameBridge.Worker.csproj') -c Release -r win-x64 --self-contained true -o (Join-Path $destination 'runtime') --nologo
 if ($LASTEXITCODE -ne 0) { throw 'Tracking worker publish failed.' }
+# Reused publish folders can retain symbols from builds made before source-path
+# mapping was enabled. Distribution symbols are deliberately omitted.
+foreach ($symbols in Get-ChildItem -LiteralPath $destination -Recurse -File -Filter '*.pdb') {
+    $symbolsPath = [IO.Path]::GetFullPath($symbols.FullName)
+    if (!$symbolsPath.StartsWith($destinationPrefix, [StringComparison]::OrdinalIgnoreCase)) { throw 'Unexpected symbol output path.' }
+    Remove-Item -LiteralPath $symbolsPath -Force
+}
 $unwanted = Get-ChildItem -LiteralPath $destination -Recurse -File | Where-Object {
     $_.Name -in @('vcruntime140.dll', 'VRCFaceTracking.Baballonia.dll', 'Baballonia-module.zip',
+        'VirtualDesktop.FaceTracking.dll', 'SteamLinkVRCFTModule.dll', 'LinkFTModule.zip', 'VirtualDesktop.VRCFaceTracking.zip',
         'Babble-Brand-LICENSE.txt', 'BabbleLogos.xaml', 'babbleBanner.png', 'logo_silhouette.svg', 'logo-white.svg')
 } | Select-Object -First 1
 if ($unwanted) { throw "The published app contains an excluded legacy or external component: $($unwanted.FullName)" }

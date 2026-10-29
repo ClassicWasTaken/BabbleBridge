@@ -18,15 +18,17 @@
       <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" RecognizesAccessKey="True"/>
      </Border>
      <ControlTemplate.Triggers>
-      <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="Chrome" Property="Opacity" Value="0.85"/></Trigger>
-      <Trigger Property="IsPressed" Value="True"><Setter TargetName="Chrome" Property="Opacity" Value="0.68"/></Trigger>
-      <Trigger Property="IsEnabled" Value="False"><Setter TargetName="Chrome" Property="Opacity" Value="0.38"/></Trigger>
+      <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="Chrome" Property="local:Motion.FeedbackOpacity" Value="0.88"/></Trigger>
+      <Trigger Property="IsPressed" Value="True"><Setter TargetName="Chrome" Property="local:Motion.FeedbackOpacity" Value="0.73"/></Trigger>
+      <Trigger Property="IsEnabled" Value="False"><Setter TargetName="Chrome" Property="local:Motion.FeedbackOpacity" Value="0.38"/></Trigger>
      </ControlTemplate.Triggers>
     </ControlTemplate></Setter.Value></Setter>
+    <Style.Triggers><Trigger Property="IsPressed" Value="True"><Setter Property="local:Motion.Pressed" Value="True"/></Trigger></Style.Triggers>
    </Style>
    <Style x:Key="QuietButton" TargetType="Button" BasedOn="{StaticResource {x:Type Button}}"><Setter Property="Background" Value="Transparent"/><Setter Property="Foreground" Value="{DynamicResource AccentInk}"/><Setter Property="BorderBrush" Value="{DynamicResource InputBorder}"/></Style>
    <Style x:Key="LinkButton" TargetType="Button" BasedOn="{StaticResource {x:Type Button}}"><Setter Property="Background" Value="Transparent"/><Setter Property="Foreground" Value="{DynamicResource AccentInk}"/><Setter Property="BorderThickness" Value="0"/><Setter Property="Padding" Value="0"/></Style>
    <Style x:Key="Navigation" TargetType="RadioButton">
+    <Setter Property="local:Motion.Hover" Value="True"/>
     <Setter Property="Foreground" Value="{DynamicResource SidebarInk}"/><Setter Property="Background" Value="Transparent"/><Setter Property="Padding" Value="14,13"/><Setter Property="Margin" Value="0,0,0,7"/><Setter Property="Cursor" Value="Hand"/>
     <Setter Property="HorizontalContentAlignment" Value="Stretch"/><Setter Property="FontSize" Value="13"/>
     <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="RadioButton">
@@ -37,6 +39,7 @@
       <Trigger Property="IsKeyboardFocused" Value="True"><Setter TargetName="NavBorder" Property="BorderThickness" Value="1"/><Setter TargetName="NavBorder" Property="BorderBrush" Value="{DynamicResource Focus}"/></Trigger>
      </ControlTemplate.Triggers>
     </ControlTemplate></Setter.Value></Setter>
+    <Style.Triggers><Trigger Property="IsPressed" Value="True"><Setter Property="local:Motion.Pressed" Value="True"/></Trigger></Style.Triggers>
    </Style>
    <Style TargetType="TextBox"><Setter Property="Foreground" Value="{DynamicResource Ink}"/><Setter Property="Background" Value="{DynamicResource InputBackground}"/><Setter Property="BorderBrush" Value="{DynamicResource InputBorder}"/><Setter Property="BorderThickness" Value="1"/><Setter Property="Padding" Value="12,11"/><Setter Property="CaretBrush" Value="{DynamicResource AccentDark}"/><Setter Property="SelectionBrush" Value="{DynamicResource Focus}"/>
     <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="TextBox"><Border x:Name="InputBorder" CornerRadius="10" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}"><ScrollViewer x:Name="PART_ContentHost"/></Border><ControlTemplate.Triggers><Trigger Property="IsKeyboardFocused" Value="True"><Setter TargetName="InputBorder" Property="BorderBrush" Value="{DynamicResource Accent}"/></Trigger></ControlTemplate.Triggers></ControlTemplate></Setter.Value></Setter>
