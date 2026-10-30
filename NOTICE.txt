@@ -1,4 +1,4 @@
-BABBLE BRIDGE — COPYRIGHT AND LICENSE NOTICES
+FACETRACKING BRIDGE — COPYRIGHT AND LICENSE NOTICES
 
 Original bridge code, original bridge artwork, and original particle effect
 Copyright (c) 2026 Frame Bridge contributors.
@@ -87,8 +87,9 @@ ORIGINAL VISUAL ASSETS
 The original headset mark, app icon, installer illustration, and particle flow in this
 version are original project assets under Apache 2.0. Official Project Babble
 logos, the Babble branding pack, and the previous homepage-animation port are
-not included. The green palette and IBM Plex typeface remain; the procedural
-flow uses independently written code and parameters.
+not included. The charcoal/cyan palette is inspired by VRChat's dark interface;
+no VRChat logo or interface artwork is included. The IBM Plex typeface and
+procedural flow use the documented font license and independently written code.
 
 Distribution copies must retain LICENSE, NOTICE.txt, THIRD_PARTY_NOTICES.md,
 the applicable licenses/ files, and the font copyright/license file.

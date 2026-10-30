@@ -15,7 +15,8 @@ $legacyFiles = @(
     'Assets/Brand/Babble-Brand-LICENSE.txt', 'Assets/Brand/BabbleLogos.xaml',
     'Assets/Brand/babbleBanner.png', 'Assets/Brand/logo.png',
     'Assets/Brand/logo.svg', 'Assets/Brand/logo-white.svg',
-    'Assets/Brand/logo_silhouette.svg', 'Assets/Brand/SOURCE.txt'
+    'Assets/Brand/logo_silhouette.svg', 'Assets/Brand/SOURCE.txt',
+    'Assets/Brand/FrameBridge-headset-v1.ico'
 )
 foreach ($relative in $legacyFiles) {
     $target = [IO.Path]::GetFullPath((Join-Path $destination $relative))

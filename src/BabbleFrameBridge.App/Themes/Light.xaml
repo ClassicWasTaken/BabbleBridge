@@ -1,48 +1,56 @@
 <!-- Copyright (c) 2026 Frame Bridge contributors. SPDX-License-Identifier: Apache-2.0 -->
 <ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
- <SolidColorBrush x:Key="Ink" Color="#1A2E28"/>
- <SolidColorBrush x:Key="Muted" Color="#5C7367"/>
- <SolidColorBrush x:Key="SubtleInk" Color="#627468"/>
- <SolidColorBrush x:Key="FaintInk" Color="#637367"/>
- <SolidColorBrush x:Key="Accent" Color="#539E8A"/>
- <SolidColorBrush x:Key="AccentDark" Color="#347A66"/>
- <SolidColorBrush x:Key="AccentInk" Color="#2D6C57"/>
- <SolidColorBrush x:Key="Pink" Color="#E8ADAD"/>
- <SolidColorBrush x:Key="PinkInk" Color="#9C6263"/>
- <SolidColorBrush x:Key="PinkBackground" Color="#FBEBE9"/>
- <SolidColorBrush x:Key="PupilAccent" Color="#97B5C5"/>
- <SolidColorBrush x:Key="Cream" Color="#FAF8F5"/>
+ <SolidColorBrush x:Key="Ink" Color="#142C3B"/>
+ <SolidColorBrush x:Key="Muted" Color="#4F6676"/>
+ <SolidColorBrush x:Key="SubtleInk" Color="#506879"/>
+ <SolidColorBrush x:Key="FaintInk" Color="#546B7B"/>
+ <SolidColorBrush x:Key="Accent" Color="#007E98"/>
+ <SolidColorBrush x:Key="AccentDark" Color="#006B84"/>
+ <SolidColorBrush x:Key="AccentInk" Color="#00667F"/>
+ <SolidColorBrush x:Key="Pink" Color="#8A9CE0"/>
+ <SolidColorBrush x:Key="PinkInk" Color="#52639E"/>
+ <SolidColorBrush x:Key="PinkBackground" Color="#EDF0FC"/>
+ <SolidColorBrush x:Key="PupilAccent" Color="#6F9FCE"/>
+ <SolidColorBrush x:Key="Cream" Color="#F1F6FA"/>
  <SolidColorBrush x:Key="CardBackground" Color="#FFFFFF"/>
- <SolidColorBrush x:Key="CardBorder" Color="#E3EAE4"/>
- <SolidColorBrush x:Key="InputBackground" Color="#FBFCF9"/>
- <SolidColorBrush x:Key="InputBorder" Color="#C9D7CE"/>
- <SolidColorBrush x:Key="TrackBackground" Color="#EAF0EB"/>
- <SolidColorBrush x:Key="Divider" Color="#E6ECE5"/>
- <SolidColorBrush x:Key="SoftBackground" Color="#EAF1EA"/>
- <SolidColorBrush x:Key="InsetBackground" Color="#F4F6F0"/>
- <SolidColorBrush x:Key="LogBackground" Color="#F0F4EE"/>
- <SolidColorBrush x:Key="NoticeBackground" Color="#EAF2E9"/>
- <SolidColorBrush x:Key="NoticeBorder" Color="#CCDFCC"/>
- <SolidColorBrush x:Key="NoticeInk" Color="#365F48"/>
- <SolidColorBrush x:Key="ErrorBackground" Color="#FCEAE6"/>
- <SolidColorBrush x:Key="ErrorBorder" Color="#E5BAB2"/>
- <SolidColorBrush x:Key="DangerInk" Color="#B23D36"/>
- <SolidColorBrush x:Key="ErrorInk" Color="#8D3E35"/>
- <SolidColorBrush x:Key="HeroBackground" Color="#347A66"/>
- <SolidColorBrush x:Key="HeroInk" Color="#FFFFFF"/>
- <SolidColorBrush x:Key="HeroMuted" Color="#D1E6DA"/>
- <SolidColorBrush x:Key="HeroButtonBackground" Color="#FFFFFF"/>
- <SolidColorBrush x:Key="HeroButtonInk" Color="#285D49"/>
- <SolidColorBrush x:Key="SidebarBackground" Color="#1A2E28"/>
- <SolidColorBrush x:Key="SidebarCard" Color="#223C32"/>
- <SolidColorBrush x:Key="SidebarDivider" Color="#30483D"/>
- <SolidColorBrush x:Key="SidebarInk" Color="#E6F1EA"/>
- <SolidColorBrush x:Key="SidebarMuted" Color="#B5CEC2"/>
- <SolidColorBrush x:Key="SidebarFaint" Color="#94B6A4"/>
- <SolidColorBrush x:Key="NavHover" Color="#28483C"/>
- <SolidColorBrush x:Key="NavSelected" Color="#335B4C"/>
+ <SolidColorBrush x:Key="CardBorder" Color="#D5E1E9"/>
+ <SolidColorBrush x:Key="InputBackground" Color="#FAFCFE"/>
+ <SolidColorBrush x:Key="InputBorder" Color="#A8C0CF"/>
+ <SolidColorBrush x:Key="TrackBackground" Color="#DFEAF1"/>
+ <SolidColorBrush x:Key="Divider" Color="#DCE7EF"/>
+ <SolidColorBrush x:Key="SoftBackground" Color="#E2EEF5"/>
+ <SolidColorBrush x:Key="InsetBackground" Color="#F3F8FC"/>
+ <SolidColorBrush x:Key="LogBackground" Color="#EDF4F9"/>
+ <SolidColorBrush x:Key="NoticeBackground" Color="#E0F3FA"/>
+ <SolidColorBrush x:Key="NoticeBorder" Color="#A3CDDC"/>
+ <SolidColorBrush x:Key="NoticeInk" Color="#1A5167"/>
+ <SolidColorBrush x:Key="ErrorBackground" Color="#FCECF0"/>
+ <SolidColorBrush x:Key="ErrorBorder" Color="#DFB2BD"/>
+ <SolidColorBrush x:Key="DangerInk" Color="#AB304A"/>
+ <SolidColorBrush x:Key="ErrorInk" Color="#8E2F43"/>
+ <SolidColorBrush x:Key="HeroBackground" Color="#173747"/>
+ <SolidColorBrush x:Key="HeroInk" Color="#F5FCFF"/>
+ <SolidColorBrush x:Key="HeroMuted" Color="#CAE1ED"/>
+ <SolidColorBrush x:Key="HeroButtonBackground" Color="#6AE3F9"/>
+ <SolidColorBrush x:Key="HeroButtonInk" Color="#082A38"/>
+ <SolidColorBrush x:Key="SidebarBackground" Color="#101C27"/>
+ <SolidColorBrush x:Key="SidebarCard" Color="#192E3C"/>
+ <SolidColorBrush x:Key="SidebarDivider" Color="#304858"/>
+ <SolidColorBrush x:Key="SidebarInk" Color="#EAF4FA"/>
+ <SolidColorBrush x:Key="SidebarMuted" Color="#B6C9D7"/>
+ <SolidColorBrush x:Key="SidebarFaint" Color="#91ABBF"/>
+ <SolidColorBrush x:Key="NavHover" Color="#1E394A"/>
+ <SolidColorBrush x:Key="NavSelected" Color="#245166"/>
+ <SolidColorBrush x:Key="NavIndicator" Color="#6AE3F9"/>
  <SolidColorBrush x:Key="ButtonInk" Color="#FFFFFF"/>
- <SolidColorBrush x:Key="SwitchTrack" Color="#CFDBD1"/>
+ <SolidColorBrush x:Key="SwitchTrack" Color="#BACDD9"/>
  <SolidColorBrush x:Key="SwitchThumb" Color="#FFFFFF"/>
- <SolidColorBrush x:Key="Focus" Color="#539E8A"/>
+ <SolidColorBrush x:Key="SwitchCheckedThumb" Color="#FFFFFF"/>
+ <SolidColorBrush x:Key="Focus" Color="#007E98"/>
+ <Color x:Key="AmbientPrimaryStart">#126AE3F9</Color>
+ <Color x:Key="AmbientPrimaryEnd">#006AE3F9</Color>
+ <Color x:Key="AmbientSecondaryStart">#105E8DD9</Color>
+ <Color x:Key="AmbientSecondaryEnd">#005E8DD9</Color>
+ <Color x:Key="HeroGlowStart">#126AE3F9</Color>
+ <Color x:Key="HeroGlowEnd">#006AE3F9</Color>
 </ResourceDictionary>

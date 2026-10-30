@@ -10,7 +10,7 @@ using System.Windows.Media.Imaging;
 namespace BabbleFrameBridge.App;
 
 /// <summary>
-/// Original Frame Bridge particle artwork: points travel around a slowly changing
+/// Original FaceTracking Bridge particle artwork: points travel around a slowly changing
 /// closed Catmull-Rom loop. Standard spline interpolation and damped cursor forces
 /// are implemented here independently; no website animation code or parameters are used.
 /// </summary>
@@ -26,7 +26,7 @@ public sealed class ParticleField : FrameworkElement
     [new(-.07,.60), new(.16,.19), new(.43,.37), new(.74,.82),
      new(1.07,.53), new(.83,.12), new(.57,.49), new(.23,.86)];
     private static readonly Color[] Tints =
-    [Color.FromRgb(125,205,184), Color.FromRgb(79,157,139), Color.FromRgb(219,174,183)];
+    [Color.FromRgb(106,227,249), Color.FromRgb(57,189,211), Color.FromRgb(143,180,246)];
     private static readonly BitmapSource[][] Sprites = CreateSprites();
     private readonly Seed[] seeds = CreateSeeds();
     private readonly Point[] path = new Point[Anchors.Length];

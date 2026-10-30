@@ -40,7 +40,7 @@ if (!(Test-Path -LiteralPath $payloadPath -PathType Container)) { throw 'Payload
 $requiredFiles = @(
     'BabbleFrameBridge.exe',
     'runtime/BabbleFrameBridge.Worker.exe',
-    'Assets/Brand/FrameBridge-headset-v1.ico',
+    'Assets/Brand/FaceTrackingBridge-headset-v2.ico',
     'START-HERE.txt',
     'LICENSE',
     'NOTICE.txt',
@@ -105,7 +105,7 @@ if ($compilerMajorVersion -lt 7) { throw 'Inno Setup 7 or newer is required for 
 
 $outputPath = [IO.Path]::GetFullPath($OutputDirectory)
 $null = New-Item -ItemType Directory -Path $outputPath -Force
-$outputName = "Babble-Bridge-Setup-$appVersion"
+$outputName = "FaceTracking-Bridge-Setup-$appVersion"
 $compilerArguments = @(
     "--define=AppPayload=$payloadPath",
     "--define=AppVersion=$appVersion",
@@ -114,7 +114,7 @@ $compilerArguments = @(
     $scriptPath
 )
 
-Write-Output "Building Babble Bridge $appVersion installer..."
+Write-Output "Building FaceTracking Bridge $appVersion installer..."
 & $compilerPath @compilerArguments
 if ($LASTEXITCODE -ne 0) { throw "Inno Setup compilation failed with exit code $LASTEXITCODE." }
 

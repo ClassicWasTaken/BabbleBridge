@@ -5,7 +5,7 @@ checking whether a reported issue is still present.
 
 ## Report a vulnerability
 
-Use [GitHub's private vulnerability report](https://github.com/ClassicWasTaken/BabbleBridge/security/advisories/new).
+Use [GitHub's private vulnerability report](https://github.com/ClassicWasTaken/FaceTrackingBridge/security/advisories/new).
 Include the affected app/module versions, reproduction steps, impact, and a
 small synthetic example when possible. Keep exploit details and private data
 out of public issues. Remove credentials, avatar IDs, usernames, and network

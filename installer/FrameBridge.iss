@@ -1,22 +1,22 @@
 ; Copyright (c) 2026 Frame Bridge contributors.
 ; SPDX-License-Identifier: Apache-2.0
 
-; Babble Bridge per-user installer. Keep BuildIdentity stable for every release.
+; FaceTracking Bridge per-user installer. Keep BuildIdentity stable for every release.
 ; Settings and module releases live outside {app} and are never removed here.
 #ifndef AppPayload
   #define AppPayload "..\dist\BabbleFrameBridge"
 #endif
 #ifndef AppVersion
-  #define AppVersion "1.0.2"
+  #define AppVersion "1.0.3"
 #endif
 #ifndef BuildIdentity
   #define BuildIdentity "FrameBridge.Desktop.8E250247-8BA9-42B7-A698-94D2A52E880A"
 #endif
 #ifndef ProductName
-  #define ProductName "Babble Bridge"
+  #define ProductName "FaceTracking Bridge"
 #endif
 #ifndef DisplayName
-  #define DisplayName "Babble Bridge"
+  #define DisplayName "FaceTracking Bridge"
 #endif
 #ifndef AppMutexName
   #define AppMutexName "Local\FrameBridge.Desktop"
@@ -27,17 +27,29 @@
 #ifndef IconGroupDir
   #define IconGroupDir "{group}"
 #endif
-#define HeadsetIconPath "Assets\Brand\FrameBridge-headset-v1.ico"
+#ifndef LegacyGroupParent
+  #define LegacyGroupParent "{autoprograms}"
+#endif
+#ifndef MigrateLegacyShortcuts
+  #if BuildIdentity == "FrameBridge.Desktop.8E250247-8BA9-42B7-A698-94D2A52E880A"
+    #define MigrateLegacyShortcuts 1
+  #else
+    #define MigrateLegacyShortcuts 0
+  #endif
+#endif
+#ifndef HeadsetIconPath
+  #define HeadsetIconPath "Assets\Brand\FaceTrackingBridge-headset-v2.ico"
+#endif
 
 [Setup]
 AppId={#BuildIdentity}
 AppName={#DisplayName}
 AppVersion={#AppVersion}
 AppVerName={#DisplayName} {#AppVersion}
-AppPublisher=Babble Bridge contributors
+AppPublisher=FaceTracking Bridge contributors
 AppComments=Independent bridge for headset tracking and VRChat.
 AppCopyright=Independent application. See LICENSE and NOTICE.txt.
-DefaultDirName={localappdata}\Programs\Babble Bridge
+DefaultDirName={localappdata}\Programs\FaceTracking Bridge
 DefaultGroupName={#ProductName}
 PrivilegesRequired=lowest
 ArchitecturesAllowed=x64compatible
@@ -60,25 +72,25 @@ RestartApplications=yes
 AlwaysRestart=no
 SetupLogging=yes
 WizardStyle=modern dynamic windows11 hidebevels
-WizardBackColor=#FAF8F5
-WizardBackColorDynamicDark=#101C18
+WizardBackColor=#F3F7FB
+WizardBackColorDynamicDark=#11151B
 WizardImageFile=assets\wizard-panel.png
-WizardImageBackColor=#347A66
+WizardImageBackColor=#171E27
 WizardSmallImageFile=..\src\BabbleFrameBridge.App\Assets\Brand\bridge-logo.png
-WizardSmallImageBackColor=#FAF8F5
-WizardSmallImageBackColorDynamicDark=#101C18
+WizardSmallImageBackColor=#F3F7FB
+WizardSmallImageBackColorDynamicDark=#11151B
 WizardImageStretch=yes
 WizardSizePercent=115,115
 SetupIconFile=..\src\BabbleFrameBridge.App\Assets\Bridge.ico
 OutputDir=..\dist\installer
-OutputBaseFilename=Babble-Bridge-Setup-{#AppVersion}
+OutputBaseFilename=FaceTracking-Bridge-Setup-{#AppVersion}
 Compression=lzma2/normal
 SolidCompression=yes
 VersionInfoVersion={#AppVersion}
 VersionInfoProductName={#DisplayName}
 VersionInfoProductVersion={#AppVersion}
 VersionInfoDescription={#DisplayName} Installer
-VersionInfoCompany=Babble Bridge contributors
+VersionInfoCompany=FaceTracking Bridge contributors
 
 [Languages]
 Name: "english"; MessagesFile: "compiler:Default.isl"
@@ -105,6 +117,8 @@ Type: files; Name: "{app}\Assets\Brand\babbleBanner.png"
 Type: files; Name: "{app}\Assets\Brand\BabbleLogos.xaml"
 Type: files; Name: "{app}\Assets\Brand\Babble-Brand-LICENSE.txt"
 Type: files; Name: "{app}\Assets\Brand\SOURCE.txt"
+; The cyan mark has a new icon filename so Windows can refresh owned shortcuts.
+Type: files; Name: "{app}\Assets\Brand\FrameBridge-headset-v1.ico"
 
 [Icons]
 Name: "{#IconGroupDir}\{#ProductName}"; Filename: "{app}\BabbleFrameBridge.exe"; WorkingDir: "{app}"; IconFilename: "{app}\{#HeadsetIconPath}"; IconIndex: 0; Check: ShouldHaveStartShortcut; AppUserModelID: "FrameBridge.Desktop"
@@ -112,13 +126,13 @@ Name: "{#IconGroupDir}\Setup guide"; Filename: "{app}\START-HERE.txt"; Check: Sh
 Name: "{#IconDesktopDir}\{#ProductName}"; Filename: "{app}\BabbleFrameBridge.exe"; WorkingDir: "{app}"; IconFilename: "{app}\{#HeadsetIconPath}"; IconIndex: 0; Check: ShouldHaveDesktopShortcut; AppUserModelID: "FrameBridge.Desktop"
 
 [Run]
-Filename: "{app}\BabbleFrameBridge.exe"; Description: "Open &Babble Bridge"; WorkingDir: "{app}"; Flags: nowait postinstall skipifsilent
+Filename: "{app}\BabbleFrameBridge.exe"; Description: "Open &FaceTracking Bridge"; WorkingDir: "{app}"; Flags: nowait postinstall skipifsilent
 
 [Messages]
-WelcomeLabel1=Meet Babble Bridge.
+WelcomeLabel1=Meet FaceTracking Bridge.
 WelcomeLabel2=Your headset expressions, connected to VRChat.%n%nSetup will install this independent bridge for your Windows account.%n%nThe Microsoft Visual C++ v14 Redistributable (x64) must be installed separately from Microsoft.%n%nFuture versions can be installed over this one. Your settings and imported modules stay in place.
 FinishedHeadingLabel=You’re ready to express yourself.
-FinishedLabel=Babble Bridge is installed.%n%nOpen Modules to download an official module or import your own ZIP, then connect your tracking provider.%n%nExisting imported modules are preserved. To update the app later, run its newer setup file. To update only the module, import a new ZIP inside the app.
+FinishedLabel=FaceTracking Bridge is installed.%n%nOpen Modules to download an official module or import your own ZIP, then connect your tracking provider.%n%nExisting imported modules are preserved. To update the app later, run its newer setup file. To update only the module, import a new ZIP inside the app.
 BeveledLabel=Independent runtime bridge
 
 [Code]
@@ -144,7 +158,7 @@ procedure RetireShortcut(const Filename, Target: String);
 begin
   { Only this app's exact former shortcut names, with this installation's
     actual target, are eligible for cleanup. Other files are left alone. }
-  if ('{#BuildIdentity}' = 'FrameBridge.Desktop.8E250247-8BA9-42B7-A698-94D2A52E880A')
+  if ({#MigrateLegacyShortcuts} = 1)
     and IsAppShortcut(Filename, Target) then DeleteFile(Filename);
 end;
 
@@ -162,8 +176,10 @@ begin
     Exit;
   end;
   Result := WizardIsTaskSelected('desktopicon') or IsAppShortcut(Filename, Target) or
-    (('{#BuildIdentity}' = 'FrameBridge.Desktop.8E250247-8BA9-42B7-A698-94D2A52E880A')
-      and IsAppShortcut(ExpandConstant('{#IconDesktopDir}\Frame Bridge.lnk'), Target));
+    (({#MigrateLegacyShortcuts} = 1) and
+      (IsAppShortcut(ExpandConstant('{#IconDesktopDir}\Frame Bridge.lnk'), Target) or
+       IsAppShortcut(ExpandConstant('{#IconDesktopDir}\Babble Bridge.lnk'), Target) or
+       IsAppShortcut(ExpandConstant('{#IconDesktopDir}\Steam Frame Babble Bridge.lnk'), Target)));
 end;
 
 function ShouldHaveStartShortcut: Boolean;
@@ -194,7 +210,8 @@ end;
 
 procedure CurStepChanged(CurStep: TSetupStep);
 var
-  OldGroup: String;
+  OldGroup, OldName: String;
+  Index: Integer;
 begin
   if CurStep = ssPostInstall then begin
     { Inno recreates its uninstall key after processing [Registry] entries.
@@ -205,21 +222,30 @@ begin
       'BabbleBridgeReleaseGeneration', 2) then
       RaiseException('Setup could not record the public release generation. Run Setup again before installing another release.');
     Log('Recorded public release generation 2 after saving uninstall information.');
-    if '{#BuildIdentity}' = 'FrameBridge.Desktop.8E250247-8BA9-42B7-A698-94D2A52E880A' then begin
+    if {#MigrateLegacyShortcuts} = 1 then begin
       { Retire an old link only after its replacement was actually created.
         A name collision with another app must not remove the only owned link. }
-      if IsAppShortcut(ExpandConstant('{#IconDesktopDir}\{#ProductName}.lnk'),
-        ExpandConstant('{app}\BabbleFrameBridge.exe')) then
-        RetireShortcut(ExpandConstant('{#IconDesktopDir}\Frame Bridge.lnk'),
-          ExpandConstant('{app}\BabbleFrameBridge.exe'));
-      OldGroup := ExpandConstant('{autoprograms}\Frame Bridge');
-      if IsAppShortcut(ExpandConstant('{#IconGroupDir}\{#ProductName}.lnk'),
-        ExpandConstant('{app}\BabbleFrameBridge.exe')) then
-        RetireShortcut(OldGroup + '\Frame Bridge.lnk', ExpandConstant('{app}\BabbleFrameBridge.exe'));
-      if IsAppShortcut(ExpandConstant('{#IconGroupDir}\Setup guide.lnk'),
-        ExpandConstant('{app}\START-HERE.txt')) then
-        RetireShortcut(OldGroup + '\Setup guide.lnk', ExpandConstant('{app}\START-HERE.txt'));
-      RemoveDir(OldGroup); { Nonrecursive: preserve the folder if it has any other files. }
+      for Index := 0 to 2 do begin
+        case Index of
+          0: OldName := 'Frame Bridge';
+          1: OldName := 'Steam Frame Babble Bridge';
+          2: OldName := 'Babble Bridge';
+        end;
+        if CompareText(OldName, '{#ProductName}') <> 0 then begin
+          if IsAppShortcut(ExpandConstant('{#IconDesktopDir}\{#ProductName}.lnk'),
+            ExpandConstant('{app}\BabbleFrameBridge.exe')) then
+            RetireShortcut(ExpandConstant('{#IconDesktopDir}\') + OldName + '.lnk',
+              ExpandConstant('{app}\BabbleFrameBridge.exe'));
+          OldGroup := ExpandConstant('{#LegacyGroupParent}\') + OldName;
+          if IsAppShortcut(ExpandConstant('{#IconGroupDir}\{#ProductName}.lnk'),
+            ExpandConstant('{app}\BabbleFrameBridge.exe')) then
+            RetireShortcut(OldGroup + '\' + OldName + '.lnk', ExpandConstant('{app}\BabbleFrameBridge.exe'));
+          if IsAppShortcut(ExpandConstant('{#IconGroupDir}\Setup guide.lnk'),
+            ExpandConstant('{app}\START-HERE.txt')) then
+            RetireShortcut(OldGroup + '\Setup guide.lnk', ExpandConstant('{app}\START-HERE.txt'));
+          RemoveDir(OldGroup); { Nonrecursive: preserve the folder if it has any other files. }
+        end;
+      end;
     end;
     RefreshShellItem(ExpandConstant('{app}\{#HeadsetIconPath}'));
     RefreshShellItem(ExpandConstant('{app}\BabbleFrameBridge.exe'));
@@ -303,7 +329,7 @@ begin
         Log('Transitioning a known development installation to the first stable release.');
         Exit;
       end;
-      SuppressibleMsgBox('Babble Bridge ' + InstalledVersion +
+      SuppressibleMsgBox('FaceTracking Bridge ' + InstalledVersion +
         ' is already installed. Use the same or a newer setup file to keep your app up to date.',
         mbInformation, MB_OK, IDOK);
       Result := False;

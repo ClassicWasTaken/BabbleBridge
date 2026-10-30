@@ -118,7 +118,7 @@ public sealed class ModuleDownloader : IDisposable
         {
             ValidateDownloadUri(uri, kind);
             using var request = new HttpRequestMessage(HttpMethod.Get, uri);
-            request.Headers.UserAgent.ParseAdd("BabbleBridge/1.0");
+            request.Headers.UserAgent.ParseAdd("FaceTrackingBridge/1.0");
             request.Headers.Accept.ParseAdd("application/zip, application/octet-stream");
             var response = await _client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, token);
             try

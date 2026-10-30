@@ -139,10 +139,12 @@ internal static class Program
                 themes.ApplyTheme(false);
                 Pump();
                 var light = DisplayedColors(window);
+                CheckThemeTextContrast();
                 SavePreview(window, renderDirectory, "light.png");
                 themes.ApplyTheme(true);
                 Pump();
                 var dark = DisplayedColors(window);
+                CheckThemeTextContrast();
                 SavePreview(window, renderDirectory, "dark.png");
                 Check(themes.CurrentIsDark, "Dark preview was not applied.");
                 foreach (var key in light.Keys)
@@ -190,9 +192,45 @@ internal static class Program
 
             Test("the interface uses its module library without obsolete source controls or sidebar cards", () =>
             {
+                Check(window.Title == "FaceTracking Bridge", "The window still uses the previous product name.");
+                Check(Named<TextBlock>(window, "PageTitle").Text == "FaceTracking Bridge",
+                    "The overview heading does not use the new product name.");
+                var wordmark = Named<TextBlock>(window, "BrandWordmark");
+                Check(wordmark.Text == "FaceTracking Bridge", "The sidebar still uses the previous product name.");
+                var previousWidth = window.Width;
+                var previousTheme = themes.CurrentIsDark;
+                try
+                {
+                    window.Width = window.MinWidth;
+                    window.UpdateLayout();
+                    var wordmarkBounds = wordmark.TransformToAncestor(window).TransformBounds(new Rect(wordmark.RenderSize));
+                    var navigation = Named<RadioButton>(window, "OverviewNav");
+                    var navigationBounds = navigation.TransformToAncestor(window).TransformBounds(new Rect(navigation.RenderSize));
+                    Check(wordmarkBounds.Right <= navigationBounds.Right + .5 && wordmarkBounds.Bottom < navigationBounds.Top,
+                        "The longer product name overlaps navigation or exceeds the sidebar.");
+                    var heading = Named<TextBlock>(window, "PageTitle");
+                    var titleText = new FormattedText(heading.Text, System.Globalization.CultureInfo.InvariantCulture,
+                        heading.FlowDirection, new Typeface(heading.FontFamily, heading.FontStyle, heading.FontWeight, heading.FontStretch),
+                        heading.FontSize, heading.Foreground, VisualTreeHelper.GetDpi(heading).PixelsPerDip);
+                    Check(titleText.WidthIncludingTrailingWhitespace <= heading.ActualWidth + .5,
+                        "The new overview title does not fit at the minimum window width.");
+                    foreach (var dark in new[] { false, true })
+                    {
+                        themes.ApplyTheme(dark); Pump();
+                        SavePreview(window, renderDirectory, dark ? "minimum-width-dark.png" : "minimum-width-light.png");
+                    }
+                }
+                finally
+                {
+                    window.Width = previousWidth;
+                    themes.ApplyTheme(previousTheme);
+                    Pump();
+                }
                 foreach (var name in new[] { "HeadsetSourceButton", "DesktopSourceButton", "TrackingInputPort", "MotionBox" })
                     Check(window.FindName(name) is null, "An obsolete control remains: " + name);
                 var text = string.Join("\n", Descendants(window).OfType<TextBlock>().Select(block => block.Text));
+                Check(!text.Contains("Babble Bridge", StringComparison.OrdinalIgnoreCase),
+                    "The interface still displays the previous product name.");
                 foreach (var removed in new[] { "Made for your headset", "Appearance follows Windows", "Updates, with a way back", "Keep VRCFaceTracking closed" })
                     Check(!text.Contains(removed, StringComparison.OrdinalIgnoreCase), "An obsolete information card remains: " + removed);
                 Check(Named<ItemsControl>(window, "ModuleLibrary").Items.Count == 0,
@@ -410,6 +448,13 @@ internal static class Program
                     PumpUntil(() => Named<StackPanel>(window, "OverviewPage").Opacity >= .999,
                         "module overview entrance finished before preview capture");
                     SavePreview(window, renderDirectory, "module-ready.png");
+                    var readyTheme = themes.CurrentIsDark;
+                    foreach (var dark in new[] { false, true })
+                    {
+                        themes.ApplyTheme(dark); Pump();
+                        SavePreview(window, renderDirectory, dark ? "module-ready-dark.png" : "module-ready-light.png");
+                    }
+                    themes.ApplyTheme(readyTheme);
                     CloseWindow();
                     var store = new ModuleStore(profile);
                     var desktop = store.CreateCompanion(expected);
@@ -1716,6 +1761,33 @@ internal static class Program
             ["input text"] = ColorOf(Named<TextBox>(target, "HostBox").Foreground),
             ["body text"] = ColorOf(Named<TextBlock>(target, "AvatarLabel").Foreground)
         };
+    }
+
+    private static void CheckThemeTextContrast()
+    {
+        // Check the surfaces used by small labels and actions as well as the page
+        // heading. Bright cyan buttons need dark text; light-mode links need a
+        // deeper accent than the decorative particles.
+        (string text, string surface)[] pairs =
+        [
+            ("Ink", "CardBackground"), ("Ink", "InputBackground"),
+            ("Muted", "CardBackground"), ("SubtleInk", "SoftBackground"),
+            ("FaintInk", "CardBackground"), ("AccentInk", "CardBackground"),
+            ("AccentInk", "InsetBackground"), ("ButtonInk", "AccentDark"),
+            ("HeroInk", "HeroBackground"), ("HeroMuted", "HeroBackground"),
+            ("HeroButtonInk", "HeroButtonBackground"),
+            ("SidebarInk", "SidebarBackground"), ("SidebarMuted", "SidebarBackground"),
+            ("SidebarFaint", "SidebarBackground"), ("HeroInk", "NavSelected"),
+            ("NoticeInk", "NoticeBackground"), ("ErrorInk", "ErrorBackground"),
+            ("DangerInk", "ErrorBackground")
+        ];
+        foreach (var (text, surface) in pairs)
+        {
+            var ink = ColorOf((Brush)Application.Current.FindResource(text));
+            var background = ColorOf((Brush)Application.Current.FindResource(surface));
+            var ratio = Contrast(ink, background);
+            Check(ratio >= 4.5, $"{text} on {surface} has insufficient text contrast ({ratio:N2}:1).");
+        }
     }
 
     private static IEnumerable<DependencyObject> Descendants(DependencyObject parent)

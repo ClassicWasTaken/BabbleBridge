@@ -319,7 +319,7 @@ public partial class MainWindow : Window
     private void SetState(string title, string detail, bool live, bool error = false)
     {
         StateTitle.Text = title; StateDetail.Text = detail;
-        StateDot.Fill = new SolidColorBrush((Color)ColorConverter.ConvertFromString(error ? "#F4C2C2" : live ? "#BDE5D1" : "#A6C5B8"));
+        StateDot.SetResourceReference(System.Windows.Shapes.Shape.FillProperty, error ? "ErrorInk" : live ? "Accent" : "HeroMuted");
     }
 
     private void UpdateSourceLabels()
@@ -765,7 +765,7 @@ public partial class MainWindow : Window
             "modules" => ("Modules", "Your headset. Your choice of module."),
             "settings" => ("Connection", "Keep your expressions flowing."),
             "activity" => ("Activity log", "A clear view of your tracking session."),
-            _ => ("Babble Bridge", "A little more you, in VR.")
+            _ => ("FaceTracking Bridge", "Your expressions, connected.")
         };
     }
 
@@ -775,7 +775,7 @@ public partial class MainWindow : Window
         var notices = Path.Combine(AppContext.BaseDirectory, "NOTICE.txt");
         if (File.Exists(notices)) Process.Start(new ProcessStartInfo(notices) { UseShellExecute = true });
     }
-    private void Website_Click(object sender, RoutedEventArgs e) => OpenLink("https://github.com/ClassicWasTaken/BabbleBridge");
+    private void Website_Click(object sender, RoutedEventArgs e) => OpenLink("https://github.com/ClassicWasTaken/FaceTrackingBridge");
     private static void OpenLink(string url) => Process.Start(new ProcessStartInfo(url) { UseShellExecute = true });
     private async void ClosingAsync(object? sender, CancelEventArgs e) {
         if (_allowClose) return;

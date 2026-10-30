@@ -28,10 +28,10 @@ public partial class App : Application
             // Constructor failures happen before the window is shown. Handling them
             // only through DispatcherUnhandledException leaves an invisible instance
             // holding the single-instance and installer mutexes.
-            MessageBox.Show("Babble Bridge could not start.\n\n" + error.Message
+            MessageBox.Show("FaceTracking Bridge could not start.\n\n" + error.Message
                 + "\n\nYour settings and imported module files have been preserved. Check the saved settings and module files in:\n"
-                + root + "\n\nRestore a valid saved backup or correct the reported file problem, then open Babble Bridge again.",
-                "Babble Bridge startup", MessageBoxButton.OK, MessageBoxImage.Error);
+                + root + "\n\nRestore a valid saved backup or correct the reported file problem, then open FaceTracking Bridge again.",
+                "FaceTracking Bridge startup", MessageBoxButton.OK, MessageBoxImage.Error);
             Shutdown(1);
         }
     }
@@ -42,7 +42,7 @@ public partial class App : Application
         if (dataIndex >= 0 && dataIndex + 1 < e.Args.Length) root = Path.GetFullPath(e.Args[dataIndex + 1]);
         var key = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(root.ToUpperInvariant())))[..20];
         _instance = new Mutex(true, "Local\\BabbleFrameBridge-" + key, out var first);
-        if (!first) { MessageBox.Show("Babble Bridge is already open.", "Babble Bridge"); Shutdown(); return; }
+        if (!first) { MessageBox.Show("FaceTracking Bridge is already open.", "FaceTracking Bridge"); Shutdown(); return; }
         // Stable presence marker lets future installers detect even portable copies.
         // Profile mutexes continue to keep normal and diagnostic data isolated.
         _installerPresence = new Mutex(false, "Local\\FrameBridge.Desktop");
@@ -55,7 +55,7 @@ public partial class App : Application
             RegisterApplicationRestart("", 1 | 2 | 8);
         }
         DispatcherUnhandledException += (_, error) => {
-            MessageBox.Show(error.Exception.Message, "Babble Bridge", MessageBoxButton.OK, MessageBoxImage.Error);
+            MessageBox.Show(error.Exception.Message, "FaceTracking Bridge", MessageBoxButton.OK, MessageBoxImage.Error);
             error.Handled = true;
         };
         _theme = new SystemThemeManager(this);

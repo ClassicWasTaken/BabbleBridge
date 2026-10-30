@@ -28,18 +28,22 @@ $compiledPath = Join-Path $runRoot 'compiled'
 $null = New-Item -ItemType Directory -Path $payload, $compiledPath
 $testId = "FrameBridge.InstallerSmokeTest.$($runId.Substring(0, 12))"
 $testMutex = "Local\FrameBridge.InstallerSmokeTest.$runId"
-$testProductName = "BabbleBridgeInstallerTest-$($runId.Substring(0, 12))"
+$testProductName = "FaceTrackingBridgeInstallerTest-$($runId.Substring(0, 12))"
 $desktopIconDirectory = Join-Path $runRoot 'shortcuts/desktop'
 $groupIconDirectory = Join-Path $runRoot 'shortcuts/start'
 $desktopShortcut = Join-Path $desktopIconDirectory "$testProductName.lnk"
 $startShortcut = Join-Path $groupIconDirectory "$testProductName.lnk"
 $guideShortcut = Join-Path $groupIconDirectory 'Setup guide.lnk'
+$legacyGroupParent = Join-Path $runRoot 'shortcuts/legacy-start'
+$legacyNames = @('Frame Bridge', 'Steam Frame Babble Bridge', 'Babble Bridge')
 $foreignTarget = Join-Path $runRoot 'unrelated-tool.exe'
 $foreignShortcutHash = $null
 $registryKey = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\${testId}_is1"
 $userDataPath = Join-Path $env:LOCALAPPDATA 'BabbleFrameBridge'
 $checks = [Collections.Generic.List[string]]::new()
 $failure = $null
+$initialDisplayName = if ($previousPayload) { 'Babble Bridge' } else { 'FaceTracking Bridge' }
+$expectedDisplayName = $initialDisplayName
 
 function Get-PayloadVersion([string]$Directory) {
     $executable = Join-Path $Directory 'BabbleFrameBridge.exe'
@@ -148,16 +152,23 @@ function Get-UserDataSnapshot {
     }
     return ConvertTo-Json -InputObject @($files.ToArray()) -Depth 5 -Compress
 }
-function Compile-TestInstaller([string]$Version) {
+function Compile-TestInstaller([string]$Version, [string]$DisplayName = 'FaceTracking Bridge') {
     Write-Output "Building isolated installer $Version..."
+    $iconPath = if (Test-Path -LiteralPath (Join-Path $payload 'Assets/Brand/FaceTrackingBridge-headset-v2.ico')) {
+        'Assets\Brand\FaceTrackingBridge-headset-v2.ico'
+    } else { 'Assets\Brand\FrameBridge-headset-v1.ico' }
     $arguments = @(
         '--no-compression',
         "--define=AppPayload=$payload",
         "--define=AppVersion=$Version",
         "--define=BuildIdentity=$testId",
         "--define=ProductName=$testProductName",
+        "--define=DisplayName=$DisplayName",
+        "--define=HeadsetIconPath=$iconPath",
         "--define=IconDesktopDir=$desktopIconDirectory",
         "--define=IconGroupDir=$groupIconDirectory",
+        "--define=LegacyGroupParent=$legacyGroupParent",
+        '--define=MigrateLegacyShortcuts=1',
         "--define=AppMutexName=$testMutex",
         "--output-dir=$compiledPath",
         "--output-filename=FrameBridgeTest-$Version",
@@ -172,10 +183,10 @@ function Invoke-TestSetup([string]$SetupPath, [string]$LogLabel, [bool]$FirstIns
     $arguments += if ($DesktopIcon) { '/TASKS=desktopicon' } else { '/TASKS=' }
     return Invoke-TestProcess $SetupPath $arguments "$LogLabel-process.log" 45
 }
-function Read-TestRegistration {
+function Read-TestRegistration([string]$ExpectedName = $script:expectedDisplayName) {
     Assert-True (Test-Path -LiteralPath $registryKey) 'The isolated test uninstall entry was not created.'
     $registration = Get-ItemProperty -LiteralPath $registryKey
-    Assert-True ($registration.DisplayName -eq 'Babble Bridge') 'Installed Apps did not use the Babble Bridge name.'
+    Assert-True ($registration.DisplayName -eq $ExpectedName) "Installed Apps did not use the expected name: $ExpectedName."
     Assert-True ([IO.Path]::GetFullPath($registration.InstallLocation).TrimEnd('\') -eq $installPath.TrimEnd('\')) 'Installer registration points outside the expected test install directory.'
     $matches = @(Get-ChildItem -LiteralPath 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall' | Where-Object PSChildName -EQ "${testId}_is1")
     Assert-True ($matches.Count -eq 1) 'Expected exactly one uninstall entry for the isolated test AppId.'
@@ -216,9 +227,22 @@ try {
     [IO.File]::WriteAllText($foreignTarget, 'unrelated shortcut target fixture; never executed')
     New-TestShortcut $desktopShortcut $foreignTarget
     $foreignShortcutHash = (Get-FileHash -LiteralPath $desktopShortcut -Algorithm SHA256).Hash
+    # Every legacy fixture is inside this run's verified workspace directories.
+    # A collision at the new desktop name must preserve the only owned old link.
+    foreach ($legacyName in $legacyNames) {
+        $legacyGroup = Join-Path $legacyGroupParent $legacyName
+        $null = New-Item -ItemType Directory -Path $legacyGroup -Force
+        New-TestShortcut (Join-Path $desktopIconDirectory "$legacyName.lnk") (Join-Path $installPath 'BabbleFrameBridge.exe')
+        New-TestShortcut (Join-Path $legacyGroup "$legacyName.lnk") (Join-Path $installPath 'BabbleFrameBridge.exe')
+        New-TestShortcut (Join-Path $legacyGroup 'Setup guide.lnk') (Join-Path $installPath 'START-HERE.txt')
+        [IO.File]::WriteAllText((Join-Path $legacyGroup 'keep.txt'), 'unrelated existing group content')
+    }
+    $foreignLegacyShortcut = Join-Path $desktopIconDirectory 'Steam Frame Babble Bridge.lnk'
+    New-TestShortcut $foreignLegacyShortcut $foreignTarget
+    $foreignLegacyHash = (Get-FileHash -LiteralPath $foreignLegacyShortcut -Algorithm SHA256).Hash
     $marker = Join-Path $payload 'installer-smoke-marker.txt'
     [IO.File]::WriteAllText($marker, 'first-release')
-    Compile-TestInstaller $initialVersion
+    Compile-TestInstaller $initialVersion $initialDisplayName
     $firstSetup = Join-Path $compiledPath "FrameBridgeTest-$initialVersion.exe"
     $exitCode = Invoke-TestSetup $firstSetup 'install' $true
     Assert-True ($exitCode -eq 0) "First installation failed with exit code $exitCode."
@@ -229,6 +253,14 @@ try {
     $initialAppHash = (Get-FileHash -LiteralPath (Join-Path $installPath 'BabbleFrameBridge.dll') -Algorithm SHA256).Hash
     Assert-OwnedStartShortcuts
     Assert-ForeignShortcutUnchanged
+    foreach ($legacyName in $legacyNames) {
+        $legacyGroup = Join-Path $legacyGroupParent $legacyName
+        Assert-True (!(Test-Path -LiteralPath (Join-Path $legacyGroup "$legacyName.lnk"))) 'An owned old Start menu shortcut survived replacement.'
+        Assert-True (!(Test-Path -LiteralPath (Join-Path $legacyGroup 'Setup guide.lnk'))) 'An owned old setup-guide shortcut survived replacement.'
+        Assert-True ((Get-Content -LiteralPath (Join-Path $legacyGroup 'keep.txt') -Raw) -eq 'unrelated existing group content') 'Migrating shortcuts removed unrelated group content.'
+        Assert-True (Test-Path -LiteralPath (Join-Path $desktopIconDirectory "$legacyName.lnk")) 'A legacy desktop link was removed before its replacement existed.'
+    }
+    Add-Check 'Owned former Start menu shortcuts migrated only after replacement; desktop collisions and unrelated group content were preserved.'
     Assert-True (!(Test-Path -LiteralPath (Join-Path $installPath 'Assets/Baballonia-module.zip'))) 'The installer included a module archive.'
     foreach ($moduleDll in @('VRCFaceTracking.Baballonia.dll', 'VirtualDesktop.FaceTracking.dll', 'SteamLinkVRCFTModule.dll')) {
         Assert-True (@(Get-ChildItem -LiteralPath $installPath -Recurse -File -Filter $moduleDll).Count -eq 0) "The installer included an external module DLL: $moduleDll"
@@ -274,11 +306,15 @@ try {
     Add-Check 'Setup rejected an update while the isolated application mutex existed, before changing version or files.'
     $exitCode = Invoke-TestSetup $upgradeSetup 'upgrade'
     Assert-True ($exitCode -eq 0) "Newer-version upgrade failed with $exitCode."
+    $expectedDisplayName = 'FaceTracking Bridge'
     $registration = Read-TestRegistration
     Assert-True ($registration.DisplayVersion -eq $upgradeVersion) 'Upgrade did not update DisplayVersion.'
     Assert-True ((Get-ItemPropertyValue -LiteralPath $registryKey -Name BabbleBridgeReleaseGeneration) -eq 2) 'Upgrade did not register public release generation 2.'
     Assert-True ((Get-Content -LiteralPath (Join-Path $installPath 'installer-smoke-marker.txt') -Raw) -eq 'upgraded-release') 'Upgrade did not replace the payload marker.'
     Assert-True (!(Test-Path -LiteralPath (Join-Path $legacyAssets 'Baballonia-module.zip'))) 'Upgrade retained the legacy baked-in archive.'
+    Assert-True (!(Test-Path -LiteralPath (Join-Path $installPath 'Assets/Brand/FrameBridge-headset-v1.ico'))) 'Upgrade retained the retired green shortcut icon.'
+    Assert-True ((Get-FileHash -LiteralPath (Join-Path $installPath 'Assets/Brand/FaceTrackingBridge-headset-v2.ico') -Algorithm SHA256).Hash -eq
+        (Get-FileHash -LiteralPath (Join-Path $payloadSource 'Assets/Brand/FaceTrackingBridge-headset-v2.ico') -Algorithm SHA256).Hash) 'Upgrade did not install the new cyan shortcut icon.'
     Assert-InstalledPayload $payloadSource
     if ($previousPayload) {
         Assert-True ((Get-FileHash -LiteralPath (Join-Path $installPath 'BabbleFrameBridge.dll') -Algorithm SHA256).Hash -ne $initialAppHash) 'The real app upgrade left the old application binary in place.'
@@ -287,6 +323,7 @@ try {
     else { Add-Check 'A newer synthetic release replaced installed files and updated the same uninstall entry.' }
     Assert-ForeignShortcutUnchanged
     Assert-OwnedStartShortcuts
+    Add-Check 'Upgrade registers the FaceTracking Bridge name with the same application identity and installation directory.'
     if ($publicReset) {
         Add-Check "The private preview $initialVersion migrated to public release $upgradeVersion and registered generation 2 for future downgrade protection."
     }
@@ -304,7 +341,7 @@ try {
         Set-ItemProperty -LiteralPath $registryKey -Name DisplayName -Value 'Babble Bridge'
         $exitCode = Invoke-TestSetup $migrationSetup 'future-stable-downgrade'
         Assert-True ($exitCode -ne 0) 'A future stable version was mistaken for a development build and allowed to downgrade.'
-        $registration = Read-TestRegistration
+        $registration = Read-TestRegistration 'Babble Bridge'
         Assert-True ($registration.DisplayVersion -eq '1.2.0') 'A rejected future-stable downgrade changed the registered version.'
         Assert-InstalledPayload $payloadSource
         Assert-ForeignShortcutUnchanged
@@ -313,7 +350,7 @@ try {
     finally {
         if (Test-Path -LiteralPath $registryKey) {
             Set-ItemProperty -LiteralPath $registryKey -Name DisplayVersion -Value $upgradeVersion
-            Set-ItemProperty -LiteralPath $registryKey -Name DisplayName -Value 'Babble Bridge'
+            Set-ItemProperty -LiteralPath $registryKey -Name DisplayName -Value 'FaceTracking Bridge'
         }
     }
     Add-Check 'A future stable version sharing an old development version number was rejected before changing files or registration.'
@@ -335,7 +372,7 @@ try {
         finally {
             if (Test-Path -LiteralPath $registryKey) {
                 Set-ItemProperty -LiteralPath $registryKey -Name DisplayVersion -Value $upgradeVersion
-                Set-ItemProperty -LiteralPath $registryKey -Name DisplayName -Value 'Babble Bridge'
+                Set-ItemProperty -LiteralPath $registryKey -Name DisplayName -Value 'FaceTracking Bridge'
             }
         }
     }
@@ -362,6 +399,7 @@ try {
         $skippedFirstPublicSetup = Join-Path $compiledPath "FrameBridgeTest-$skippedFirstPublicVersion.exe"
         try {
             Set-ItemProperty -LiteralPath $registryKey -Name DisplayVersion -Value '1.0.5'
+            Set-ItemProperty -LiteralPath $registryKey -Name DisplayName -Value 'Babble Bridge'
             Remove-ItemProperty -LiteralPath $registryKey -Name BabbleBridgeReleaseGeneration
             $exitCode = Invoke-TestSetup $skippedFirstPublicSetup 'preview-skipped-first-public-version'
             Assert-True ($exitCode -eq 0) 'A private preview user could not migrate after skipping public version 1.0.0.'
@@ -379,7 +417,7 @@ try {
         finally {
             if (Test-Path -LiteralPath $registryKey) {
                 Set-ItemProperty -LiteralPath $registryKey -Name DisplayVersion -Value $upgradeVersion
-                Set-ItemProperty -LiteralPath $registryKey -Name DisplayName -Value 'Babble Bridge'
+                Set-ItemProperty -LiteralPath $registryKey -Name DisplayName -Value 'FaceTracking Bridge'
                 Set-ItemProperty -LiteralPath $registryKey -Name BabbleBridgeReleaseGeneration -Value 2
             }
         }
@@ -440,10 +478,15 @@ print(json.dumps(result, indent=2))
     # lifecycle exercises the normal desktop shortcut creation and removal too.
     Assert-OwnedPath $desktopShortcut
     Remove-Item -LiteralPath $desktopShortcut -Force
-    $exitCode = Invoke-TestSetup $upgradeSetup 'desktop-shortcut-install' $true $true
-    Assert-True ($exitCode -eq 0) 'Installation with a requested desktop shortcut failed.'
+    $exitCode = Invoke-TestSetup $upgradeSetup 'desktop-shortcut-install' $true $false
+    Assert-True ($exitCode -eq 0) 'Installation preserving an existing owned desktop shortcut failed.'
     Assert-OwnedStartShortcuts
     Assert-True ((Get-TestShortcutTarget $desktopShortcut) -eq (Join-Path $installPath 'BabbleFrameBridge.exe')) 'Requested desktop shortcut target is incorrect.'
+    foreach ($legacyName in @('Frame Bridge', 'Babble Bridge')) {
+        Assert-True (!(Test-Path -LiteralPath (Join-Path $desktopIconDirectory "$legacyName.lnk"))) 'An owned former desktop shortcut survived its replacement.'
+    }
+    Assert-True ((Get-FileHash -LiteralPath $foreignLegacyShortcut -Algorithm SHA256).Hash -eq $foreignLegacyHash) 'A different application''s legacy-name shortcut was altered.'
+    Add-Check 'Existing owned desktop shortcuts migrate without requiring the optional task; unrelated legacy-name shortcuts remain unchanged.'
     $heldMutex = [Threading.Mutex]::new($false, $testMutex)
     try {
         $exitCode = Invoke-TestUninstaller 'uninstall-blocked-by-running-app'
@@ -458,7 +501,7 @@ print(json.dumps(result, indent=2))
     Add-Check 'Uninstall rejected removal while the isolated application mutex existed, preserving files, registration and shortcuts.'
     Uninstall-TestProduct
     Assert-True (!(Test-Path -LiteralPath $desktopShortcut)) 'This installation''s desktop shortcut remains after uninstall.'
-    Add-Check 'A requested desktop shortcut was created and was removed by normal uninstall.'
+    Add-Check 'The migrated desktop shortcut was created and was removed by normal uninstall.'
 }
 catch { $failure = $_.Exception.Message }
 finally {
@@ -486,7 +529,7 @@ finally {
     $json = ConvertTo-Json $report -Depth 6
     [IO.File]::WriteAllText((Join-Path $runRoot 'report.json'), $json)
     $upgradeDescription = if ($previousPayload) { "Real application payloads tested: $initialVersion to $upgradeVersion." } else { 'The synthetic newer installer tested upgrade behavior without changing production version.' }
-    $summary = @('BABBLE BRIDGE INSTALLER VALIDATION', '', "Result: $result", '', 'Isolated per-user install, reinstall, upgrade, downgrade rejection and uninstall.', 'The test used a separate random application identity and workspace install and shortcut folders.', $upgradeDescription, 'Shortcut collision protection and running-application install/uninstall guards were exercised.', 'Installed-worker mapping used the existing --all-parameters diagnostic mode.', 'VRChat avatar discovery was excluded to avoid interference with a running local game.', '')
+    $summary = @('FACETRACKING BRIDGE INSTALLER VALIDATION', '', "Result: $result", '', 'Isolated per-user install, reinstall, upgrade, downgrade rejection and uninstall.', 'The test used a separate random application identity and workspace install and shortcut folders.', $upgradeDescription, 'Shortcut collision protection and running-application install/uninstall guards were exercised.', 'Installed-worker mapping used the existing --all-parameters diagnostic mode.', 'VRChat avatar discovery was excluded to avoid interference with a running local game.', '')
     $summary += $checks | ForEach-Object { '- ' + $_ }
     if ($failure) { $summary += @('', 'Failure: ' + $failure) }
     $summaryText = $summary -join [Environment]::NewLine

@@ -1,4 +1,4 @@
-BUILDING BABBLE BRIDGE
+BUILDING FACETRACKING BRIDGE
 
 Requirements: Windows x64, .NET 10 SDK, internet access for NuGet restore.
 The native OSC library needs Microsoft's Visual C++ v14 Redistributable (x64)

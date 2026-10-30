@@ -6,10 +6,10 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <AssemblyName>BabbleFrameBridge</AssemblyName>
-    <Version>1.0.2</Version>
-    <Product>Babble Bridge</Product>
-    <Authors>Frame Bridge contributors</Authors>
-    <Copyright>Copyright Ã‚Â© 2026 Frame Bridge contributors. Third-party copyrights remain with their respective owners.</Copyright>
+    <Version>1.0.3</Version>
+    <Product>FaceTracking Bridge</Product>
+    <Authors>FaceTracking Bridge contributors</Authors>
+    <Copyright>Copyright (c) 2026 Frame Bridge contributors. Third-party copyrights remain with their respective owners.</Copyright>
     <Description>Independent Windows bridge for a compatible headset runtime and VRChat face tracking.</Description>
     <ApplicationIcon>Assets\Bridge.ico</ApplicationIcon>
   </PropertyGroup>
@@ -17,7 +17,7 @@
     <ProjectReference Include="..\BabbleFrameBridge.Shared\BabbleFrameBridge.Shared.csproj" />
     <Resource Include="Assets\Brand\*.ttf" />
     <Resource Include="Assets\Brand\bridge-logo.png" />
-    <Content Include="Assets\Bridge.ico" Link="Assets\Brand\FrameBridge-headset-v1.ico" TargetPath="Assets\Brand\FrameBridge-headset-v1.ico" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <Content Include="Assets\Bridge.ico" Link="Assets\Brand\FaceTrackingBridge-headset-v2.ico" TargetPath="Assets\Brand\FaceTrackingBridge-headset-v2.ico" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
     <Content Include="Assets\Brand\*.txt" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
   </ItemGroup>
 </Project>
