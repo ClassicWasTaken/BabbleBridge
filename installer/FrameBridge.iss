@@ -7,7 +7,7 @@
   #define AppPayload "..\dist\BabbleFrameBridge"
 #endif
 #ifndef AppVersion
-  #define AppVersion "1.0.3"
+  #define AppVersion "1.0.0"
 #endif
 #ifndef BuildIdentity
   #define BuildIdentity "FrameBridge.Desktop.8E250247-8BA9-42B7-A698-94D2A52E880A"
@@ -219,9 +219,9 @@ begin
       would silently lose the marker and permit a later downgrade. }
     if not RegWriteDWordValue(HKCU,
       'Software\Microsoft\Windows\CurrentVersion\Uninstall\{#BuildIdentity}_is1',
-      'BabbleBridgeReleaseGeneration', 2) then
+      'BabbleBridgeReleaseGeneration', 3) then
       RaiseException('Setup could not record the public release generation. Run Setup again before installing another release.');
-    Log('Recorded public release generation 2 after saving uninstall information.');
+    Log('Recorded public release generation 3 after saving uninstall information.');
     if {#MigrateLegacyShortcuts} = 1 then begin
       { Retire an old link only after its replacement was actually created.
         A name collision with another app must not remove the only owned link. }
@@ -298,10 +298,21 @@ begin
     (Version = '1.5.0') or (Version = '1.5.1'));
 end;
 
+function IsKnownGenerationTwoBuild(const Version, InstalledName: String): Boolean;
+begin
+  { This list describes only the public builds preceding the FaceTracking
+    Bridge 1.0.0 reset. It must not expand to future numeric versions. }
+  Result := ((CompareText(InstalledName, 'Babble Bridge') = 0) and
+    ((Version = '1.0.1') or (Version = '1.0.2'))) or
+    ((CompareText(InstalledName, 'FaceTracking Bridge') = 0) and
+     (Version = '1.0.3'));
+end;
+
 function InitializeSetup: Boolean;
 var
   InstalledVersion, InstalledName: String;
   ReleaseGeneration: Cardinal;
+  HasReleaseGeneration: Boolean;
 begin
   Result := True;
   if RegQueryStringValue(HKCU,
@@ -312,19 +323,32 @@ begin
       RegQueryStringValue(HKCU,
         'Software\Microsoft\Windows\CurrentVersion\Uninstall\{#BuildIdentity}_is1',
         'DisplayName', InstalledName);
+      ReleaseGeneration := 0;
+      HasReleaseGeneration := RegQueryDWordValue(HKCU,
+        'Software\Microsoft\Windows\CurrentVersion\Uninstall\{#BuildIdentity}_is1',
+        'BabbleBridgeReleaseGeneration', ReleaseGeneration);
+      { The renamed project starts again at 1.0.0. Users may skip that first
+        installer, so allow these exact public generation-2 installations to
+        cross the numbering boundary throughout the public 1.0.x series.
+        After setup records generation 3, this exception no longer applies. }
+      if (Pos('1.0.', '{#AppVersion}') = 1) and HasReleaseGeneration and
+        (ReleaseGeneration = 2) and
+        IsKnownGenerationTwoBuild(InstalledVersion, InstalledName) then begin
+        Log('Migrating a known generation-2 installation to FaceTracking Bridge {#AppVersion}.');
+        Exit;
+      end;
       { The private preview series used 1.0.1–1.0.5. Users may skip the
         first public installer, so allow migration throughout public 1.0.x,
-        only while the installation still predates generation 2. }
+        only while the installation still has no generation marker. }
       if (Pos('1.0.', '{#AppVersion}') = 1) and (CompareText(InstalledName, 'Babble Bridge') = 0) and
         ((InstalledVersion = '1.0.1') or (InstalledVersion = '1.0.2') or
          (InstalledVersion = '1.0.3') or (InstalledVersion = '1.0.4') or (InstalledVersion = '1.0.5')) and
-        not RegQueryDWordValue(HKCU,
-          'Software\Microsoft\Windows\CurrentVersion\Uninstall\{#BuildIdentity}_is1',
-          'BabbleBridgeReleaseGeneration', ReleaseGeneration) then begin
+        not HasReleaseGeneration then begin
         Log('Migrating the private preview series to public release {#AppVersion}.');
         Exit;
       end;
       if (Pos('1.0.', '{#AppVersion}') = 1) and
+        not HasReleaseGeneration and
         IsKnownDevelopmentBuild(InstalledVersion, InstalledName) then begin
         Log('Transitioning a known development installation to the first stable release.');
         Exit;

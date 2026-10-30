@@ -42,7 +42,9 @@ $registryKey = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\${test
 $userDataPath = Join-Path $env:LOCALAPPDATA 'BabbleFrameBridge'
 $checks = [Collections.Generic.List[string]]::new()
 $failure = $null
-$initialDisplayName = if ($previousPayload) { 'Babble Bridge' } else { 'FaceTracking Bridge' }
+$initialDisplayName = if ($previousPayload) {
+    [Diagnostics.FileVersionInfo]::GetVersionInfo((Join-Path $previousPayload 'BabbleFrameBridge.exe')).ProductName
+} else { 'FaceTracking Bridge' }
 $expectedDisplayName = $initialDisplayName
 
 function Get-PayloadVersion([string]$Directory) {
@@ -53,10 +55,12 @@ function Get-PayloadVersion([string]$Directory) {
 }
 $initialVersion = if ($previousPayload) { Get-PayloadVersion $previousPayload } else { '1.2.0' }
 $upgradeVersion = if ($previousPayload) { Get-PayloadVersion $payloadSource } else { '1.2.1' }
-$migrationTargetVersion = if ($upgradeVersion.StartsWith('1.0.', [StringComparison]::Ordinal)) { $upgradeVersion } else { '1.0.5' }
-$publicReset = $upgradeVersion -eq '1.0.0' -and $initialVersion -in @('1.0.1', '1.0.2', '1.0.3', '1.0.4', '1.0.5')
-if ($previousPayload -and !$publicReset -and ([Version]$upgradeVersion -le [Version]$initialVersion)) {
-    throw 'PreviousPayloadDirectory must contain an older real app version than PayloadDirectory.'
+$migrationTargetVersion = '1.0.0'
+$generationReset = $upgradeVersion -eq '1.0.0' -and (
+    ($initialDisplayName -eq 'Babble Bridge' -and $initialVersion -in @('1.0.1', '1.0.2')) -or
+    ($initialDisplayName -eq 'FaceTracking Bridge' -and $initialVersion -eq '1.0.3'))
+if ($previousPayload -and !$generationReset -and ([Version]$upgradeVersion -le [Version]$initialVersion)) {
+    throw 'PreviousPayloadDirectory must contain an older app version or an exact known generation-2 reset source.'
 }
 
 function Assert-True([bool]$Condition, [string]$Message) {
@@ -192,6 +196,53 @@ function Read-TestRegistration([string]$ExpectedName = $script:expectedDisplayNa
     Assert-True ($matches.Count -eq 1) 'Expected exactly one uninstall entry for the isolated test AppId.'
     return $registration
 }
+function Set-TestRegistrationFixture([string]$Version, [string]$Name, [Nullable[int]]$Generation) {
+    # Only this run's nonce uninstall key is used. No production registration is changed.
+    Set-ItemProperty -LiteralPath $registryKey -Name DisplayVersion -Value $Version
+    Set-ItemProperty -LiteralPath $registryKey -Name DisplayName -Value $Name
+    if ($null -eq $Generation) {
+        Remove-ItemProperty -LiteralPath $registryKey -Name BabbleBridgeReleaseGeneration -ErrorAction SilentlyContinue
+    } else {
+        $null = New-ItemProperty -LiteralPath $registryKey -Name BabbleBridgeReleaseGeneration -Value $Generation -PropertyType DWord -Force
+    }
+}
+function Restore-CurrentRegistration {
+    if (Test-Path -LiteralPath $registryKey) {
+        Set-TestRegistrationFixture $upgradeVersion 'FaceTracking Bridge' 3
+    }
+}
+function Assert-AcceptedMigration([string]$Setup, [string]$Version, [string]$Name, [Nullable[int]]$Generation, [string]$Label, [string]$ExpectedVersion = $script:migrationTargetVersion) {
+    try {
+        Set-TestRegistrationFixture $Version $Name $Generation
+        $exitCode = Invoke-TestSetup $Setup $Label
+        Assert-True ($exitCode -eq 0) "Known migration was rejected: $Label."
+        $registration = Read-TestRegistration
+        Assert-True ($registration.DisplayVersion -eq $ExpectedVersion) "Migration registered the wrong target version: $Label."
+        Assert-True ((Get-ItemPropertyValue -LiteralPath $registryKey -Name BabbleBridgeReleaseGeneration) -eq 3) "Migration did not record generation 3: $Label."
+        Assert-InstalledPayload $payloadSource
+        Assert-ForeignShortcutUnchanged
+        Assert-OwnedStartShortcuts
+    }
+    finally { Restore-CurrentRegistration }
+}
+function Assert-RejectedMigration([string]$Setup, [string]$Version, [string]$Name, [Nullable[int]]$Generation, [string]$Label) {
+    try {
+        Set-TestRegistrationFixture $Version $Name $Generation
+        $exitCode = Invoke-TestSetup $Setup $Label
+        Assert-True ($exitCode -ne 0) "Unknown or future numbering migration was accepted: $Label."
+        $registration = Read-TestRegistration $Name
+        Assert-True ($registration.DisplayVersion -eq $Version) "Rejected migration changed the registered version: $Label."
+        if ($null -eq $Generation) {
+            Assert-True ($registration.PSObject.Properties.Name -notcontains 'BabbleBridgeReleaseGeneration') "Rejected migration created a generation marker: $Label."
+        } else {
+            Assert-True ($registration.BabbleBridgeReleaseGeneration -eq $Generation) "Rejected migration changed the generation marker: $Label."
+        }
+        Assert-InstalledPayload $payloadSource
+        Assert-ForeignShortcutUnchanged
+        Assert-OwnedStartShortcuts
+    }
+    finally { Restore-CurrentRegistration }
+}
 function Invoke-TestUninstaller([string]$LogLabel) {
     Assert-OwnedPath $installPath
     $null = Read-TestRegistration
@@ -276,9 +327,9 @@ try {
     Add-Check 'Same-version reinstall reused the installation directory and uninstall entry.'
     Add-Check 'An unrelated same-name desktop shortcut survived unchecked installation and explicitly selected reinstallation.'
 
-    if ($publicReset) {
-        # Reproduce the real private preview registration, which had no generation marker.
-        Remove-ItemProperty -LiteralPath $registryKey -Name BabbleBridgeReleaseGeneration -ErrorAction SilentlyContinue
+    if ($generationReset) {
+        # Reproduce the exact public generation preceding the 1.0.0 reset.
+        Set-TestRegistrationFixture $initialVersion $initialDisplayName 2
     }
     if ($previousPayload) {
         Assert-OwnedPath $payload
@@ -309,7 +360,7 @@ try {
     $expectedDisplayName = 'FaceTracking Bridge'
     $registration = Read-TestRegistration
     Assert-True ($registration.DisplayVersion -eq $upgradeVersion) 'Upgrade did not update DisplayVersion.'
-    Assert-True ((Get-ItemPropertyValue -LiteralPath $registryKey -Name BabbleBridgeReleaseGeneration) -eq 2) 'Upgrade did not register public release generation 2.'
+    Assert-True ((Get-ItemPropertyValue -LiteralPath $registryKey -Name BabbleBridgeReleaseGeneration) -eq 3) 'Upgrade did not register public release generation 3.'
     Assert-True ((Get-Content -LiteralPath (Join-Path $installPath 'installer-smoke-marker.txt') -Raw) -eq 'upgraded-release') 'Upgrade did not replace the payload marker.'
     Assert-True (!(Test-Path -LiteralPath (Join-Path $legacyAssets 'Baballonia-module.zip'))) 'Upgrade retained the legacy baked-in archive.'
     Assert-True (!(Test-Path -LiteralPath (Join-Path $installPath 'Assets/Brand/FrameBridge-headset-v1.ico'))) 'Upgrade retained the retired green shortcut icon.'
@@ -324,106 +375,69 @@ try {
     Assert-ForeignShortcutUnchanged
     Assert-OwnedStartShortcuts
     Add-Check 'Upgrade registers the FaceTracking Bridge name with the same application identity and installation directory.'
-    if ($publicReset) {
-        Add-Check "The private preview $initialVersion migrated to public release $upgradeVersion and registered generation 2 for future downgrade protection."
+    if ($generationReset) {
+        Add-Check "Known generation-2 $initialDisplayName $initialVersion migrated to $upgradeVersion and recorded generation 3."
     }
 
-    # Exercise both sides of the historical numbering exception without ever
-    # touching the production registration. Every metadata change is confined
-    # to this run's nonce AppId and restored even if an assertion fails.
+    # Exercise exact known reset sources and reject unknown or future builds.
+    # All simulated registrations are confined to the nonce test identity.
     $migrationSetup = $upgradeSetup
     if ($migrationTargetVersion -ne $upgradeVersion) {
         Compile-TestInstaller $migrationTargetVersion
         $migrationSetup = Join-Path $compiledPath "FrameBridgeTest-$migrationTargetVersion.exe"
     }
-    try {
-        Set-ItemProperty -LiteralPath $registryKey -Name DisplayVersion -Value '1.2.0'
-        Set-ItemProperty -LiteralPath $registryKey -Name DisplayName -Value 'Babble Bridge'
-        $exitCode = Invoke-TestSetup $migrationSetup 'future-stable-downgrade'
-        Assert-True ($exitCode -ne 0) 'A future stable version was mistaken for a development build and allowed to downgrade.'
-        $registration = Read-TestRegistration 'Babble Bridge'
-        Assert-True ($registration.DisplayVersion -eq '1.2.0') 'A rejected future-stable downgrade changed the registered version.'
-        Assert-InstalledPayload $payloadSource
-        Assert-ForeignShortcutUnchanged
-        Assert-OwnedStartShortcuts
+    foreach ($version in @('1.0.1', '1.0.2')) {
+        Assert-AcceptedMigration $migrationSetup $version 'Babble Bridge' 2 "reset-babble-$version"
     }
-    finally {
-        if (Test-Path -LiteralPath $registryKey) {
-            Set-ItemProperty -LiteralPath $registryKey -Name DisplayVersion -Value $upgradeVersion
-            Set-ItemProperty -LiteralPath $registryKey -Name DisplayName -Value 'FaceTracking Bridge'
-        }
-    }
-    Add-Check 'A future stable version sharing an old development version number was rejected before changing files or registration.'
+    Assert-AcceptedMigration $migrationSetup '1.0.3' 'FaceTracking Bridge' 2 'reset-facetracking-1.0.3'
+    Assert-AcceptedMigration $migrationSetup '1.0.0' 'Babble Bridge' 2 'same-version-babble-1.0.0'
+    Add-Check 'Exact generation-2 Babble Bridge 1.0.1/1.0.2 and FaceTracking Bridge 1.0.3 migrate to 1.0.0; existing 1.0.0 reinstalls normally.'
 
-    $legacyNameIndex = 0
+    foreach ($version in @('1.0.1', '1.0.2', '1.0.3', '1.0.4', '1.0.5')) {
+        Assert-AcceptedMigration $migrationSetup $version 'Babble Bridge' $null "private-preview-$version"
+    }
     foreach ($legacyName in @('Frame Bridge', 'Steam Frame Babble Bridge')) {
-        $legacyNameIndex++
-        try {
-            Set-ItemProperty -LiteralPath $registryKey -Name DisplayVersion -Value '1.5.1'
-            Set-ItemProperty -LiteralPath $registryKey -Name DisplayName -Value $legacyName
-            $exitCode = Invoke-TestSetup $migrationSetup "legacy-numbering-migration-$legacyNameIndex"
-            Assert-True ($exitCode -eq 0) "Known development branding did not permit its numbering migration: $legacyName"
-            $registration = Read-TestRegistration
-            Assert-True ($registration.DisplayVersion -eq $migrationTargetVersion) 'The legacy numbering migration did not register the stable target version.'
-            Assert-InstalledPayload $payloadSource
-            Assert-ForeignShortcutUnchanged
-            Assert-OwnedStartShortcuts
-        }
-        finally {
-            if (Test-Path -LiteralPath $registryKey) {
-                Set-ItemProperty -LiteralPath $registryKey -Name DisplayVersion -Value $upgradeVersion
-                Set-ItemProperty -LiteralPath $registryKey -Name DisplayName -Value 'FaceTracking Bridge'
-            }
-        }
+        Assert-AcceptedMigration $migrationSetup '1.5.1' $legacyName $null ("development-" + $legacyName.Replace(' ', '-'))
     }
-    Add-Check 'Both former development product names permitted their known-version migration to the stable series.'
+    Add-Check 'Unmarked private previews and exact older development builds migrate and record generation 3.'
 
-    if ($publicReset) {
-        try {
-            Set-ItemProperty -LiteralPath $registryKey -Name DisplayVersion -Value '1.0.5'
-            $exitCode = Invoke-TestSetup $upgradeSetup 'generation-two-downgrade'
-            Assert-True ($exitCode -ne 0) 'Public generation 2 incorrectly received the private preview numbering exception.'
-            Assert-True ((Read-TestRegistration).DisplayVersion -eq '1.0.5') 'Rejected generation 2 downgrade changed registration.'
-        }
-        finally { Set-ItemProperty -LiteralPath $registryKey -Name DisplayVersion -Value $upgradeVersion }
-        Assert-InstalledPayload $payloadSource
-        Assert-ForeignShortcutUnchanged
-        Assert-OwnedStartShortcuts
-        Add-Check 'The one-time private preview reset does not allow future generation 2 releases to downgrade.'
-
-        # A preview user can skip 1.0.0 and install the next public release.
-        # Once that install writes generation 2, the same numeric transition
-        # must no longer be allowed, even for this later public target.
-        $skippedFirstPublicVersion = '1.0.1'
-        Compile-TestInstaller $skippedFirstPublicVersion
-        $skippedFirstPublicSetup = Join-Path $compiledPath "FrameBridgeTest-$skippedFirstPublicVersion.exe"
-        try {
-            Set-ItemProperty -LiteralPath $registryKey -Name DisplayVersion -Value '1.0.5'
-            Set-ItemProperty -LiteralPath $registryKey -Name DisplayName -Value 'Babble Bridge'
-            Remove-ItemProperty -LiteralPath $registryKey -Name BabbleBridgeReleaseGeneration
-            $exitCode = Invoke-TestSetup $skippedFirstPublicSetup 'preview-skipped-first-public-version'
-            Assert-True ($exitCode -eq 0) 'A private preview user could not migrate after skipping public version 1.0.0.'
-            $registration = Read-TestRegistration
-            Assert-True ($registration.DisplayVersion -eq $skippedFirstPublicVersion) 'The skipped-version migration registered the wrong public release.'
-            Assert-True ((Get-ItemPropertyValue -LiteralPath $registryKey -Name BabbleBridgeReleaseGeneration) -eq 2) 'The skipped-version migration did not write generation 2.'
-            Set-ItemProperty -LiteralPath $registryKey -Name DisplayVersion -Value '1.0.5'
-            $exitCode = Invoke-TestSetup $skippedFirstPublicSetup 'later-public-generation-two-downgrade'
-            Assert-True ($exitCode -ne 0) 'A later public installer incorrectly allowed a generation 2 downgrade.'
-            Assert-True ((Read-TestRegistration).DisplayVersion -eq '1.0.5') 'A rejected later-public downgrade changed registration.'
-            Assert-InstalledPayload $payloadSource
-            Assert-ForeignShortcutUnchanged
-            Assert-OwnedStartShortcuts
-        }
-        finally {
-            if (Test-Path -LiteralPath $registryKey) {
-                Set-ItemProperty -LiteralPath $registryKey -Name DisplayVersion -Value $upgradeVersion
-                Set-ItemProperty -LiteralPath $registryKey -Name DisplayName -Value 'FaceTracking Bridge'
-                Set-ItemProperty -LiteralPath $registryKey -Name BabbleBridgeReleaseGeneration -Value 2
-            }
-        }
-        Add-Check 'Preview users can skip public version 1.0.0, while later public installers still reject generation 2 downgrades.'
+    $rejectedCases = @(
+        @('1.0.1', 'Babble Bridge', 3),
+        @('1.0.2', 'Babble Bridge', 3),
+        @('1.0.3', 'FaceTracking Bridge', 3),
+        @('1.0.1', 'FaceTracking Bridge', 3),
+        @('1.0.5', 'Babble Bridge', 3),
+        @('1.5.1', 'Frame Bridge', 3),
+        @('1.5.1', 'Steam Frame Babble Bridge', 3),
+        @('1.2.0', 'Babble Bridge', 3),
+        @('1.0.3', 'Babble Bridge', 2),
+        @('1.0.2', 'FaceTracking Bridge', 2),
+        @('1.0.4', 'FaceTracking Bridge', 2),
+        @('1.0.3', 'Unrelated Bridge', 2),
+        @('1.5.1', 'Frame Bridge', 2),
+        @('1.0.3', 'FaceTracking Bridge', 4),
+        @('1.0.3', 'FaceTracking Bridge', $null)
+    )
+    $caseIndex = 0
+    foreach ($case in $rejectedCases) {
+        $caseIndex++
+        Assert-RejectedMigration $migrationSetup $case[0] $case[1] $case[2] "reject-numbering-$caseIndex"
     }
-    else {
+    Add-Check 'Generation-3/future builds and unknown name/version/generation combinations are rejected without changing files or registration.'
+
+    # A user can skip the first reset installer. The exact old generation-2
+    # source is still accepted by a later 1.0.x setup, while generation 3 cannot
+    # reuse that exception even with the same old name and numeric version.
+    $skippedResetVersion = '1.0.1'
+    Compile-TestInstaller $skippedResetVersion
+    $skippedResetSetup = Join-Path $compiledPath "FrameBridgeTest-$skippedResetVersion.exe"
+    Assert-AcceptedMigration $skippedResetSetup '1.0.3' 'FaceTracking Bridge' 2 'skip-reset-generation-two' $skippedResetVersion
+    Assert-AcceptedMigration $skippedResetSetup '1.0.5' 'Babble Bridge' $null 'skip-reset-private-preview' $skippedResetVersion
+    Assert-RejectedMigration $skippedResetSetup '1.0.3' 'FaceTracking Bridge' 3 'skip-reset-generation-three-rejected'
+    Assert-RejectedMigration $skippedResetSetup '1.0.2' 'Babble Bridge' 3 'skip-reset-generation-three-babble-rejected'
+    Add-Check 'A later 1.0.1 installer accepts skipped-reset generation-2/preview sources and rejects the same numeric transitions after generation 3.'
+
+    if (!$generationReset) {
         $exitCode = Invoke-TestSetup $firstSetup 'downgrade'
         Assert-True ($exitCode -ne 0) 'The old installer unexpectedly allowed a downgrade.'
         $registration = Read-TestRegistration
@@ -519,8 +533,8 @@ finally {
         Result = $result; TestAppId = $testId; TestInstallDirectory = $installPath
         ProductionAppIdUsed = $false; Versions = @($initialVersion, $upgradeVersion)
         RealPayloadUpgrade = [bool]$previousPayload
-        PrivatePreviewReset = [bool]$publicReset
-        PublicReleaseGeneration = 2
+        GenerationTwoReset = [bool]$generationReset
+        PublicReleaseGeneration = 3
         DevelopmentMigrationTarget = $migrationTargetVersion
         ShortcutDirectories = @($desktopIconDirectory, $groupIconDirectory)
         AvatarDiscovery = 'Not tested; existing --all-parameters diagnostic mode avoids any running VRChat client.'

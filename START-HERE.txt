@@ -1,4 +1,4 @@
-FACETRACKING BRIDGE 1.0.3 — WINDOWS x64
+FACETRACKING BRIDGE 1.0.0 — WINDOWS x64
 
 PREREQUISITE
 Install the Microsoft Visual C++ v14 Redistributable (x64) from Microsoft:

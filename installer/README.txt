@@ -51,10 +51,15 @@ Keep the production AppId in FrameBridge.iss unchanged across releases. Keep the
 per-user and 64-bit installation modes consistent, and preserve the existing
 installation directory. These values identify the same application to Windows
 and Inno Setup, allowing one installed app entry to be updated over time.
-Keep the BabbleBridgeReleaseGeneration registry marker at 2 in future installers.
-It distinguishes public releases from the retired private previews numbered
-1.0.1 through 1.0.5. Those previews can migrate to any public 1.0.x installer,
-including when users skip 1.0.0. Once migrated, normal downgrade protection applies.
+Keep the BabbleBridgeReleaseGeneration registry marker at 3 in future installers.
+The FaceTracking Bridge 1.0.x series accepts only generation-2 Babble Bridge
+1.0.1/1.0.2 and FaceTracking Bridge 1.0.3 as known public numbering migrations,
+including users who skip the reset's first 1.0.0 installer.
+Babble Bridge 1.0.0 can reinstall normally with the same numeric version.
+Retired private previews 1.0.1 through 1.0.5 without a generation marker can
+still migrate to a public 1.0.x installer. Exact known older development builds
+also require the absence of a marker. Every successful install records 3;
+generation-3 and unknown installations receive normal downgrade protection.
 New installations use %LOCALAPPDATA%\Programs\FaceTracking Bridge. Upgrades reuse
 the existing installation directory automatically, including older app paths.
 The installer rejects an older release being installed over a newer release.
