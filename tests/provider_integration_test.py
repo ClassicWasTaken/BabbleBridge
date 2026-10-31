@@ -57,7 +57,7 @@ class ProviderWorker(Worker):
 class Fixture:
     def __init__(self, root, archive):
         self.root = root
-        self.module_dir = root / "module"
+        self.module_dir = (root / "module").resolve()
         self.module_dir.mkdir(parents=True)
         with zipfile.ZipFile(archive) as package:
             assert sum(entry.file_size for entry in package.infolist()) < 256 * 1024 * 1024
