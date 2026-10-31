@@ -4,8 +4,11 @@
 using System.ComponentModel;
 using System.Diagnostics;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using System.IO;
 using System.Security.Cryptography;
+using System.Reflection.PortableExecutable;
+using System.Text;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
@@ -42,6 +45,10 @@ public partial class MainWindow : Window
     private readonly DispatcherTimer _noticeTimer;
     private bool _noticeFading;
     private bool _awaitingVirtualDesktop;
+    private sealed record BaballoniaMetadataCache(long Length, DateTime Modified, bool AlphaCompatible);
+    private static readonly Dictionary<string, BaballoniaMetadataCache> BaballoniaMetadata = new(StringComparer.OrdinalIgnoreCase);
+    private static readonly byte[][] AlphaEyeAddresses = new[] { "/leftEyeX", "/leftEyeY", "/rightEyeX", "/rightEyeY", "/leftEyeLid", "/rightEyeLid" }
+        .Select(Encoding.Unicode.GetBytes).ToArray();
 
     public MainWindow(string root, bool useDiscovery = true, string? workerExecutable = null, ModuleDownloader? moduleDownloader = null)
     {
@@ -118,26 +125,29 @@ public partial class MainWindow : Window
         var current = _store.Current;
         ModuleLabel.Text = current is null ? "No module selected" : $"{NameFor(current)}  /  {current.Version}";
         HashLabel.Text = "";
-        ImportButton.Content = current is null ? "Add a module →" : "Manage modules →";
+        ImportButton.Content = current is null ? "Add a module →" : IsOlderBaballoniaModule(current) ? "Update Baballonia →" : "Manage modules →";
         PackageDetail.Text = current is null ? _store.Installed.Count > 0 ? "Choose an installed module in Modules." : "Open Modules to download a module or import a DLL or ZIP."
             : !current.IsAvailable ? "Module files are missing. Restore or re-import the module, or remove this profile."
+            : IsOlderBaballoniaModule(current) ? $"{ConnectionFor(current)} · Expressions Alpha needs module 3.2.0 or newer. Update in Modules."
             : current.Kind == ModuleKind.Custom ? "Module-managed input · follow this module’s setup instructions."
             : $"{ConnectionFor(current)} · input selected automatically";
         ProviderTag.Text = current is null ? "MODULES" : NameFor(current).ToUpperInvariant();
         RefreshButtons();
     }
 
-    private sealed record ModuleCard(ModuleRelease Release, string Name, string Detail, string Hint, string Action, bool CanSelect, bool CanRemove, Visibility ConfirmationVisibility, string RemovalMessage);
+    private sealed record ModuleCard(ModuleRelease Release, string Name, string Detail, string Hint, string Action, bool CanSelect, bool CanRemove, Visibility UpdateVisibility, bool CanUpdate, Visibility ConfirmationVisibility, string RemovalMessage);
     private void RefreshLibrary()
     {
         ModuleLibrary.ItemsSource = _store.Installed.OrderBy(release => release.Kind switch {
             ModuleKind.BabbleHeadsetRuntime => 0, ModuleKind.BaballoniaDesktop => 1, ModuleKind.SteamLink => 2, _ => 3
         }).Select(release => new ModuleCard(release,
             NameFor(release), release.IsAvailable ? $"Version {release.Version} · {ConnectionFor(release)}" : "Module files missing",
-            release.IsAvailable ? InstructionsFor(release) : "Restore or re-import this module, or remove its profile. Your other modules are available.",
+            release.IsAvailable ? InstructionsFor(release) + (IsOlderBaballoniaModule(release) ? "\nExpressions Alpha needs module 3.2.0 or newer for eye tracking." : "") : "Restore or re-import this module, or remove its profile. Your other modules are available.",
             !release.IsAvailable ? "Unavailable" : release.Id == _store.Current?.Id ? "Selected ✓" : "Use module",
             !_busy && _initialized && release.IsAvailable && release.Id != _store.Current?.Id,
             !_busy && _initialized,
+            release.IsAvailable && IsOlderBaballoniaModule(release) ? Visibility.Visible : Visibility.Collapsed,
+            !_busy && _initialized && release.IsAvailable && IsOlderBaballoniaModule(release),
             release.Id == _pendingRemovalId ? Visibility.Visible : Visibility.Collapsed,
             release.Id == _store.Current?.Id ? "Remove this profile and its module settings? The bridge will stop." : "Remove this profile and its module settings?")).ToArray();
     }
@@ -152,10 +162,12 @@ public partial class MainWindow : Window
         var installedKinds = _store.Installed.Where(release => release.IsAvailable).Select(release => release.Kind).ToHashSet();
         var choices = new[] {
             new DownloadCard(ModuleKind.BabbleHeadsetRuntime, "Headset Runtime / BFR", "Baballonia module 4.0.0 · headset input", "https://github.com/Project-Babble/Baballonia/releases/tag/vrcft-module-4.0.0", available),
-            new DownloadCard(ModuleKind.BaballoniaDesktop, "Baballonia", "VRCFaceTracking module · desktop input", "https://github.com/Project-Babble/Baballonia", available),
+            new DownloadCard(ModuleKind.BaballoniaDesktop, "Baballonia", "Expressions Alpha-compatible · module 3.2.0", "https://github.com/Project-Babble/Baballonia/releases/tag/vrcft-module-3.2.0", available),
             new DownloadCard(ModuleKind.SteamLink, "Steam Link", "LinkFT module 1.0.6", "https://github.com/ykeara/LinkFT/releases/tag/1.0.6", available),
             new DownloadCard(ModuleKind.VirtualDesktop, "Virtual Desktop", "Official compiled module ZIP", "https://download.vrdesktop.net/files/VirtualDesktop.VRCFaceTracking.zip", available)
-        }.Where(choice => !installedKinds.Contains(choice.Kind)).ToArray();
+        }.Where(choice => choice.Kind == ModuleKind.BaballoniaDesktop
+            ? !_store.Installed.Any(release => release.IsAvailable && IsAlphaCompatibleBaballoniaModule(release))
+            : !installedKinds.Contains(choice.Kind)).ToArray();
         DownloadChoices.ItemsSource = choices;
         DownloadChoicesEmptyText.Visibility = choices.Length == 0 ? Visibility.Visible : Visibility.Collapsed;
     }
@@ -171,7 +183,98 @@ public partial class MainWindow : Window
         return _downloadTask = DownloadModuleCore(kind);
     }
 
-    private async Task DownloadModuleCore(ModuleKind kind) => await RunOperation(async () =>
+    private static Version? BaballoniaVersion(ModuleRelease release)
+    {
+        if (release.Kind != ModuleKind.BaballoniaDesktop || !Version.TryParse(release.Version.TrimStart('v', 'V'), out var version)) return null;
+        return new Version(version.Major, version.Minor, Math.Max(0, version.Build), Math.Max(0, version.Revision));
+    }
+
+    private static bool IsOlderBaballoniaModule(ModuleRelease release) => BaballoniaVersion(release) is { Major: >= 3 } version && version < new Version(3, 2, 0, 0);
+    private static bool IsAlphaCompatibleBaballoniaModule(ModuleRelease release)
+    {
+        if (release.Kind != ModuleKind.BaballoniaDesktop) return false;
+        if (BaballoniaVersion(release) is { Major: >= 3 } version) return version >= new Version(3, 2, 0, 0);
+        // Official bare DLLs can report assembly version 1.0 even when the ZIP is
+        // module 3.2. Inspect its bounded metadata without loading executable code.
+        try
+        {
+            var path = Path.GetFullPath(Path.Combine(release.DirectoryPath, release.DllFileName));
+            var file = new FileInfo(path);
+            if (!file.Exists) return false;
+            if (BaballoniaMetadata.TryGetValue(path, out var cached) && cached.Length == file.Length && cached.Modified == file.LastWriteTimeUtc)
+                return cached.AlphaCompatible;
+            var compatible = false;
+            using (var stream = File.Open(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete))
+            using (var pe = new PEReader(stream))
+            {
+                const int maximumMetadata = 8 * 1024 * 1024;
+                if (pe.HasMetadata && pe.PEHeaders.CorHeader?.MetadataDirectory.Size is > 0 and <= maximumMetadata)
+                {
+                    var metadata = pe.GetMetadata();
+                    if (metadata.Length <= maximumMetadata)
+                    {
+                        var bytes = metadata.GetContent().AsSpan();
+                        compatible = true;
+                        foreach (var address in AlphaEyeAddresses)
+                            if (bytes.IndexOf(address) < 0) { compatible = false; break; }
+                    }
+                }
+            }
+            if (BaballoniaMetadata.Count >= 256) BaballoniaMetadata.Clear();
+            BaballoniaMetadata[path] = new(file.Length, file.LastWriteTimeUtc, compatible);
+            return compatible;
+        }
+        catch (Exception error) when (error is IOException or UnauthorizedAccessException or BadImageFormatException or ArgumentException)
+        {
+            return false;
+        }
+    }
+
+    private async void UpdateBaballonia_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is Button { Tag: ModuleRelease release }) await UpdateBaballonia(release);
+    }
+
+    private Task UpdateBaballonia(ModuleRelease release)
+    {
+        if (_busy || _closing || !_initialized || !release.IsAvailable || !IsOlderBaballoniaModule(release)) return Task.CompletedTask;
+        var activate = _store.Current?.Id == release.Id;
+        // Reuse a compatible installed profile only when it receives the same input.
+        // Other profiles' saved connections must never change as a side effect.
+        var compatible = _store.Installed.Where(item => item.IsAvailable && IsAlphaCompatibleBaballoniaModule(item)
+                && SameBaballoniaConnection(item, release))
+            .OrderByDescending(BaballoniaVersion).ThenByDescending(item => item.InstalledAt).FirstOrDefault();
+        return _downloadTask = compatible is not null
+            ? RunOperation(async () =>
+            {
+                if (activate) await SwitchModule(compatible);
+                else ShowNotice("A compatible Baballonia module is already in your library. Choose Use module when you’re ready.");
+            })
+            : DownloadModuleCore(ModuleKind.BaballoniaDesktop, release, activate);
+    }
+
+    private static bool SameBaballoniaConnection(ModuleRelease first, ModuleRelease second)
+    {
+        static (string Host, int Port)? Read(ModuleRelease release)
+        {
+            try
+            {
+                var path = Path.Combine(release.DirectoryPath, "BabbleConfig.json");
+                if (!File.Exists(path)) return ("127.0.0.1", 8888);
+                using var config = JsonDocument.Parse(File.ReadAllText(path));
+                if (config.RootElement.ValueKind != JsonValueKind.Object) return null;
+                var host = config.RootElement.TryGetProperty("Host", out var hostNode) && hostNode.ValueKind == JsonValueKind.String
+                    ? hostNode.GetString() ?? "127.0.0.1" : "127.0.0.1";
+                var port = config.RootElement.TryGetProperty("Port", out var portNode) && portNode.ValueKind == JsonValueKind.Number
+                    && portNode.TryGetInt32(out var value) && value is > 0 and <= 65535 ? value : 8888;
+                return (host, port);
+            }
+            catch (Exception error) when (error is IOException or UnauthorizedAccessException or JsonException) { return null; }
+        }
+        return Read(first) is { } firstConnection && Read(second) is { } secondConnection && firstConnection == secondConnection;
+    }
+
+    private async Task DownloadModuleCore(ModuleKind kind, ModuleRelease? upgradeFrom = null, bool activateUpgrade = false) => await RunOperation(async () =>
     {
         using var cancellation = new CancellationTokenSource();
         _downloadCancellation = cancellation;
@@ -198,7 +301,7 @@ public partial class MainWindow : Window
             DownloadCancelButton.IsEnabled = false;
             DownloadStatus.Text = "Checking " + name + "…";
             DownloadProgressBar.IsIndeterminate = true;
-            await ImportModulePackage(zip, kind, activate: false);
+            await ImportModulePackage(zip, kind, activate: upgradeFrom is not null && activateUpgrade, upgradeFrom: upgradeFrom);
         }
         catch (OperationCanceledException) when (cancellation.IsCancellationRequested)
         {
@@ -614,13 +717,13 @@ public partial class MainWindow : Window
 
     private async Task UpdateModule(string zipPath) => await RunOperation(() => ImportModulePackage(zipPath));
 
-    private async Task ImportModulePackage(string zipPath, ModuleKind? requestedKind = null, bool activate = true)
+    private async Task ImportModulePackage(string zipPath, ModuleKind? requestedKind = null, bool activate = true, ModuleRelease? upgradeFrom = null)
     {
         if (activate) SetState("Checking module", "Validating the module before switching…", false);
-        if (!activate && requestedKind is { } kind)
+        if (!activate && upgradeFrom is null && requestedKind is { } kind)
         {
-            // The two Babble download choices share a package. Repeated downloads
-            // should not clutter the library or replace the user's configured copy.
+            // Repeated downloads should not clutter the library or replace the
+            // user's configured copy. Explicit repairs may need a new connection.
             using var archive = File.OpenRead(zipPath);
             var hash = Convert.ToHexString(await SHA256.HashDataAsync(archive)).ToLowerInvariant();
             if (_store.Installed.Any(item => item.IsAvailable && item.Kind == kind && item.Sha256 == hash))
@@ -631,6 +734,7 @@ public partial class MainWindow : Window
         }
         var release = await Task.Run(() => _store.Prepare(zipPath, requestedKind));
         if (_closing) return;
+        if (upgradeFrom is not null) PreserveBaballoniaConnection(upgradeFrom, release);
         _store.Register(release);
         if (release.SupportsHeadset && (activate || !_store.Installed.Any(item => item.IsAvailable && item.Sha256 == release.Sha256 && item.Kind != release.Kind)))
         {
@@ -648,6 +752,23 @@ public partial class MainWindow : Window
             Log(message); ShowNotice(message);
             if (!_running) SetStoppedState();
         }
+    }
+
+    private static void PreserveBaballoniaConnection(ModuleRelease previous, ModuleRelease next)
+    {
+        if (previous.Kind != ModuleKind.BaballoniaDesktop || next.Kind != ModuleKind.BaballoniaDesktop) return;
+        var previousPath = Path.Combine(previous.DirectoryPath, "BabbleConfig.json");
+        if (!File.Exists(previousPath)) return;
+        var previousConfig = JsonNode.Parse(File.ReadAllText(previousPath)) as JsonObject
+            ?? throw new InvalidDataException("The previous Baballonia connection settings could not be read. Check its BabbleConfig.json before updating.");
+        var nextPath = Path.Combine(next.DirectoryPath, "BabbleConfig.json");
+        var nextConfig = File.Exists(nextPath) ? JsonNode.Parse(File.ReadAllText(nextPath)) as JsonObject : new JsonObject();
+        if (nextConfig is null) throw new InvalidDataException("The downloaded Baballonia connection settings are invalid.");
+        // Preserve this profile's input connection in the newly staged copy only.
+        // The previous module and all other installed profiles remain unchanged.
+        foreach (var key in new[] { "Host", "Port" })
+            if (previousConfig[key] is { } value) nextConfig[key] = value.DeepClone();
+        File.WriteAllText(nextPath, nextConfig.ToJsonString(new() { WriteIndented = true }));
     }
 
     private async Task SwitchModule(ModuleRelease release)

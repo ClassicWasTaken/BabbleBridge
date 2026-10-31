@@ -46,6 +46,8 @@ internal static class Program
         var workerExecutable = Argument("--worker-exe") ?? (published is null ? null : Path.Combine(published, "runtime", "BabbleFrameBridge.Worker.exe"));
         var virtualDesktopZip = Argument("--virtual-desktop-zip");
         var steamLinkZip = Argument("--steam-link-zip");
+        var baballoniaAlphaZip = Argument("--baballonia-alpha-zip");
+        var baballoniaLegacyZip = Argument("--baballonia-legacy-zip");
         var customModuleDll = Argument("--custom-module-dll");
         var renderDirectory = Argument("--render-dir");
         if (workerExecutable is not null && !File.Exists(workerExecutable))
@@ -109,7 +111,7 @@ internal static class Program
                 var sourceLinks = new[]
                 {
                     "https://github.com/Project-Babble/Baballonia/releases/tag/vrcft-module-4.0.0",
-                    "https://github.com/Project-Babble/Baballonia",
+                    "https://github.com/Project-Babble/Baballonia/releases/tag/vrcft-module-3.2.0",
                     "https://github.com/ykeara/LinkFT/releases/tag/1.0.6",
                     "https://download.vrdesktop.net/files/VirtualDesktop.VRCFaceTracking.zip"
                 };
@@ -493,6 +495,226 @@ internal static class Program
                     }
                     CloseWindow();
                 });
+            }
+
+            if (baballoniaAlphaZip is not null)
+            {
+                Test("a compatible bare Baballonia DLL is recognized without a module manifest or misleading version warning", () =>
+                {
+                    var profile = Path.Combine(root, "alpha-bare-dll-profile");
+                    var fixtures = Path.Combine(root, "alpha-bare-dll-fixtures");
+                    Directory.CreateDirectory(fixtures);
+                    var bareDll = Path.Combine(fixtures, ModuleStore.BaballoniaDll);
+                    using (var archive = ZipFile.OpenRead(baballoniaAlphaZip))
+                    {
+                        var entry = archive.Entries.Single(entry => Path.GetFileName(entry.FullName) == ModuleStore.BaballoniaDll);
+                        using var input = entry.Open();
+                        using var output = File.Create(bareDll);
+                        input.CopyTo(output);
+                    }
+                    var originalHash = HashFile(bareDll);
+                    new AppSettings { AutoStart = false }.Save(profile);
+                    var release = new ModuleStore(profile).Install(bareDll);
+                    Check(release.Kind == ModuleKind.BaballoniaDesktop && !release.SupportsHeadset
+                        && Version.TryParse(release.Version, out var numeric) && numeric < new Version(3, 2, 0),
+                        "The compatible bare-DLL fixture did not cover its ambiguous assembly version.");
+                    try
+                    {
+                        window = CreateWindow(profile);
+                        themes.AttachWindow(window); window.Show();
+                        PumpUntil(() => Field<bool>(window, "_initialized") && !Field<bool>(window, "_busy"), "bare alpha DLL profile loaded");
+                        Named<RadioButton>(window, "ModulesNav").IsChecked = true; Pump();
+                        CheckAvailableDownloads(ModuleKind.BabbleHeadsetRuntime, ModuleKind.SteamLink, ModuleKind.VirtualDesktop);
+                        Check(!CardButtons(release).Any(button => button.IsVisible
+                            && AutomationProperties.GetName(button) == "Update for Expressions Alpha"),
+                            "The compatible bare DLL incorrectly received an old-version update warning.");
+                        Check(Field<object?>(window, "_worker") is null && HashFile(bareDll) == originalHash,
+                            "Inspecting the compatible bare DLL executed it or changed its original file.");
+                    }
+                    finally { CloseWindow(); }
+                });
+            }
+
+            if (baballoniaLegacyZip is not null && baballoniaAlphaZip is not null && workerExecutable is not null)
+            {
+                Test("an old Baballonia profile offers an alpha update and preserves live tracking on failure or cancellation", () =>
+                {
+                    var profile = Path.Combine(root, "alpha-update-profile");
+                    var fixtures = Path.Combine(root, "alpha-update-fixtures");
+                    Directory.CreateDirectory(fixtures);
+                    using var output = ReservePort();
+                    var reservations = Enumerable.Range(0, 3).Select(_ => ReservePort()).ToArray();
+                    var receivePort = PortOf(reservations[0]); var linkPort = PortOf(reservations[1]); var inputPort = PortOf(reservations[2]);
+                    foreach (var reservation in reservations) reservation.Dispose();
+                    new AppSettings { AutoStart = false, OutputPort = PortOf(output), ReceivePort = receivePort, LinkPort = linkPort }.Save(profile);
+                    var legacy = ModuleFixture(baballoniaLegacyZip, fixtures, "3.1.0", inputPort, linkPort);
+                    var originalZipHash = HashFile(baballoniaLegacyZip);
+                    using var handler = new FixtureDownloadHandler(new Dictionary<Uri, byte[]>
+                    {
+                        [ModuleDownloader.SourceFor(ModuleKind.BaballoniaDesktop).DownloadUri] = File.ReadAllBytes(baballoniaAlphaZip)
+                    });
+                    using var client = new HttpClient(handler);
+                    using var downloader = new ModuleDownloader(client);
+                    try
+                    {
+                        window = CreateWindow(profile, workerExecutable, downloader);
+                        themes.AttachWindow(window); window.Show();
+                        PumpUntil(() => Field<bool>(window, "_initialized") && !Field<bool>(window, "_busy"), "old alpha profile loaded");
+                        InvokeModuleImport(legacy);
+                        var old = new ModuleStore(profile).Current!;
+                        Check(old.Kind == ModuleKind.BaballoniaDesktop && old.Version == "3.1.0", "The old module fixture did not select its desktop profile.");
+                        var oldPid = Field<Process>(window, "_worker").Id;
+                        var oldConfig = Path.Combine(old.DirectoryPath, "BabbleConfig.json");
+                        var oldConfigHash = HashFile(oldConfig);
+                        var state = File.ReadAllText(Path.Combine(profile, "modules", "module-state.json"));
+                        var settings = File.ReadAllText(Path.Combine(profile, "settings.json"));
+                        Named<RadioButton>(window, "ModulesNav").IsChecked = true; Pump();
+                        CheckAvailableDownloads(DownloadOrder);
+                        Check(CardButton(old, "Update for Expressions Alpha").IsEnabled, "The old module has no in-app alpha update action.");
+                        Check(string.Join("\n", Descendants(Named<ItemsControl>(window, "ModuleLibrary")).OfType<TextBlock>().Select(text => text.Text))
+                            .Contains("3.2.0", StringComparison.Ordinal), "The old module does not explain the compatible alpha version.");
+                        SavePreview(window, renderDirectory, "baballonia-alpha-update.png");
+
+                        void CheckOldUnchanged()
+                        {
+                            Check(new ModuleStore(profile).Current == old && Field<bool>(window!, "_running")
+                                && Field<Process>(window!, "_worker").Id == oldPid, "An incomplete alpha update interrupted the working module.");
+                            Check(File.ReadAllText(Path.Combine(profile, "modules", "module-state.json")) == state
+                                && File.ReadAllText(Path.Combine(profile, "settings.json")) == settings
+                                && HashFile(oldConfig) == oldConfigHash, "An incomplete alpha update changed saved modules or connection settings.");
+                        }
+                        handler.SetMode(DownloadResponse.Failure);
+                        InvokeCardButton(old, "Update for Expressions Alpha");
+                        CheckOldUnchanged();
+                        handler.SetMode(DownloadResponse.WaitForCancellation);
+                        BeginButtonClick(CardButton(old, "Update for Expressions Alpha"));
+                        PumpUntil(() => handler.RequestStarted.Task.IsCompleted && Field<bool>(window, "_busy"), "cancelable alpha update began");
+                        BeginButtonClick(Named<Button>(window, "DownloadCancelButton"));
+                        PumpUntil(() => !Field<bool>(window, "_busy"), "alpha update cancellation completed");
+                        Check(handler.ObservedCancellation, "The alpha update did not cancel its download.");
+                        CheckOldUnchanged();
+                        handler.SetMode(DownloadResponse.Success);
+                        InvokeCardButton(old, "Update for Expressions Alpha");
+                        var updatedStore = new ModuleStore(profile);
+                        var updated = updatedStore.Current!;
+                        Check(updated.Kind == ModuleKind.BaballoniaDesktop && Version.Parse(updated.Version) >= new Version(3, 2, 0)
+                            && updated.Id != old.Id && updatedStore.Previous == old && updatedStore.Installed.Count == 2,
+                            "The alpha update did not select the compatible desktop module while retaining the old module.");
+                        Check(Field<bool>(window, "_running") && Field<Process>(window, "_worker").Id != oldPid,
+                            "The compatible alpha module was not started.");
+                        Check(WorkerArgument("--input-port") == inputPort.ToString()
+                            && JsonNode.Parse(File.ReadAllText(Path.Combine(updated.DirectoryPath, "BabbleConfig.json")))!["Port"]!.GetValue<int>() == inputPort,
+                            "Updating the alpha module reset the user's tracking input port.");
+                        Check(HashFile(oldConfig) == oldConfigHash && HashFile(baballoniaLegacyZip) == originalZipHash
+                            && File.ReadAllText(Path.Combine(profile, "settings.json")) == settings,
+                            "Updating the alpha module modified its rollback copy, original ZIP or VRChat connection.");
+                        Check(handler.Requests.Count == 3 && handler.Requests.All(uri => uri == ModuleDownloader.SourceFor(ModuleKind.BaballoniaDesktop).DownloadUri),
+                            "The alpha update requested the wrong provider or an unexpected download.");
+                        CheckAvailableDownloads(ModuleKind.BabbleHeadsetRuntime, ModuleKind.SteamLink, ModuleKind.VirtualDesktop);
+                        CloseWindow();
+                        window = CreateWindow(profile, workerExecutable, downloader);
+                        themes.AttachWindow(window); window.Show();
+                        PumpUntil(() => Field<bool>(window, "_initialized") && !Field<bool>(window, "_busy"), "compatible alpha profile reopened");
+                        Check(new ModuleStore(profile).Current == updated && Field<object?>(window, "_worker") is null,
+                            "Reopening lost the alpha update or ignored AutoStart=false.");
+                    }
+                    finally { CloseWindow(); }
+                });
+
+                if (suppliedZip is not null)
+                {
+                    Test("an alpha update reuses the highest compatible desktop module and leaves its headset companion intact", () =>
+                    {
+                        var profile = Path.Combine(root, "alpha-reuse-profile");
+                        var fixtures = Path.Combine(root, "alpha-reuse-fixtures");
+                        Directory.CreateDirectory(fixtures);
+                        using var output = ReservePort();
+                        var reservations = Enumerable.Range(0, 3).Select(_ => ReservePort()).ToArray();
+                        var receivePort = PortOf(reservations[0]); var linkPort = PortOf(reservations[1]);
+                        var oldInput = PortOf(reservations[2]); var compatibleInput = oldInput;
+                        foreach (var reservation in reservations) reservation.Dispose();
+                        new AppSettings { AutoStart = false, OutputPort = PortOf(output), ReceivePort = receivePort, LinkPort = linkPort }.Save(profile);
+                        var store = new ModuleStore(profile);
+                        var old = store.Install(ModuleFixture(baballoniaLegacyZip, fixtures, "3.1.0", oldInput, linkPort));
+                        var headset = store.Prepare(ModuleFixture(suppliedZip, fixtures, "4.0.0", compatibleInput, linkPort), ModuleKind.BabbleHeadsetRuntime);
+                        store.Register(headset);
+                        var desktop = store.CreateCompanion(headset); store.Register(desktop);
+                        var alpha = store.Prepare(baballoniaAlphaZip, ModuleKind.BaballoniaDesktop); store.Register(alpha);
+                        var headsetConfig = Path.Combine(headset.DirectoryPath, "BabbleConfig.json");
+                        var headsetHash = HashFile(headsetConfig);
+                        using var handler = new FixtureDownloadHandler(new Dictionary<Uri, byte[]>());
+                        using var client = new HttpClient(handler);
+                        using var downloader = new ModuleDownloader(client);
+                        try
+                        {
+                            window = CreateWindow(profile, workerExecutable, downloader);
+                            themes.AttachWindow(window); window.Show();
+                            PumpUntil(() => Field<bool>(window, "_initialized") && !Field<bool>(window, "_busy"), "alpha reuse profile loaded");
+                            BeginButtonClick(Named<Button>(window, "StartButton"));
+                            PumpUntil(() => Field<bool>(window, "_running") && !Field<bool>(window, "_busy"), "old module started before compatible reuse");
+                            CheckAvailableDownloads(ModuleKind.SteamLink, ModuleKind.VirtualDesktop);
+                            InvokeCardButton(old, "Update for Expressions Alpha");
+                            var updated = new ModuleStore(profile);
+                            Check(updated.Current == desktop && updated.Previous == old && updated.Installed.Count == 4,
+                                "Updating the old module did not reuse the highest compatible existing desktop profile.");
+                            Check(handler.Requests.Count == 0 && DownloadArchives(profile).Length == 0,
+                                "A compatible installed desktop module unnecessarily triggered a download.");
+                            Check(WorkerArgument("--input-port") == compatibleInput.ToString() && HashFile(headsetConfig) == headsetHash,
+                                "Reusing the compatible desktop module reset its port or changed the headset's independent settings.");
+                        }
+                        finally { CloseWindow(); }
+                    });
+
+                    Test("updating an inactive old Baballonia profile preserves a running headset and independently configured modules", () =>
+                    {
+                        var profile = Path.Combine(root, "alpha-inactive-update-profile");
+                        var fixtures = Path.Combine(root, "alpha-inactive-update-fixtures");
+                        Directory.CreateDirectory(fixtures);
+                        using var output = ReservePort();
+                        var reservations = Enumerable.Range(0, 4).Select(_ => ReservePort()).ToArray();
+                        var receivePort = PortOf(reservations[0]); var linkPort = PortOf(reservations[1]);
+                        var oldInput = PortOf(reservations[2]); var headsetInput = PortOf(reservations[3]);
+                        foreach (var reservation in reservations) reservation.Dispose();
+                        new AppSettings { AutoStart = false, OutputPort = PortOf(output), ReceivePort = receivePort, LinkPort = linkPort }.Save(profile);
+                        var store = new ModuleStore(profile);
+                        var old = store.Install(ModuleFixture(baballoniaLegacyZip, fixtures, "3.1.0", oldInput, linkPort));
+                        var headset = store.Prepare(ModuleFixture(suppliedZip, fixtures, "4.0.0", headsetInput, linkPort), ModuleKind.BabbleHeadsetRuntime);
+                        store.Register(headset);
+                        var desktop = store.CreateCompanion(headset); store.Register(desktop);
+                        store.Activate(headset);
+                        using var handler = new FixtureDownloadHandler(new Dictionary<Uri, byte[]>
+                        {
+                            [ModuleDownloader.SourceFor(ModuleKind.BaballoniaDesktop).DownloadUri] = File.ReadAllBytes(baballoniaAlphaZip)
+                        });
+                        using var client = new HttpClient(handler);
+                        using var downloader = new ModuleDownloader(client);
+                        try
+                        {
+                            window = CreateWindow(profile, workerExecutable, downloader);
+                            themes.AttachWindow(window); window.Show();
+                            PumpUntil(() => Field<bool>(window, "_initialized") && !Field<bool>(window, "_busy"), "inactive alpha update profile loaded");
+                            BeginButtonClick(Named<Button>(window, "StartButton"));
+                            PumpUntil(() => Field<bool>(window, "_running") && !Field<bool>(window, "_busy"), "headset started before inactive alpha update");
+                            var pid = Field<Process>(window, "_worker").Id;
+                            var previous = new ModuleStore(profile).Previous;
+                            var desktopConfig = Path.Combine(desktop.DirectoryPath, "BabbleConfig.json");
+                            var desktopHash = HashFile(desktopConfig);
+                            var settings = File.ReadAllText(Path.Combine(profile, "settings.json"));
+                            InvokeCardButton(old, "Update for Expressions Alpha");
+                            var updated = new ModuleStore(profile);
+                            var alpha = updated.Installed.Single(release => release.Kind == ModuleKind.BaballoniaDesktop && release.Version == "3.2.0");
+                            Check(updated.Current == headset && updated.Previous == previous && updated.Installed.Count == 4
+                                && Field<bool>(window, "_running") && Field<Process>(window, "_worker").Id == pid,
+                                "Updating an inactive old profile interrupted or switched the running headset.");
+                            Check(handler.Requests.Count == 1 && HashFile(desktopConfig) == desktopHash
+                                && JsonNode.Parse(File.ReadAllText(Path.Combine(alpha.DirectoryPath, "BabbleConfig.json")))!["Port"]!.GetValue<int>() == oldInput,
+                                "The inactive alpha update reused or overwrote a differently configured compatible desktop profile.");
+                            Check(File.ReadAllText(Path.Combine(profile, "settings.json")) == settings,
+                                "The inactive alpha update changed the VRChat connection settings.");
+                        }
+                        finally { CloseWindow(); }
+                    });
+                }
             }
 
             if (suppliedZip is not null && virtualDesktopZip is not null && steamLinkZip is not null)
@@ -991,7 +1213,8 @@ internal static class Program
                     var firstZip = ModuleFixture(suppliedZip, fixtures, "4.0.0", inputPort, linkPort);
                     using var handler = new FixtureDownloadHandler(new Dictionary<Uri, byte[]>
                     {
-                        [ModuleDownloader.SourceFor(ModuleKind.BabbleHeadsetRuntime).DownloadUri] = File.ReadAllBytes(suppliedZip)
+                        [ModuleDownloader.SourceFor(ModuleKind.BabbleHeadsetRuntime).DownloadUri] = File.ReadAllBytes(suppliedZip),
+                        [ModuleDownloader.SourceFor(ModuleKind.BaballoniaDesktop).DownloadUri] = File.ReadAllBytes(suppliedZip)
                     });
                     using var client = new HttpClient(handler);
                     using var downloader = new ModuleDownloader(client);

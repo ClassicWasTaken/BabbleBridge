@@ -21,12 +21,12 @@ var package = Zip(("module.json", Encoding.UTF8.GetBytes("{}")), ("compiled.dll"
 
 try
 {
-    await Test("provider downloads use fixed official compiled packages", () =>
+    await Test("provider downloads pin separate headset and desktop alpha compatible packages", () =>
     {
         var expected = new Dictionary<ModuleKind, (string Uri, string FileName)>
         {
             [ModuleKind.BabbleHeadsetRuntime] = ("https://github.com/Project-Babble/Baballonia/releases/download/vrcft-module-4.0.0/VRCFaceTracking.Baballonia.zip", "VRCFaceTracking.Baballonia.zip"),
-            [ModuleKind.BaballoniaDesktop] = ("https://github.com/Project-Babble/Baballonia/releases/download/vrcft-module-4.0.0/VRCFaceTracking.Baballonia.zip", "VRCFaceTracking.Baballonia.zip"),
+            [ModuleKind.BaballoniaDesktop] = ("https://github.com/Project-Babble/Baballonia/releases/download/vrcft-module-3.2.0/VRCFaceTracking.Baballonia.zip", "VRCFaceTracking.Baballonia.zip"),
             [ModuleKind.VirtualDesktop] = ("https://download.vrdesktop.net/files/VirtualDesktop.VRCFaceTracking.zip", "VirtualDesktop.VRCFaceTracking.zip"),
             [ModuleKind.SteamLink] = ("https://github.com/ykeara/LinkFT/releases/download/1.0.6/LinkFTModule.zip", "LinkFTModule.zip")
         };

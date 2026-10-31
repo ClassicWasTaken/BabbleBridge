@@ -20,6 +20,8 @@ A Windows app that bridges eye and face tracking to VRChat through compatible **
 
 Downloads come from the module authors; modules are never bundled. Your selected module is remembered, with its own connection settings. Remove imported modules with the trash button. Jerry’s templates are supported.
 
+Using Baballonia Expressions Alpha? Download **Baballonia** in Modules, or choose **Update for Expressions Alpha** on an older imported module.
+
 Other compatible VRCFaceTracking SDK modules work too. `module.json` is optional; use a ZIP if a module needs supporting files.
 
 Only import modules from publishers you trust: they run code on your PC under their own licenses.

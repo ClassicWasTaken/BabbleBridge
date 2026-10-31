@@ -1,4 +1,4 @@
-FACETRACKING BRIDGE 1.0.0 — WINDOWS x64
+FACETRACKING BRIDGE 1.0.1 — WINDOWS x64
 
 PREREQUISITE
 Install the Microsoft Visual C++ v14 Redistributable (x64) from Microsoft:
@@ -37,10 +37,14 @@ Babble Headset Runtime
   Runtime: https://github.com/Project-Babble/Babble-Frame-Runtime
 
 Baballonia desktop
-  Import the Baballonia module and select its desktop connection. Keep the
+  Download Baballonia in Modules for the Expressions Alpha-compatible 3.2.0
+  module, or import a compatible ZIP and select its desktop connection. An
+  older 3.1.0 profile offers Update for Expressions Alpha inside Modules.
+  Its older profile stays available to restore if an update cannot start. Keep the
   desktop Baballonia app running with VRCFaceTracking output enabled toward
   127.0.0.1:8888. Desktop input uses UDP 8888, including both eye and face input.
-  https://github.com/Project-Babble/Baballonia
+  Module: https://github.com/Project-Babble/Baballonia/releases/tag/vrcft-module-3.2.0
+  App: https://github.com/Project-Babble/Baballonia
 
 Virtual Desktop
   Import the VirtualDesktop.VRCFaceTracking module. Run Virtual Desktop

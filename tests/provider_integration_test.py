@@ -3,8 +3,8 @@
 
 """Exercise user-supplied official modules without a headset or a live VRChat session.
 
-Build the worker first. Supply one or more --babble-zip, --virtual-desktop-zip,
-and --steam-link-zip arguments. Modules are copied into temporary directories;
+Build the worker first. Supply one or more --babble-zip, --baballonia-alpha-zip,
+--virtual-desktop-zip, and --steam-link-zip arguments. Modules are copied into temporary directories;
 their DLLs and ZIP files are never added to the repository. Network discovery is
 disabled and VRChat output is captured on a random loopback port. Steam Link's
 upstream module requires port 9015, so that test skips if another app owns it.
@@ -151,6 +151,55 @@ def baballonia(executable, archive, root):
                  fixture.has_value("v2/JawOpen", 0.65) and fixture.has_value("v2/EyeOpenLeft", 0.8)
                  and fixture.has_value("v2/EyeOpenRight", 0.6), tick)
         return "PASS: desktop profile overrides legacy source, changes input port, and maps eyes plus mouth"
+    finally:
+        worker.close()
+        fixture.close()
+
+
+def baballonia_expressions_alpha(executable, archive, root):
+    """Use the actual lower-camel eye addresses emitted by Baballonia 1.1.1.1."""
+    fixture = Fixture(root, archive)
+    avatar_path = next((root / "LocalLow").rglob("avtr_provider_test.json"))
+    avatar = json.loads(avatar_path.read_text(encoding="utf-8"))
+    for name in ("EyeTrackingActive", "LipTrackingActive", "v2/EyeLeftX", "v2/EyeRightX", "v2/EyeY",
+                 "v2/EyeLidLeft", "v2/EyeLidRight", "v2/EyeWide", "v2/EyeSquint"):
+        avatar["parameters"].append({"name": name, "input": {
+            "address": "/avatar/parameters/" + name, "type": "Bool" if name.endswith("Active") else "Float"}})
+    avatar_path.write_text(json.dumps(avatar), encoding="utf-8")
+    config_path = fixture.module_dir / "BabbleConfig.json"
+    config_path.write_text(json.dumps({"Host": "127.0.0.1", "Port": 8888,
+                                      "IsEyeSupported": False, "IsFaceSupported": True}), encoding="utf-8")
+    frame = {"/jawOpen": .65, "/leftEyeX": .3, "/rightEyeX": .25,
+             "/leftEyeY": -.1, "/rightEyeY": -.1, "/leftEyeLid": .8, "/rightEyeLid": .6,
+             "/leftEyeWiden": .65, "/rightEyeWiden": .35,
+             "/leftEyeSquint": .35, "/rightEyeSquint": .65}
+    worker = fixture.worker(executable, "BaballoniaDesktop", ("--input-port", fixture.input_port))
+    try:
+        wait_for(worker, "Expressions Alpha desktop eye and face claims", lambda:
+                 ready(worker, "BaballoniaDesktop", fixture.input_port))
+
+        def tick():
+            fixture.tick()
+            fixture.send(fixture.input_port, frame)
+
+        wait_for(worker, "Expressions Alpha eye activation, gaze, lids, widen, squint and mouth", lambda:
+                 fixture.values.get("/avatar/parameters/EyeTrackingActive") is True
+                 and fixture.values.get("/avatar/parameters/LipTrackingActive") is True
+                 and all(fixture.has_value(name, value) for name, value in {
+                     "v2/JawOpen": .65, "v2/EyeLeftX": .3, "v2/EyeRightX": .25, "v2/EyeY": -.1,
+                     "v2/EyeOpenLeft": .8, "v2/EyeOpenRight": .6,
+                     "v2/EyeLidLeft": .7625, "v2/EyeLidRight": .5375,
+                     "v2/EyeWide": .65, "v2/EyeSquint": .65}.items()), tick)
+        frame.update({"/leftEyeX": -.35, "/rightEyeX": .4, "/leftEyeY": .2, "/rightEyeY": .2,
+                      "/leftEyeLid": 0., "/rightEyeLid": 1., "/leftEyeWiden": .2,
+                      "/rightEyeWiden": .8, "/leftEyeSquint": .55, "/rightEyeSquint": .25})
+        wait_for(worker, "Expressions Alpha gaze and blink changes do not stay at their initial values", lambda:
+                 all(fixture.has_value(name, value) for name, value in {
+                     "v2/EyeLeftX": -.35, "v2/EyeRightX": .4, "v2/EyeY": .2,
+                     "v2/EyeOpenLeft": 0., "v2/EyeOpenRight": 1.,
+                     "v2/EyeLidLeft": .05, "v2/EyeLidRight": .95,
+                     "v2/EyeWide": .8, "v2/EyeSquint": .55}.items()), tick)
+        return "PASS: Baballonia Expressions Alpha lower-camel eye messages activate and update gaze, blinks, widen, squint and mouth together"
     finally:
         worker.close()
         fixture.close()
@@ -399,6 +448,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--worker", type=Path, required=True)
     parser.add_argument("--babble-zip", type=Path)
+    parser.add_argument("--baballonia-alpha-zip", type=Path)
     parser.add_argument("--virtual-desktop-zip", type=Path)
     parser.add_argument("--steam-link-zip", type=Path)
     args = parser.parse_args()
@@ -409,6 +459,7 @@ def main():
         root = Path(directory)
         for name, archive, test in (("headset", args.babble_zip, headset_runtime),
                                     ("baballonia", args.babble_zip, baballonia),
+                                    ("baballonia-alpha", args.baballonia_alpha_zip, baballonia_expressions_alpha),
                                     ("steam-link", args.steam_link_zip, steam_link),
                                     ("virtual-desktop", args.virtual_desktop_zip, virtual_desktop)):
             if archive:

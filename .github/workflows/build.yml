@@ -53,6 +53,15 @@ jobs:
       - name: Check pupil normalization
         run: dotnet run --project tests/EyeData.Tests -c Release
 
+      - name: Check Baballonia Expressions Alpha eye and face input
+        run: |
+          $moduleZip = Join-Path $env:RUNNER_TEMP 'Baballonia-Expressions-Alpha-3.2.0.zip'
+          Invoke-WebRequest -Uri 'https://github.com/Project-Babble/Baballonia/releases/download/vrcft-module-3.2.0/VRCFaceTracking.Baballonia.zip' -OutFile $moduleZip
+          if ((Get-FileHash -LiteralPath $moduleZip -Algorithm SHA256).Hash -ne '1501bcf8ed1a8fb0b9d8e166ab1c95ab838c4e33d09524f2f537bf6f87d8c032') {
+            throw 'The official Expressions Alpha module changed; verify its publisher and update the pinned checksum before testing.'
+          }
+          python tests/provider_integration_test.py --worker dist/BabbleFrameBridge/runtime/BabbleFrameBridge.Worker.exe --baballonia-alpha-zip $moduleZip
+
       - name: Verify component license texts and distribution exclusions
         run: python tests/check_distribution_licenses.py --publish-dir dist/BabbleFrameBridge
 

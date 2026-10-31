@@ -33,8 +33,13 @@ public sealed class ModuleDownloader : IDisposable
 
     public static ModuleDownloadSource SourceFor(ModuleKind kind) => kind switch
     {
-        ModuleKind.BabbleHeadsetRuntime or ModuleKind.BaballoniaDesktop => new(
+        ModuleKind.BabbleHeadsetRuntime => new(
             new Uri("https://github.com/Project-Babble/Baballonia/releases/download/vrcft-module-4.0.0/VRCFaceTracking.Baballonia.zip"),
+            "VRCFaceTracking.Baballonia.zip"),
+        // The desktop Expressions Alpha sends lowercase-initial eye addresses.
+        // Its dedicated module accepts those and the older desktop eye format.
+        ModuleKind.BaballoniaDesktop => new(
+            new Uri("https://github.com/Project-Babble/Baballonia/releases/download/vrcft-module-3.2.0/VRCFaceTracking.Baballonia.zip"),
             "VRCFaceTracking.Baballonia.zip"),
         ModuleKind.VirtualDesktop => new(
             new Uri("https://download.vrdesktop.net/files/VirtualDesktop.VRCFaceTracking.zip"),
