@@ -4,7 +4,7 @@ Result: PASS
 
 Isolated per-user install, reinstall, upgrade, downgrade rejection and uninstall.
 The test used a separate random application identity and workspace install and shortcut folders.
-Real application payloads tested: 1.0.0 to 1.0.1.
+Real application payloads tested: 1.0.1 to 1.0.2.
 Shortcut collision protection and running-application install/uninstall guards were exercised.
 Installed-worker mapping used the existing --all-parameters diagnostic mode.
 VRChat avatar discovery was excluded to avoid interference with a running local game.
@@ -14,7 +14,7 @@ VRChat avatar discovery was excluded to avoid interference with a running local 
 - Same-version reinstall reused the installation directory and uninstall entry.
 - An unrelated same-name desktop shortcut survived unchecked installation and explicitly selected reinstallation.
 - Setup rejected an update while the isolated application mutex existed, before changing version or files.
-- Real app binaries upgraded from 1.0.0 to 1.0.1; installed app and worker hashes match the new payload.
+- Real app binaries upgraded from 1.0.1 to 1.0.2; installed app and worker hashes match the new payload.
 - Upgrade registers the FaceTracking Bridge name with the same application identity and installation directory.
 - Exact generation-2 Babble Bridge 1.0.1/1.0.2 and FaceTracking Bridge 1.0.3 migrate to 1.0.0; existing 1.0.0 reinstalls normally.
 - Unmarked private previews and exact older development builds migrate and record generation 3.

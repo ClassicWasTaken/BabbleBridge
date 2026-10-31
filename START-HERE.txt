@@ -1,4 +1,4 @@
-FACETRACKING BRIDGE 1.0.1 — WINDOWS x64
+FACETRACKING BRIDGE 1.0.2 — WINDOWS x64
 
 PREREQUISITE
 Install the Microsoft Visual C++ v14 Redistributable (x64) from Microsoft:
@@ -14,6 +14,8 @@ GET STARTED
 3. Open Modules and click Download next to your provider, or import your own
    VRCFaceTracking module DLL or ZIP. Modules come from their original authors and
    are never bundled. Choose Use module to start the selected profile.
+   Each download adds only its requested profile: BFR uses module 4.0.0, while
+   the dedicated Baballonia desktop download uses module 3.2.0.
 4. Start the matching headset runtime or desktop tracking app. Enable the
    tracking permissions and forwarding settings it requires (see below).
 5. Enable OSC in VRChat and select an avatar with face tracking. OSCQuery

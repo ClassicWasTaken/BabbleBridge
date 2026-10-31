@@ -61,6 +61,11 @@ jobs:
             throw 'The official Expressions Alpha module changed; verify its publisher and update the pinned checksum before testing.'
           }
           python tests/provider_integration_test.py --worker dist/BabbleFrameBridge/runtime/BabbleFrameBridge.Worker.exe --baballonia-alpha-zip $moduleZip
+          $bfrModuleZip = Join-Path $env:RUNNER_TEMP 'Babble-BFR-Module-4.0.0.zip'
+          Invoke-WebRequest -Uri 'https://github.com/Project-Babble/Baballonia/releases/download/vrcft-module-4.0.0/VRCFaceTracking.Baballonia.zip' -OutFile $bfrModuleZip
+          if ((Get-FileHash -LiteralPath $bfrModuleZip -Algorithm SHA256).Hash -ne 'cdf6fbf3bdc115e4863f230a70e005ed10f772b754934016c8a9ba0b16630b90') {
+            throw 'The official BFR module changed; verify its publisher and update the pinned checksum before testing.'
+          }
 
       - name: Verify component license texts and distribution exclusions
         run: python tests/check_distribution_licenses.py --publish-dir dist/BabbleFrameBridge
@@ -68,8 +73,8 @@ jobs:
       - name: Check native protocol and avatar message parsing
         run: dotnet run --project tests/BabbleFrameBridge.NativeFace.Tests -c Release
 
-      - name: Check themes and module-free first run
-        run: dotnet run --project tests/BabbleFrameBridge.Appearance.Tests -c Release -- --publish-dir dist/BabbleFrameBridge
+      - name: Check themes and independent module downloads
+        run: dotnet run --project tests/BabbleFrameBridge.Appearance.Tests -c Release -- --publish-dir dist/BabbleFrameBridge --module-zip "$env:RUNNER_TEMP/Babble-BFR-Module-4.0.0.zip" --baballonia-alpha-zip "$env:RUNNER_TEMP/Baballonia-Expressions-Alpha-3.2.0.zip"
 
       - name: Check OSC cadence, concurrency and stationary gaze refresh
         run: dotnet run --project tests/BabbleBridge.Sending.Tests -c Release

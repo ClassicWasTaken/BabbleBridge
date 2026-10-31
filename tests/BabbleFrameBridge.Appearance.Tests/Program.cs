@@ -254,12 +254,21 @@ internal static class Program
                         var displayed = page.Opacity;
                         Motion.Transition(page, true);
                         Check(page.Opacity >= displayed - .025, "Restarting a transition flashed the page back to zero opacity.");
-                        PumpUntil(() => page.Opacity >= .999, "interrupted page settled");
-                        PumpFor(TimeSpan.FromMilliseconds(80));
+                        PumpUntil(() => !EntranceActive(page) && page.Opacity >= .999,
+                            "interrupted entrance completed");
+                        // FillBehavior.Stop can retain a stopped clock. Remove that
+                        // completed opacity clock so replay is observable publicly.
+                        page.BeginAnimation(UIElement.OpacityProperty, null);
+                        Check(!page.HasAnimatedProperties, "The completed page kept an opacity animation after detachment.");
                         Motion.Transition(page, true);
-                        PumpFor(TimeSpan.FromMilliseconds(35));
-                        Check(page.Opacity < .98, "Returning to a completed page did not play its entrance again.");
-                        PumpUntil(() => page.Opacity >= .999, "revisited page settled");
+                        // Check clock lifecycle rather than sampling a brief rendered
+                        // opacity: a busy dispatcher can finish before a pump returns,
+                        // and a newly attached WPF clock has not necessarily ticked yet.
+                        Check(page.HasAnimatedProperties,
+                            "Returning to a completed page did not attach a new entrance clock.");
+                        PumpUntil(() => !EntranceActive(page), "revisited entrance completed");
+                        Check(page.Opacity >= .999 && Math.Abs(page.RenderTransform.Value.OffsetY) < .05,
+                            "The revisited page did not settle at full opacity and its final position.");
                         Motion.SetPressed(button, true);
                         PumpFor(TimeSpan.FromMilliseconds(70));
                         Check(button.RenderTransform.Value.M11 < .999, "Press feedback did not animate on the render transform.");
@@ -478,13 +487,17 @@ internal static class Program
                         "module page entrance finished before preview capture");
                     Check(Named<ItemsControl>(window, "ModuleLibrary").Items.Count == 2,
                         "The saved library did not retain both Babble connection profiles.");
-                    CheckAvailableDownloads(ModuleKind.SteamLink, ModuleKind.VirtualDesktop);
+                    CheckAvailableDownloads(ModuleKind.BaballoniaDesktop, ModuleKind.SteamLink, ModuleKind.VirtualDesktop);
                     var cards = string.Join("\n", Descendants(Named<ItemsControl>(window, "ModuleLibrary"))
                         .OfType<TextBlock>().Select(block => block.Text));
                     Check(cards.Contains("UDP 23456") && cards.Contains("UDP 42424"),
                         "The library did not show the distinct input ports of both profiles.");
                     CheckLibraryLayout();
                     SavePreview(window, renderDirectory, "modules.png");
+                    var libraryTheme = themes.CurrentIsDark;
+                    themes.ApplyTheme(true); Pump();
+                    SavePreview(window, renderDirectory, "legacy-bfr-desktop-choice.png");
+                    themes.ApplyTheme(libraryTheme);
                     var desktopConfig = Path.Combine(desktop.DirectoryPath, "BabbleConfig.json");
                     foreach (var malformed in new[] { "42", "null", "[]", "{\"Port\":\"8888\"}", "{\"Port\":null}", "{\"Port\":true}", "{\"Port\":-1}", "{\"Port\":65536}" })
                     {
@@ -755,6 +768,7 @@ internal static class Program
                             "Reopening lost entries from the four-provider library.");
                         Named<RadioButton>(window, "ModulesNav").IsChecked = true;
                         Pump();
+                        CheckAvailableDownloads(ModuleKind.BaballoniaDesktop);
                         CheckLibraryLayout();
                         if (release.Kind == ModuleKind.SteamLink) SavePreview(window, renderDirectory, "all-modules.png");
                         CloseWindow();
@@ -1009,14 +1023,15 @@ internal static class Program
                         Check(new ModuleStore(profile).Current is null && new ModuleStore(profile).Installed.Count == 2
                             && Field<object?>(window, "_worker") is null,
                             "Reopening restored a deleted selection, launched a worker, or lost remaining entries.");
-                        CheckAvailableDownloads(ModuleKind.SteamLink, ModuleKind.VirtualDesktop);
+                        CheckAvailableDownloads(ModuleKind.BaballoniaDesktop, ModuleKind.SteamLink, ModuleKind.VirtualDesktop);
                         foreach (var remaining in new ModuleStore(profile).Installed.ToArray())
                         {
                             InvokeCardButton(remaining, "Remove module");
                             InvokeCardButton(remaining, "Confirm remove module");
                             var remainingStore = new ModuleStore(profile);
                             CheckLibraryReferences(remainingStore);
-                            CheckAvailableDownloads(DownloadOrder.Where(kind => !remainingStore.Installed.Any(release => release.Kind == kind)).ToArray());
+                            CheckAvailableDownloads(DownloadOrder.Where(kind => kind == ModuleKind.BaballoniaDesktop
+                                || !remainingStore.Installed.Any(release => release.Kind == kind)).ToArray());
                         }
                         var empty = new ModuleStore(profile);
                         Check(empty.Installed.Count == 0 && empty.Current is null && empty.Previous is null,
@@ -1129,14 +1144,69 @@ internal static class Program
                 finally { CloseWindow(); }
             });
 
-            if (suppliedZip is not null && virtualDesktopZip is not null && steamLinkZip is not null)
+            if (suppliedZip is not null && baballoniaAlphaZip is not null)
             {
-                Test("official downloads add all four profiles, hide installed choices and remain inactive across relaunch", () =>
+                Test("downloading desktop Baballonia first keeps its profile and settings when BFR is added", () =>
+                {
+                    var profile = Path.Combine(root, "download-desktop-first-profile");
+                    using var handler = new FixtureDownloadHandler(new Dictionary<Uri, byte[]>
+                    {
+                        [ModuleDownloader.SourceFor(ModuleKind.BabbleHeadsetRuntime).DownloadUri] = File.ReadAllBytes(suppliedZip),
+                        [ModuleDownloader.SourceFor(ModuleKind.BaballoniaDesktop).DownloadUri] = File.ReadAllBytes(baballoniaAlphaZip)
+                    });
+                    using var client = new HttpClient(handler);
+                    using var downloader = new ModuleDownloader(client);
+                    try
+                    {
+                        window = CreateWindow(profile, moduleDownloader: downloader);
+                        themes.AttachWindow(window); window.Show();
+                        PumpUntil(() => Field<bool>(window, "_initialized") && !Field<bool>(window, "_busy"), "desktop-first download profile loaded");
+                        InvokeDownload(ModuleKind.BaballoniaDesktop);
+                        var desktop = new ModuleStore(profile).Installed.Single();
+                        Check(desktop is { Kind: ModuleKind.BaballoniaDesktop, SupportsHeadset: false, Version: "3.2.0" },
+                            "Downloading Baballonia first installed an unwanted headset or non-desktop package.");
+                        var desktopConfig = Path.Combine(desktop.DirectoryPath, "BabbleConfig.json");
+                        var config = JsonNode.Parse(File.ReadAllText(desktopConfig))!.AsObject();
+                        config["Port"] = 45679;
+                        File.WriteAllText(desktopConfig, config.ToJsonString());
+                        var configHash = HashFile(desktopConfig);
+                        CheckAvailableDownloads(ModuleKind.BabbleHeadsetRuntime, ModuleKind.SteamLink, ModuleKind.VirtualDesktop);
+                        InvokeDownload(ModuleKind.BabbleHeadsetRuntime);
+                        var store = new ModuleStore(profile);
+                        Check(store.Installed.Count == 2
+                            && store.Installed.Single(release => release.Kind == ModuleKind.BaballoniaDesktop).Id == desktop.Id
+                            && store.Installed.Single(release => release.Kind == ModuleKind.BabbleHeadsetRuntime).Version == "4.0.0"
+                            && HashFile(desktopConfig) == configHash,
+                            "Adding BFR duplicated desktop Baballonia or changed its existing connection settings.");
+                        Check(store.Current is null && Field<object?>(window, "_worker") is null,
+                            "Adding BFR automatically selected a profile or started tracking.");
+                        CheckAvailableDownloads(ModuleKind.SteamLink, ModuleKind.VirtualDesktop);
+                        Check(handler.Requests.SequenceEqual(new[] {
+                            ModuleDownloader.SourceFor(ModuleKind.BaballoniaDesktop).DownloadUri,
+                            ModuleDownloader.SourceFor(ModuleKind.BabbleHeadsetRuntime).DownloadUri }),
+                            "The two buttons did not download their separate official packages.");
+                        CloseWindow();
+                        window = CreateWindow(profile, moduleDownloader: downloader);
+                        themes.AttachWindow(window); window.Show();
+                        PumpUntil(() => Field<bool>(window, "_initialized") && !Field<bool>(window, "_busy"), "desktop-first downloaded profiles reopened");
+                        Check(new ModuleStore(profile).Installed.Count == 2 && new ModuleStore(profile).Current is null
+                            && HashFile(desktopConfig) == configHash,
+                            "Reopening lost a chosen profile, selected tracking, or reset desktop settings.");
+                        CheckAvailableDownloads(ModuleKind.SteamLink, ModuleKind.VirtualDesktop);
+                    }
+                    finally { CloseWindow(); }
+                });
+            }
+
+            if (suppliedZip is not null && baballoniaAlphaZip is not null && virtualDesktopZip is not null && steamLinkZip is not null)
+            {
+                Test("official downloads add only the requested profiles and remain inactive across relaunch", () =>
                 {
                     var profile = Path.Combine(root, "download-four-provider-profile");
                     var packages = new Dictionary<Uri, byte[]>
                     {
                         [ModuleDownloader.SourceFor(ModuleKind.BabbleHeadsetRuntime).DownloadUri] = File.ReadAllBytes(suppliedZip),
+                        [ModuleDownloader.SourceFor(ModuleKind.BaballoniaDesktop).DownloadUri] = File.ReadAllBytes(baballoniaAlphaZip),
                         [ModuleDownloader.SourceFor(ModuleKind.SteamLink).DownloadUri] = File.ReadAllBytes(steamLinkZip),
                         [ModuleDownloader.SourceFor(ModuleKind.VirtualDesktop).DownloadUri] = File.ReadAllBytes(virtualDesktopZip)
                     };
@@ -1149,15 +1219,26 @@ internal static class Program
                         themes.AttachWindow(window); window.Show();
                         PumpUntil(() => Field<bool>(window, "_initialized") && !Field<bool>(window, "_busy"), "four-provider download profile loaded");
                         Check(AppSettings.Load(profile).AutoStart, "The download test did not cover the new-profile auto-start preference.");
-                        foreach (var kind in new[] { ModuleKind.BabbleHeadsetRuntime, ModuleKind.SteamLink, ModuleKind.VirtualDesktop })
+                        foreach (var kind in DownloadOrder)
                         {
                             var priorArchives = DownloadArchives(profile).ToHashSet(StringComparer.OrdinalIgnoreCase);
                             InvokeDownload(kind);
                             var store = new ModuleStore(profile);
                             Check(store.Installed.Any(release => release.Kind == kind), "Download did not add the selected provider: " + kind);
                             if (kind == ModuleKind.BabbleHeadsetRuntime)
-                                Check(store.Installed.Count == 2 && store.Installed.Any(release => release.Kind == ModuleKind.BaballoniaDesktop),
-                                    "The headset download did not add independent headset and desktop profiles.");
+                            {
+                                Check(store.Installed.Count == 1 && !store.Installed.Any(release => release.Kind == ModuleKind.BaballoniaDesktop),
+                                    "The headset download also installed an unwanted desktop profile.");
+                                var priorTheme = themes.CurrentIsDark;
+                                themes.ApplyTheme(true); Pump();
+                                PumpUntil(() => Named<StackPanel>(window, "ModulesPage").Opacity >= .999,
+                                    "BFR-only module page finished its entrance before preview");
+                                SavePreview(window, renderDirectory, "bfr-download-only.png");
+                                themes.ApplyTheme(priorTheme);
+                            }
+                            if (kind == ModuleKind.BaballoniaDesktop)
+                                Check(store.Installed.Count == 2 && store.Installed.Single(release => release.Kind == kind) is { SupportsHeadset: false, Version: "3.2.0" },
+                                    "The desktop download did not add the dedicated 3.2.0 profile alongside the existing headset.");
                             Check(store.Current is null && Field<object?>(window, "_worker") is null
                                 && !Named<Button>(window, "StartButton").IsEnabled,
                                 "Downloading a module automatically selected or started it.");
@@ -1170,10 +1251,10 @@ internal static class Program
                                 "The download button requested a different provider's URL.");
                             CheckAvailableDownloads(DownloadOrder.Where(available => !store.Installed.Any(release => release.Kind == available)).ToArray());
                         }
-                        Check(handler.Requests.Count == 3 && DownloadArchives(profile).Length == 3,
+                        Check(handler.Requests.Count == 4 && DownloadArchives(profile).Length == 4,
                             "Each requested module did not retain its own completed ZIP.");
                         Check(new ModuleStore(profile).Installed.Count == 4,
-                            "The three package downloads did not add exactly the four available provider profiles.");
+                            "The four package downloads did not add exactly the four requested provider profiles.");
                         var orderedCards = Descendants(Named<ItemsControl>(window, "ModuleLibrary")).OfType<Button>()
                             .Where(button => button.Tag is ModuleRelease && button.Content is string action
                                 && (action == "Use module" || action.StartsWith("Selected", StringComparison.Ordinal)))
@@ -1198,7 +1279,7 @@ internal static class Program
                 });
             }
 
-            if (suppliedZip is not null && published is not null)
+            if (suppliedZip is not null && baballoniaAlphaZip is not null && published is not null)
             {
                 Test("download registration, duplicates, failure and cancellation preserve a running module and its connection", () =>
                 {
@@ -1214,7 +1295,7 @@ internal static class Program
                     using var handler = new FixtureDownloadHandler(new Dictionary<Uri, byte[]>
                     {
                         [ModuleDownloader.SourceFor(ModuleKind.BabbleHeadsetRuntime).DownloadUri] = File.ReadAllBytes(suppliedZip),
-                        [ModuleDownloader.SourceFor(ModuleKind.BaballoniaDesktop).DownloadUri] = File.ReadAllBytes(suppliedZip)
+                        [ModuleDownloader.SourceFor(ModuleKind.BaballoniaDesktop).DownloadUri] = File.ReadAllBytes(baballoniaAlphaZip)
                     });
                     using var client = new HttpClient(handler);
                     using var downloader = new ModuleDownloader(client);
@@ -1226,7 +1307,7 @@ internal static class Program
                         InvokeModuleImport(firstZip);
                         var original = new ModuleStore(profile).Current;
                         var originalIds = new ModuleStore(profile).Installed.Select(release => release.Id).ToHashSet();
-                        CheckAvailableDownloads(ModuleKind.SteamLink, ModuleKind.VirtualDesktop);
+                        CheckAvailableDownloads(ModuleKind.BaballoniaDesktop, ModuleKind.SteamLink, ModuleKind.VirtualDesktop);
                         var originalPid = Field<Process>(window, "_worker").Id;
                         var settings = File.ReadAllText(Path.Combine(profile, "settings.json"));
                         void CheckActiveUnchanged()
@@ -1239,14 +1320,23 @@ internal static class Program
                         }
                         InvokeDownloadDirect(ModuleKind.BabbleHeadsetRuntime);
                         CheckActiveUnchanged();
-                        var afterSuccess = new ModuleStore(profile).Installed;
-                        Check(afterSuccess.Count == originalIds.Count + 2, "The successful Babble download did not add both available profiles.");
+                        var afterHeadset = new ModuleStore(profile).Installed;
+                        Check(afterHeadset.Count == originalIds.Count + 1
+                            && afterHeadset.Count(release => release.Kind == ModuleKind.BaballoniaDesktop) == 1,
+                            "The BFR download added an unwanted desktop companion to the imported library.");
+                        CheckAvailableDownloads(ModuleKind.BaballoniaDesktop, ModuleKind.SteamLink, ModuleKind.VirtualDesktop);
                         var cache = DownloadArchives(profile).Single();
                         var cacheHash = HashFile(cache);
-                        var downloadedHeadset = afterSuccess.Single(release => !originalIds.Contains(release.Id)
+                        var downloadedHeadset = afterHeadset.Single(release => !originalIds.Contains(release.Id)
                             && release.Kind == ModuleKind.BabbleHeadsetRuntime);
+                        InvokeDownload(ModuleKind.BaballoniaDesktop);
+                        CheckActiveUnchanged();
+                        var afterSuccess = new ModuleStore(profile).Installed;
+                        Check(afterSuccess.Count == originalIds.Count + 2, "The explicit desktop download did not add one independent desktop profile.");
                         var downloadedDesktop = afterSuccess.Single(release => !originalIds.Contains(release.Id)
                             && release.Kind == ModuleKind.BaballoniaDesktop);
+                        Check(downloadedDesktop is { SupportsHeadset: false, Version: "3.2.0" },
+                            "The explicit Baballonia action added a BFR package instead of the dedicated desktop module.");
                         var configuredPath = Path.Combine(downloadedHeadset.DirectoryPath, "BabbleConfig.json");
                         var configured = JsonNode.Parse(File.ReadAllText(configuredPath))!.AsObject();
                         configured["Port"] = 45678;
@@ -1272,7 +1362,7 @@ internal static class Program
                             && restoredProfiles.Any(release => release.Id == downloadedHeadset.Id)
                             && restoredProfiles.All(release => release.Id != downloadedDesktop.Id)
                             && HashFile(configuredPath) == configuredHash,
-                            "Re-downloading a removed Babble profile duplicated its existing companion or reset companion settings.");
+                            "Re-downloading a removed desktop profile duplicated the existing headset or reset its settings.");
                         var state = File.ReadAllText(Path.Combine(profile, "modules", "module-state.json"));
                         var completedArchives = DownloadArchives(profile).ToHashSet(StringComparer.OrdinalIgnoreCase);
                         handler.SetMode(DownloadResponse.Failure);
@@ -1345,7 +1435,7 @@ internal static class Program
                                 "A valid bare/manifest-free Babble import did not add the two known connection profiles.");
                             Check(Field<object?>(window, "_worker") is null && store.Current is null,
                                 "The format-only check executed a module or activated a failed worker.");
-                            CheckAvailableDownloads(ModuleKind.SteamLink, ModuleKind.VirtualDesktop);
+                            CheckAvailableDownloads(ModuleKind.BaballoniaDesktop, ModuleKind.SteamLink, ModuleKind.VirtualDesktop);
                             Check(HashFile(path) == originalHash, "Importing a module changed its original DLL or ZIP.");
                             CloseWindow();
                             store.Activate(headset);
@@ -1430,7 +1520,7 @@ internal static class Program
                         var virtualDesktop = store.Prepare(virtualDesktopZip);
                         store.Register(virtualDesktop);
                         Method(window, "RefreshModule").Invoke(window, []);
-                        CheckAvailableDownloads(ModuleKind.SteamLink);
+                        CheckAvailableDownloads(ModuleKind.BaballoniaDesktop, ModuleKind.SteamLink);
                         // This isolated staged copy is locked only to force a deterministic
                         // loader error; the user's real Streamer and IPC are untouched.
                         using (var unavailableDll = new FileStream(Path.Combine(virtualDesktop.DirectoryPath, virtualDesktop.DllFileName),
@@ -1445,7 +1535,7 @@ internal static class Program
                                 && Named<TextBox>(window, "LogBox").Text.Contains("Restored the previous active module."),
                                 "The VD startup error was lost or the recovery was not explained.");
                         }
-                        CheckAvailableDownloads(ModuleKind.SteamLink);
+                        CheckAvailableDownloads(ModuleKind.BaballoniaDesktop, ModuleKind.SteamLink);
                     }
                     finally { CloseWindow(); }
                 });
@@ -2049,6 +2139,17 @@ internal static class Program
 
     private static T Named<T>(MainWindow target, string name) where T : FrameworkElement =>
         target.FindName(name) as T ?? throw new InvalidOperationException("Missing named control: " + name);
+    private static bool EntranceActive(FrameworkElement element)
+    {
+        var states = typeof(Motion).GetField("States", BindingFlags.Static | BindingFlags.NonPublic)?.GetValue(null)
+            ?? throw new InvalidOperationException("Missing motion state table.");
+        object?[] arguments = [element, null];
+        Check(states.GetType().GetMethod("TryGetValue")!.Invoke(states, arguments) is true,
+            "The transitioned element has no motion state.");
+        var state = arguments[1]!;
+        return (bool)state.GetType().GetField("EntranceActive")!.GetValue(state)!;
+    }
+
     private static T Field<T>(object target, string name) => (T)(target.GetType()
         .GetField(name, BindingFlags.Instance | BindingFlags.NonPublic)?.GetValue(target)!);
     private static MethodInfo Method(object target, string name) => target.GetType()

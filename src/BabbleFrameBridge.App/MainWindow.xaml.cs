@@ -166,7 +166,7 @@ public partial class MainWindow : Window
             new DownloadCard(ModuleKind.SteamLink, "Steam Link", "LinkFT module 1.0.6", "https://github.com/ykeara/LinkFT/releases/tag/1.0.6", available),
             new DownloadCard(ModuleKind.VirtualDesktop, "Virtual Desktop", "Official compiled module ZIP", "https://download.vrdesktop.net/files/VirtualDesktop.VRCFaceTracking.zip", available)
         }.Where(choice => choice.Kind == ModuleKind.BaballoniaDesktop
-            ? !_store.Installed.Any(release => release.IsAvailable && IsAlphaCompatibleBaballoniaModule(release))
+            ? !_store.Installed.Any(release => release.IsAvailable && !release.SupportsHeadset && IsAlphaCompatibleBaballoniaModule(release))
             : !installedKinds.Contains(choice.Kind)).ToArray();
         DownloadChoices.ItemsSource = choices;
         DownloadChoicesEmptyText.Visibility = choices.Length == 0 ? Visibility.Visible : Visibility.Collapsed;
@@ -413,6 +413,7 @@ public partial class MainWindow : Window
         : InputPortFor(release) is var port && port > 0 ? $"UDP {port}" : "Shared memory · Virtual Desktop Streamer";
     private string InstructionsFor(ModuleRelease release) => release.Kind == ModuleKind.BaballoniaDesktop
         ? $"Enable Baballonia’s VRCFaceTracking output to 127.0.0.1:{InputPortFor(release)}."
+            + (release.SupportsHeadset ? " This profile uses the BFR package. The dedicated Baballonia desktop download uses module 3.2.0." : "")
         : ModuleCatalog.Get(release.Kind).Instructions;
     private string ProviderInstructions => (_sessionRelease ?? _store.Current) is { } release ? InstructionsFor(release) : Provider.Instructions;
     private static string NameFor(ModuleRelease release) => release.Kind == ModuleKind.Custom ? release.ModuleName : ModuleCatalog.Get(release.Kind).Name;
@@ -736,12 +737,13 @@ public partial class MainWindow : Window
         if (_closing) return;
         if (upgradeFrom is not null) PreserveBaballoniaConnection(upgradeFrom, release);
         _store.Register(release);
-        if (release.SupportsHeadset && (activate || !_store.Installed.Any(item => item.IsAvailable && item.Sha256 == release.Sha256 && item.Kind != release.Kind)))
+        // A catalog download adds exactly the requested profile. Manual imports
+        // retain both transports for existing ZIP-update and rollback workflows.
+        if (release.SupportsHeadset && requestedKind is null)
         {
             var companion = await Task.Run(() => _store.CreateCompanion(release));
             _store.Register(companion);
-            // Manual ZIP updates retain the current Babble transport. Explicit downloads
-            // use the requested profile, and never interrupt a currently selected source.
+            // Manual ZIP updates retain the current Babble transport.
             if (requestedKind is null && _store.Current?.Kind == companion.Kind) release = companion;
         }
         RefreshModule();
