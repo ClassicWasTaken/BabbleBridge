@@ -104,7 +104,9 @@ public sealed class ParticleField : FrameworkElement
         {
             CompositionTarget.Rendering -= OnRendering;
             pointerActive = false;
-            Array.Clear(offsets); Array.Clear(velocities); displaced = false;
+            // Freeze the displayed frame exactly, including mouse displacement.
+            // On resume the offsets settle naturally instead of snapping back.
+            Array.Clear(velocities);
             InvalidateVisual();
         }
     }

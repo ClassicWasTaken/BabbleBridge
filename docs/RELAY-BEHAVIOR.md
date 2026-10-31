@@ -19,9 +19,17 @@ the surroundings or its own paws, remember an interesting spot, and finish an
 activity before choosing another. Intent descriptions report those internal
 goals; they are not generated claims of conscious thought.
 
+The 35 behaviors are grouped into interruptible episodes: hunting, settling,
+recovery, grooming, exploration and play. Frustration, willingness, recent-action
+history and learned activity preferences influence which goal is continued,
+abandoned or chosen next. These are software design choices, not claims of real
+feline consciousness.
+
 The articulated renderer uses independently damped body segments, head, ears,
-limbs and tail links. The original synthesized robot-cat meows, chirps, yawns and
-purrs use no recordings. Sound can be muted in Settings and is stopped while the
-cat or window is hidden. Neither play nor curiosity activates real app controls.
+limbs and tail links. Pose weights, paws, head posture, gaze and facial states
+blend smoothly when an activity changes or is interrupted. Relay makes no sound:
+meows, chirps, yawns and purrs appear only as brief, click-through text bubbles.
+The audio runtime and sound preference from earlier previews have been removed.
+Neither play nor curiosity activates real app controls.
 
 Training and numerical tests are documented in [the neural-policy tests](../tests/Kitty.Tests/README.md).

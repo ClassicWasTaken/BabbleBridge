@@ -5,6 +5,8 @@ using System.IO.Compression;
 using System.Diagnostics;
 using System.Text;
 using System.Text.Json;
+using System.Runtime.InteropServices;
+using Microsoft.Win32.SafeHandles;
 using BabbleFrameBridge.Shared;
 using BabbleFrameBridge.App;
 
@@ -225,6 +227,50 @@ try
             File.WriteAllText(statePath, "broken");
             store = new ModuleStore(dataRoot);
             Check(store.Current is null && store.Previous is null && store.Installed.Count == 0, "Backup recovery resurrected a removed profile.");
+        });
+        Test("temporary Windows directory locks are released before a module removal commits", () =>
+        {
+            if (!OperatingSystem.IsWindows()) return;
+            var dataRoot = Path.Combine(root, "remove-transient-directory-lock");
+            var store = new ModuleStore(dataRoot);
+            var release = store.Install(suppliedZip);
+            var releaseRoot = Path.Combine(dataRoot, "modules", "releases", release.Id);
+            using var held = DirectoryRemovalLock.Open(releaseRoot);
+            ExpectFailure(() => Directory.Move(releaseRoot, releaseRoot + ".unexpected-move"), "directory-rename-lock-precondition");
+            var unlock = new Thread(() => { Thread.Sleep(65); held.Dispose(); }) { IsBackground = true };
+            unlock.Start();
+            try { store.Remove(release); }
+            finally { Check(unlock.Join(3000), "The isolated temporary lock did not release."); }
+            var reopened = new ModuleStore(dataRoot);
+            Check(store.Current is null && store.Installed.Count == 0 && reopened.Current is null && reopened.Installed.Count == 0,
+                "The temporarily locked release was not removed after the handle closed.");
+            Check(!Directory.Exists(releaseRoot), "The removed release still occupies its installed directory.");
+        });
+        Test("persistent Windows directory locks reject module removal without changing library state", () =>
+        {
+            if (!OperatingSystem.IsWindows()) return;
+            var dataRoot = Path.Combine(root, "remove-persistent-directory-lock");
+            var store = new ModuleStore(dataRoot);
+            var previous = store.Install(suppliedZip);
+            var current = store.Install(suppliedZip);
+            var statePath = Path.Combine(dataRoot, "modules", "module-state.json");
+            var state = File.ReadAllBytes(statePath);
+            var backup = File.ReadAllBytes(statePath + ".backup");
+            var payload = File.ReadAllBytes(Path.Combine(current.DirectoryPath, current.DllFileName));
+            using (var held = DirectoryRemovalLock.Open(Path.Combine(dataRoot, "modules", "releases", current.Id)))
+            {
+                var elapsed = Stopwatch.StartNew();
+                ExpectFailure(() => store.Remove(current), "persistent-directory-lock");
+                Check(elapsed.Elapsed < TimeSpan.FromSeconds(3), "Persistent directory locks caused an unbounded removal retry.");
+                Check(store.Current == current && store.Previous == previous && store.Installed.Count == 2,
+                    "A locked removal changed the selected, previous or installed library entries.");
+                Check(File.ReadAllBytes(statePath).SequenceEqual(state) && File.ReadAllBytes(statePath + ".backup").SequenceEqual(backup),
+                    "A failed locked removal changed the primary state or saved backup.");
+                Check(File.ReadAllBytes(Path.Combine(current.DirectoryPath, current.DllFileName)).SequenceEqual(payload),
+                    "A failed removal changed the module payload.");
+            }
+            Check(new ModuleStore(dataRoot).Current == current && Directory.Exists(current.DirectoryPath),
+                "The locked module could not be reopened after its handle was released.");
         });
         Test("removal rejects foreign, tampered and unregistered releases before changing files", () =>
         {
@@ -538,14 +584,12 @@ try
         settings.CloseWithSteamVr = true;
         settings.StartMinimized = true;
         settings.KittyEnabled = true;
-        settings.KittySoundsEnabled = false;
         settings.Save(dataRoot);
         var reloaded = AppSettings.Load(dataRoot);
         Check(reloaded.OutputHost == settings.OutputHost && reloaded.OutputPort == 19000 && reloaded.AutoStart, "Settings did not persist.");
         Check(reloaded.StartWithSteamVr && reloaded.CloseWithSteamVr && reloaded.StartMinimized,
             "SteamVR startup, shutdown or minimized preferences did not persist.");
         Check(reloaded.KittyEnabled, "The optional kitty preference did not persist.");
-        Check(!reloaded.KittySoundsEnabled, "The kitty mute preference did not persist.");
         foreach (var invalidPort in new[] { 0, 65536, settings.ReceivePort })
         {
             settings.OutputPort = invalidPort;
@@ -835,3 +879,21 @@ static void Replace(List<FixtureEntry> entries, string name, byte[] data)
     entries[index] = entries[index] with { Data = data };
 }
 sealed record FixtureEntry(string Name, byte[] Data, int Attributes = 0);
+
+static class DirectoryRemovalLock
+{
+    public static SafeFileHandle Open(string path)
+    {
+        // Inspection remains possible, but withholding delete sharing blocks the
+        // rename used by the module quarantine transaction.
+        var handle = CreateFile(path, 1, 1 | 2, 0, 3, 0x02000000, 0);
+        if (!handle.IsInvalid) return handle;
+        var error = Marshal.GetLastWin32Error();
+        handle.Dispose();
+        throw new System.ComponentModel.Win32Exception(error, "Could not open the isolated directory-lock fixture.");
+    }
+
+    [DllImport("kernel32.dll", EntryPoint = "CreateFileW", CharSet = CharSet.Unicode, SetLastError = true)]
+    private static extern SafeFileHandle CreateFile(string path, uint access, uint sharing, nint security,
+        uint creation, uint flags, nint template);
+}

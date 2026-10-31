@@ -50,8 +50,8 @@ jobs:
       - name: Check articulated kitty spring stability
         run: dotnet run --project tests/Kitty.Spring.Tests -c Release
 
-      - name: Check synthesized kitty voices without audio playback
-        run: dotnet run --project tests/KittyVoice.Tests -c Release
+      - name: Check silent kitty captions and expiry
+        run: dotnet run --project tests/Kitty.Caption.Tests -c Release
 
       - name: Check module download validation and cancellation
         run: dotnet run --project tests/BabbleFrameBridge.Download.Tests -c Release
@@ -78,6 +78,9 @@ jobs:
           if ((Get-FileHash -LiteralPath $bfrModuleZip -Algorithm SHA256).Hash -ne 'cdf6fbf3bdc115e4863f230a70e005ed10f772b754934016c8a9ba0b16630b90') {
             throw 'The official BFR module changed; verify its publisher and update the pinned checksum before testing.'
           }
+
+      - name: Check module library transactions and transient directory locks
+        run: dotnet run --project tests/BabbleFrameBridge.Tests -c Release -- "$env:RUNNER_TEMP/Babble-BFR-Module-4.0.0.zip"
 
       - name: Verify component license texts and distribution exclusions
         run: python tests/check_distribution_licenses.py --publish-dir dist/BabbleFrameBridge

@@ -9,9 +9,9 @@ var arrays=new[] { KittyModel.InputWeights,KittyModel.RecurrentWeights,KittyMode
     KittyModel.DenseWeights,KittyModel.DenseBias,KittyModel.DeepWeights,KittyModel.DeepBias,
     KittyModel.OutputWeights,KittyModel.OutputBias,KittyModel.AttentionWeights,KittyModel.AttentionBias };
 Check(arrays.Sum(a=>a.Length)==KittyBrain.ParameterCount,"Model parameter inventory changed.");
-Check(KittyBrain.ParameterCount==3470 && KittyBrain.ParameterCount*8<100000,"The recurrent policy exceeded its lightweight budget.");
+Check(KittyBrain.ParameterCount==3720 && KittyBrain.ParameterCount*8<100000,"The recurrent policy exceeded its lightweight budget.");
 Check(arrays.All(a=>a.All(double.IsFinite)),"Model weights contain invalid values.");
-Check(Enum.GetValues<KittyAction>().Length==25 && (int)KittyAction.Stretch==9 && (int)KittyAction.Circle==24,
+Check(Enum.GetValues<KittyAction>().Length==35 && (int)KittyAction.Stretch==9 && (int)KittyAction.Circle==24 && (int)KittyAction.Startle==34,
     "Existing actions were renumbered or the new cat repertoire is incomplete.");
 Check(KittyModel.RecurrentWeights.Any(w=>Math.Abs(w)>.1),"The recurrent pathway is not trained.");
 
@@ -93,8 +93,9 @@ for(var i=0;i<3200;i++) {
     hunted.Add(hunting.Action);
     if(hunting.Action!=last) { huntedTransitions.Add((last,hunting.Action)); last=hunting.Action; }
 }
-Check(hunted.Contains(KittyAction.Stalk)&&hunted.Contains(KittyAction.Pounce),"Predatory play did not include stalking and pouncing.");
-Check(huntedTransitions.Contains((KittyAction.Stalk,KittyAction.Pounce)),"Stalk-to-pounce episode continuity is absent.");
+Check(hunted.Contains(KittyAction.Stalk)&&hunted.Contains(KittyAction.Pounce),"Predatory play did not include stalking and pouncing: "+string.Join(", ",hunted));
+Check(huntedTransitions.Contains((KittyAction.Stalk,KittyAction.ButtWiggle))
+    && huntedTransitions.Contains((KittyAction.ButtWiggle,KittyAction.Pounce)),"Stalk, aim and pounce episode continuity is absent.");
 Check(hunted.Contains(KittyAction.Sniff)||hunted.Contains(KittyAction.Inspect),"Novel surfaces never triggered investigation.");
 var vocalActions=new HashSet<KittyAction>();
 for(var seed=0;seed<12;seed++) {
@@ -105,12 +106,59 @@ for(var seed=0;seed<12;seed++) {
 }
 Check(vocalActions.Contains(KittyAction.Chirp)||vocalActions.Contains(KittyAction.Meow),"Social/play contexts never selected a vocal behavior.");
 
+Check(home.CompletedRoutineCount>0,"Autonomous home routines never finish.");
+Check(homeActions.Contains(KittyAction.PawLick)&&homeActions.Contains(KittyAction.FaceWash),
+    "Grooming never unfolds into distinct paw and face washing stages.");
+Check(homeActions.Contains(KittyAction.Doze)&&homeActions.Contains(KittyAction.EarFlick),
+    "Quiet home behavior lacks light dozing and small attention reactions.");
+
+KittyMind FindHunt(int seed)
+{
+    var mind=new KittyMind(seed);
+    for(var i=0;i<6000;i++)
+    {
+        var phase=i%200;
+        mind.Tick(.125,phase<70 ? new(.85,.55,1,phase<4?1:0,1) : new(.4,0,1,0,1));
+        if(mind.Routine==KittyRoutine.Hunt&&mind.Action==KittyAction.Stalk&&mind.ActionAge<.2) return mind;
+    }
+    throw new Exception("The neural behavior selector never started a hunt episode.");
+}
+var interruptedHunt=FindHunt(23);
+Check(interruptedHunt.Action==KittyAction.Stalk&&interruptedHunt.RoutineLength>=5,
+    "A hunt episode does not start with a committed multi-stage stalking goal.");
+var interruptions=interruptedHunt.InterruptedRoutineCount;
+for(var i=0;i<14;i++) { interruptedHunt.Pester(); interruptedHunt.Tick(.1,new(1,0,1,0,1)); }
+for(var i=0;i<30&&interruptedHunt.Routine!=KittyRoutine.Recovery;i++) interruptedHunt.Tick(.125,new(1,0,1,0,1));
+Check(interruptedHunt.Routine==KittyRoutine.Recovery&&interruptedHunt.InterruptedRoutineCount>interruptions,
+    "Repeated pestering did not interrupt the current goal and start a space-seeking recovery episode.");
+var recoveryActions=new HashSet<KittyAction>();
+for(var i=0;i<100;i++) { recoveryActions.Add(interruptedHunt.Action); interruptedHunt.Tick(.125,default); }
+Check(recoveryActions.Contains(KittyAction.Backoff)&&recoveryActions.Contains(KittyAction.Peek),
+    "A startled kitty did not back away and cautiously look again.");
+
+var missingPrey=FindHunt(12); var lostCount=missingPrey.InterruptedRoutineCount;
+for(var i=0;i<60;i++) missingPrey.Tick(.125,default);
+Check(missingPrey.InterruptedRoutineCount>lostCount&&missingPrey.Routine!=KittyRoutine.Hunt,
+    "A hunt stayed committed to a cursor that disappeared.");
+Check(missingPrey.Action!=KittyAction.Pounce&&missingPrey.Action!=KittyAction.ButtWiggle,
+    "The kitty still aims or pounces at absent prey.");
+
+var napper=new KittyMind(21);
+for(var i=0;i<8000 && !(napper.Action is KittyAction.Sleep or KittyAction.Doze && napper.ActionAge>.5);i++) napper.Tick(.125,default);
+Check(napper.Action is KittyAction.Sleep or KittyAction.Doze,"The kitty never entered a wakeable nap.");
+napper.Pester(); napper.Tick(.125,new(.8,0,0,0,1));
+Check(napper.Action is not (KittyAction.Sleep or KittyAction.Doze),"A gentle interaction did not wake a light or deep nap.");
+Check(napper.Willingness is >=0 and <=1&&napper.Frustration is >=0 and <=1,
+    "Motivation or frustration is not a bounded simulation state.");
+Check(!string.IsNullOrWhiteSpace(napper.EpisodeDescription),"The current episode has no readable goal description.");
+
 var one=new KittyMind(100); var two=new KittyMind(100);
 for(var i=0;i<1200;i++) {
     var senses=new KittyStimulus(i%90<20?1:0,i%75<10?1:0,i%40<20?1:0,i%130<2?1:0,1);
     if(i%111==0) { one.Pester(); two.Pester(); }
     one.Tick(.125,senses); two.Tick(.125,senses);
-    Check(one.Action==two.Action&&one.ActionAge==two.ActionAge&&one.Attention==two.Attention&&one.Energy==two.Energy,
+    Check(one.Action==two.Action&&one.ActionAge==two.ActionAge&&one.Attention==two.Attention&&one.Energy==two.Energy
+        &&one.Routine==two.Routine&&one.RoutineStage==two.RoutineStage&&one.Frustration==two.Frustration,
         "A seeded cognitive simulation was not reproducible.");
     Check(double.IsFinite(one.MemoryActivity)&&one.MemoryActivity>=0&&one.MemoryActivity<=1,"Recurrent memory became unbounded.");
 }

@@ -38,7 +38,7 @@ public partial class MainWindow : Window
     private bool _exitRequested;
     private WindowState _restoreWindowState = WindowState.Normal;
     private bool _syncingStartupPreferences;
-    private bool _syncingKittySound;
+    private bool? _particlesLive;
     private AppSettings _settings;
     private Process? _worker;
     private Task? _stopTask;
@@ -65,7 +65,7 @@ public partial class MainWindow : Window
     public bool CloseWithSteamVr => _settings.CloseWithSteamVr;
     public bool StartMinimized => _settings.StartMinimized;
 
-    public MainWindow(string root, bool useDiscovery = true, string? workerExecutable = null, ModuleDownloader? moduleDownloader = null, Func<bool, Task>? configureSteamVrAutoLaunch = null, KittyVoice? kittyVoice = null)
+    public MainWindow(string root, bool useDiscovery = true, string? workerExecutable = null, ModuleDownloader? moduleDownloader = null, Func<bool, Task>? configureSteamVrAutoLaunch = null)
     {
         InitializeComponent();
         _noticeTimer = new DispatcherTimer(DispatcherPriority.Background, Dispatcher);
@@ -93,9 +93,6 @@ public partial class MainWindow : Window
         AutoStartBox.IsChecked = _settings.AutoStart;
         SyncStartupPreferences();
         KittyFace.Source = HologramKittyVisual.CreateHeadIcon();
-        if (kittyVoice is not null) KittyOverlay.SetVoice(kittyVoice);
-        KittyOverlay.SoundsEnabled = _settings.KittySoundsEnabled;
-        KittySoundsBox.IsChecked = _settings.KittySoundsEnabled;
         KittyOverlay.Attach(this);
         KittyOverlay.CanSmackAt = point => FindKittyTarget(point) is not null;
         KittyOverlay.ImpactRequested = (point, strength) => { if (FindKittyTarget(point) is { } target) Motion.PetWobble(target, strength); };
@@ -181,26 +178,6 @@ public partial class MainWindow : Window
         UpdateKittyButton();
     }
 
-    private void KittySounds_Changed(object sender, RoutedEventArgs e)
-    {
-        if (!_initialized || _syncingKittySound || _closing) return;
-        var previous = _settings.KittySoundsEnabled;
-        try
-        {
-            _settings.KittySoundsEnabled = KittySoundsBox.IsChecked == true;
-            _settings.Save(_root);
-        }
-        catch (Exception error)
-        {
-            _settings.KittySoundsEnabled = previous;
-            _syncingKittySound = true;
-            KittySoundsBox.IsChecked = previous;
-            _syncingKittySound = false;
-            ShowNotice("The kitty sound preference could not be saved. " + error.Message, true);
-        }
-        KittyOverlay.SoundsEnabled = _settings.KittySoundsEnabled;
-    }
-
     private void UpdateKittyButton()
     {
         KittyActiveDot.Visibility = _settings.KittyEnabled ? Visibility.Visible : Visibility.Collapsed;
@@ -240,6 +217,7 @@ public partial class MainWindow : Window
 
     private void RefreshButtons()
     {
+        UpdateBridgeParticles();
         StartButton.IsEnabled = !_busy && _initialized && (_running || _store.Current is { IsAvailable: true });
         ImportButton.IsEnabled = !_busy && _initialized;
         RollbackButton.IsEnabled = !_busy && _store.Previous is { IsAvailable: true };
@@ -721,6 +699,7 @@ public partial class MainWindow : Window
         var session = _sessionRelease;
         var wasAwaiting = _awaitingVirtualDesktop;
         _worker = null; _running = false;
+        UpdateBridgeParticles();
         if (_closing) _ready?.TrySetCanceled();
         if (process is not null)
         {
@@ -743,6 +722,7 @@ public partial class MainWindow : Window
                     // Keep ownership if Windows could not confirm shutdown. Changing or
                     // deleting a module must not strand a worker that still holds its ports.
                     _worker = process; _running = wasRunning; _sessionRelease = session; _awaitingVirtualDesktop = wasAwaiting;
+                    UpdateBridgeParticles();
                     throw new InvalidOperationException("The tracking runtime could not stop. Try stopping the bridge again before changing modules.", failure);
                 }
             }
@@ -948,7 +928,6 @@ public partial class MainWindow : Window
             CloseWithSteamVr = _settings.CloseWithSteamVr,
             StartMinimized = _settings.StartMinimized,
             KittyEnabled = _settings.KittyEnabled,
-            KittySoundsEnabled = _settings.KittySoundsEnabled,
             AutoStart = AutoStartBox.IsChecked == true };
         ValidateConnection(updated, _store.Current);
         var previous = _settings;
@@ -962,7 +941,6 @@ public partial class MainWindow : Window
         {
             await StopWorker();
             previous.KittyEnabled = _settings.KittyEnabled;
-            previous.KittySoundsEnabled = _settings.KittySoundsEnabled;
             previous.Save(_root); _settings = previous;
             HostBox.Text = previous.OutputHost; PortBox.Text = previous.OutputPort.ToString(); ReceiveBox.Text = previous.ReceivePort.ToString();
             if (wasRunning && _store.Current is { } current)
@@ -1062,10 +1040,31 @@ public partial class MainWindow : Window
     private void ApplyMotionPreference() {
         _motionEnabled = SystemParameters.ClientAreaAnimation;
         Motion.Enabled = _motionEnabled;
-        HeroParticles.AnimationsEnabled = _motionEnabled;
+        UpdateBridgeParticles();
         if (!_motionEnabled) {
             foreach (var page in new FrameworkElement[] { OverviewPage, ModulesPage, SettingsPage, PreferencesPage, ActivityPage, GlobalNotice }) Motion.Transition(page, false);
         }
+    }
+
+    private void UpdateBridgeParticles()
+    {
+        HeroParticles.AnimationsEnabled = _motionEnabled && _running;
+        var opacity = _running ? 1.0 : .24;
+        if (!_motionEnabled)
+        {
+            _particlesLive = _running;
+            HeroParticles.BeginAnimation(OpacityProperty, null);
+            HeroParticles.Opacity = opacity;
+            return;
+        }
+        if (_particlesLive == _running) return;
+        _particlesLive = _running;
+        var displayed = HeroParticles.Opacity;
+        HeroParticles.BeginAnimation(OpacityProperty, null);
+        HeroParticles.Opacity = opacity;
+        if (_motionEnabled && HeroParticles.IsLoaded)
+            HeroParticles.BeginAnimation(OpacityProperty, new DoubleAnimation(displayed, opacity, TimeSpan.FromMilliseconds(200))
+                { EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut }, FillBehavior = FillBehavior.Stop });
     }
 
     private void Hero_SizeChanged(object sender, SizeChangedEventArgs e) {

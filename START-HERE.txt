@@ -1,4 +1,4 @@
-FACE TRACKING BRIDGE 1.2.0 — WINDOWS x64
+FACE TRACKING BRIDGE 1.3.0 — WINDOWS x64
 
 PREREQUISITE
 Install the Microsoft Visual C++ v14 Redistributable (x64) from Microsoft:
@@ -126,6 +126,9 @@ Light and dark modes automatically follow the Windows app color preference.
 The original headset artwork and particle animation are included. Motion
 respects Windows reduced-motion preferences and pauses while minimized.
 IBM Plex Sans is included with its SIL Open Font License notice.
+Tracking-connection particles move only while the bridge is running. Stopping
+the bridge freezes their displayed positions and dims the background dots;
+starting it brightens them and resumes motion when Windows allows animation.
 
 RELAY, THE OPTIONAL HOLOGRAPHIC KITTY
 Click the kitty face in the bottom-left sidebar to enable or hide Relay. The
@@ -137,14 +140,22 @@ stalks, pounces, rubs against surfaces, and looks around. Play and rest unfold
 in sequences; recent events, curiosity, trust, fatigue and habituation influence
 what it does next. It can ignore a familiar cursor and attend to other things.
 Its head, torso pieces, ears, paws and tail links use independent spring motion
-for soft follow-through. Meows, chirps, yawns and purring are synthesized locally.
-Turn Kitty sounds off in Settings to mute them. Muting is remembered, and audio
-stops when the window or kitty is hidden.
+and blended pose transitions for soft follow-through. Interrupted actions blend
+smoothly into the next gesture instead of snapping to a new pose.
+Relay is completely silent. Meows, chirps, yawns and purring appear only as small
+text bubbles that fade away and do not intercept clicks. Audio playback and the
+old sound option have been removed, including for profiles that enabled sound
+in an earlier preview. Text reactions also work with reduced motion enabled.
+The 35 behaviors are organized into interruptible hunting, settling, recovery,
+grooming, exploration and play routines. New gestures include cautious peeking,
+backing away, a pre-pounce wiggle, paw licking, face washing, ear flicks,
+tail-chasing, flopping, dozing and a little startle response. Repetition,
+frustration, willingness and recent activity help it choose a different plan.
 The kitty never clicks controls, changes connection settings or moves your
 system cursor. Only the cat itself intercepts clicks; the rest of the app stays
 usable. Its renderer follows display refresh and pauses when disabled, hidden,
 minimized or in the tray. Windows reduced-motion settings keep it still.
-The original recurrent behavior model has 3,470 parameters and needs no model
+The original recurrent behavior model has 3,720 parameters and needs no model
 download, network connection, account or external AI runtime. It was trained
 on original synthetic behavior examples; mouse interactions are not recorded
 or uploaded. The cat's original vector artwork and animations are included

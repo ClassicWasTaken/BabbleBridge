@@ -7,7 +7,7 @@
     <Nullable>enable</Nullable>
     <AssemblyName>BabbleFrameBridge</AssemblyName>
     <AssemblyTitle>Face Tracking Bridge</AssemblyTitle>
-    <Version>1.2.0</Version>
+    <Version>1.3.0</Version>
     <Product>Face Tracking Bridge</Product>
     <Authors>Face Tracking Bridge contributors</Authors>
     <Copyright>Copyright (c) 2026 Frame Bridge contributors. Third-party copyrights remain with their respective owners.</Copyright>

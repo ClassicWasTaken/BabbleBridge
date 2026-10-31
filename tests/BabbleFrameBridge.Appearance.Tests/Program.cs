@@ -301,14 +301,35 @@ internal static class Program
                 }
             });
 
-            Test("particle motion follows display time and pauses on hidden pages, minimized windows and reduced motion", () =>
+            Test("a stopped bridge keeps its tracking particles dim and completely still", () =>
             {
                 var particles = Named<ParticleField>(window, "HeroParticles");
-                var preference = particles.AnimationsEnabled;
+                Check(!Field<bool>(window, "_running"), "The stopped-particle fixture unexpectedly started tracking.");
+                Method(window, "UpdateBridgeParticles").Invoke(window, null);
+                PumpUntil(() => Math.Abs(particles.Opacity - .24) < .001, "stopped particles dimmed to their resting opacity");
+                Check(!particles.AnimationsEnabled && !Field<bool>(particles, "attached"),
+                    "A stopped bridge retained animated tracking particles.");
+                var stopped = Field<double>(particles, "seconds");
+                RenderParticlesAt(particles, TimeSpan.FromSeconds(100));
+                RenderParticlesAt(particles, TimeSpan.FromSeconds(101));
+                PumpFor(TimeSpan.FromMilliseconds(70));
+                Check(Field<double>(particles, "seconds") == stopped,
+                    "Stopped tracking particles advanced after manual display ticks or a dispatcher pump.");
+            });
+
+            Test("running particle motion follows display time and pauses on hidden pages, minimized windows and reduced motion", () =>
+            {
+                var particles = Named<ParticleField>(window, "HeroParticles");
+                var wasRunning = Field<bool>(window, "_running");
                 try
                 {
+                    // Exercise rendering independently of a physical tracker;
+                    // real worker startup/shutdown is checked by module fixtures below.
+                    window.GetType().GetField("_running", BindingFlags.Instance | BindingFlags.NonPublic)!.SetValue(window, true);
+                    Method(window, "UpdateBridgeParticles").Invoke(window, null);
                     Named<RadioButton>(window, "OverviewNav").IsChecked = true;
                     Pump();
+                    PumpUntil(() => particles.Opacity >= .999, "running tracking particles brightened");
                     if (SystemParameters.ClientAreaAnimation)
                     {
                         PumpUntil(() => Field<bool>(particles, "attached"), "visible particle animation attached");
@@ -341,7 +362,13 @@ internal static class Program
                     PumpFor(TimeSpan.FromMilliseconds(60));
                     Check(Field<double>(particles, "seconds") == stopped, "Reduced-motion particles advanced.");
                 }
-                finally { particles.AnimationsEnabled = preference; }
+                finally
+                {
+                    window.GetType().GetField("_running", BindingFlags.Instance | BindingFlags.NonPublic)!.SetValue(window, wasRunning);
+                    Method(window, "RefreshButtons").Invoke(window, null);
+                    PumpUntil(() => Math.Abs(particles.Opacity - (wasRunning ? 1 : .24)) < .001,
+                        "particle fixture restored the bridge's real state");
+                }
             });
 
             Test("module JSON log values and malformed numeric status do not crash or restart the interface", () =>
@@ -486,48 +513,95 @@ internal static class Program
                 finally { CloseWindow(); }
             });
 
-            Test("kitty sound preferences default on, mute immediately and survive connection saves and reopening", () =>
+            Test("the text-only kitty ignores legacy sound preferences without losing saved settings", () =>
             {
-                var profile = Path.Combine(root, "kitty-sound-preferences");
+                var profile = Path.Combine(root, "kitty-text-migration");
                 Directory.CreateDirectory(profile);
-                // An existing profile has no field for the new sound preference.
-                File.WriteAllText(Path.Combine(profile, "settings.json"), "{\"AutoStart\":false,\"KittyEnabled\":true}");
-                var played = 0; var stopped = 0;
-                using var voice = new KittyVoice(_ => { Interlocked.Increment(ref played); return true; },
-                    () => Interlocked.Increment(ref stopped), synthesize: (_, _, _, _) => new byte[44]);
+                // Existing previews may have opted into audio. The silent upgrade
+                // must keep the companion and connection while ignoring that field.
+                File.WriteAllText(Path.Combine(profile, "settings.json"),
+                    "{\"AutoStart\":false,\"KittyEnabled\":true,\"KittySoundsEnabled\":true,\"OutputPort\":19180,\"ReceivePort\":19181}");
                 try
                 {
-                    window = CreateWindow(profile, kittyVoice: voice); window.Show();
-                    PumpUntil(() => Field<bool>(window, "_initialized") && !Field<bool>(window, "_busy"), "kitty sound profile loaded");
+                    window = CreateWindow(profile); window.Show();
+                    PumpUntil(() => Field<bool>(window, "_initialized") && !Field<bool>(window, "_busy"), "legacy audio profile loaded silently");
                     var overlay = Named<HologramKittyOverlay>(window, "KittyOverlay");
-                    var sounds = Named<CheckBox>(window, "KittySoundsBox");
-                    Check(AppSettings.Load(profile).KittySoundsEnabled && sounds.IsChecked == true && overlay.SoundsEnabled,
-                        "The sound preference did not default on for an existing profile.");
-                    Check(Named<StackPanel>(window, "PreferencesPage").IsAncestorOf(sounds),
-                        "The companion sound preference is outside the Settings page.");
-                    Check(voice.Play(KittyVocalization.Chirp), "The fake voice could not start before muting.");
-                    PumpUntil(() => voice.PendingPlayback.IsCompleted, "fake voice synthesis completed");
-                    Check(Volatile.Read(ref played) == 1, "The fake audio output was not injected.");
-                    var beforeMute = Volatile.Read(ref stopped);
-                    sounds.IsChecked = false;
-                    Check(Volatile.Read(ref stopped) > beforeMute && !voice.Enabled && !overlay.SoundsEnabled
-                        && !AppSettings.Load(profile).KittySoundsEnabled,
-                        "Muting did not stop playback immediately or save the sound preference.");
-                    Check(!voice.Play(KittyVocalization.Meow), "A muted companion accepted another voice.");
+                    Check(overlay.IsActive && AppSettings.Load(profile).KittyEnabled,
+                        "Removing audio disabled the saved companion.");
+                    Check(window.FindName("KittySoundsBox") is null,
+                        "The removed sound preference is still shown in Settings.");
+                    Check(typeof(MainWindow).Assembly.GetType("BabbleFrameBridge.App.KittyVoice") is null
+                        && typeof(MainWindow).Assembly.GetType("BabbleFrameBridge.App.KittyVoiceSynthesizer") is null,
+                        "The text-only build still contains a kitty audio runtime.");
                     InvokeSaveConnection();
-                    Check(!AppSettings.Load(profile).KittySoundsEnabled && AppSettings.Load(profile).KittyEnabled,
-                        "Saving a connection reset sound or companion preferences.");
+                    var saved = AppSettings.Load(profile);
+                    Check(saved.KittyEnabled && saved.OutputPort == 19180 && saved.ReceivePort == 19181,
+                        "Saving after the silent migration reset the companion or connection.");
                     CloseWindow();
-                    using var reopenedVoice = new KittyVoice(_ => true, () => { });
-                    window = CreateWindow(profile, kittyVoice: reopenedVoice); window.Show();
-                    PumpUntil(() => Field<bool>(window, "_initialized") && !Field<bool>(window, "_busy"), "muted kitty profile reopened");
-                    sounds = Named<CheckBox>(window, "KittySoundsBox");
-                    Check(sounds.IsChecked == false && !reopenedVoice.Enabled
-                        && !Named<HologramKittyOverlay>(window, "KittyOverlay").SoundsEnabled,
-                        "Reopening lost the saved mute preference.");
-                    sounds.IsChecked = true;
-                    Check(AppSettings.Load(profile).KittySoundsEnabled && reopenedVoice.Enabled,
-                        "The muted companion could not be enabled again.");
+                    window = CreateWindow(profile); window.Show();
+                    PumpUntil(() => Field<bool>(window, "_initialized") && !Field<bool>(window, "_busy"), "silent kitty profile reopened");
+                    Check(Named<HologramKittyOverlay>(window, "KittyOverlay").IsActive
+                        && Named<TextBox>(window, "PortBox").Text == "19180"
+                        && window.FindName("KittySoundsBox") is null,
+                        "Reopening lost settings or restored the removed audio preference.");
+                }
+                finally { CloseWindow(); }
+            });
+
+            Test("kitty text vocalizations fit the viewport, stay click-through and clear when hidden", () =>
+            {
+                var profile = Path.Combine(root, "kitty-caption-placement");
+                new AppSettings { AutoStart = false, KittyEnabled = true }.Save(profile);
+                try
+                {
+                    window = CreateWindow(profile); themes.AttachWindow(window); window.Show();
+                    PumpUntil(() => Field<bool>(window, "_initialized") && !Field<bool>(window, "_busy"), "caption window loaded");
+                    var overlay = Named<HologramKittyOverlay>(window, "KittyOverlay");
+                    var position = Field<Point>(overlay, "_position");
+                    var points = new[] { new Point(0, 0), new Point(Math.Max(0, overlay.ActualWidth - 144), 0),
+                        new Point(Math.Max(0, overlay.ActualWidth - 144), Math.Max(0, overlay.ActualHeight - 144)), position };
+                    foreach (var point in points)
+                    {
+                        Method(overlay, "ClearCaption").Invoke(overlay, null);
+                        overlay.GetType().GetField("_position", BindingFlags.Instance | BindingFlags.NonPublic)!.SetValue(overlay, point);
+                        Method(overlay, "PlaceCat").Invoke(overlay, null);
+                        Method(overlay, "ShowBubble").Invoke(overlay, ["mrrp~", 1.8]);
+                        PumpUntil(() => overlay.CaptionVisible && !overlay.CaptionBounds.IsEmpty,
+                            "caption established its viewport bounds");
+                        var bounds = overlay.CaptionBounds;
+                        Check(overlay.CaptionText == "mrrp~" && bounds.Width > 8 && bounds.Height > 8,
+                            "A text vocalization was missing or had empty visual bounds.");
+                        Check(bounds.Left >= -.5 && bounds.Top >= -.5 && bounds.Right <= overlay.ActualWidth + .5
+                            && bounds.Bottom <= overlay.ActualHeight + .5,
+                            "A vocalization was clipped beyond the application viewport.");
+                        var corner = new Point(bounds.Left + 3, bounds.Top + 3);
+                        // The caption itself never accepts input. If its corner
+                        // overlaps the animated cat, another clear corner must pass through.
+                        if (overlay.InputHitTest(corner) is not null)
+                            corner = new Point(bounds.Right - 3, bounds.Top + 3);
+                        Check(overlay.InputHitTest(corner) is null,
+                            "The text bubble intercepted application input outside the cat.");
+                    }
+                    Method(window, "DismissNotice").Invoke(window, null);
+                    PumpUntil(() => overlay.CaptionVisible && Field<KittyCaption>(overlay, "_caption").Opacity >= .99,
+                        "caption finished its gentle entrance before preview capture");
+                    foreach (var dark in new[] { false, true })
+                    {
+                        themes.ApplyTheme(dark); Pump();
+                        SavePreview(window, renderDirectory, dark ? "kitty-caption-dark.png" : "kitty-caption-light.png");
+                    }
+                    window.Hide();
+                    PumpUntil(() => !overlay.CaptionVisible && overlay.CaptionBounds.IsEmpty,
+                        "hiding cleared the text vocalization");
+                    window.Show();
+                    PumpUntil(() => overlay.IsAnimating == SystemParameters.ClientAreaAnimation,
+                        "caption window resumed its motion policy");
+                    Check(!overlay.CaptionVisible, "Reopening replayed an old caption.");
+                    Method(overlay, "ShowBubble").Invoke(overlay, ["zzz", 1.5]);
+                    Check(overlay.CaptionVisible, "A visible companion could not show another text reaction.");
+                    Named<Button>(window, "KittyToggle").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                    Check(!overlay.CaptionVisible && overlay.CaptionBounds.IsEmpty,
+                        "Disabling the companion left a speech bubble visible.");
                 }
                 finally { CloseWindow(); }
             });
@@ -565,11 +639,9 @@ internal static class Program
             {
                 var profile = Path.Combine(root, "kitty-suspension");
                 new AppSettings { AutoStart = false, KittyEnabled = true }.Save(profile);
-                var soundStops = 0;
-                using var voice = new KittyVoice(_ => true, () => Interlocked.Increment(ref soundStops));
                 try
                 {
-                    window = CreateWindow(profile, kittyVoice: voice); window.Show();
+                    window = CreateWindow(profile); window.Show();
                     PumpUntil(() => Field<bool>(window, "_initialized") && !Field<bool>(window, "_busy"), "kitty suspension window loaded");
                     var overlay = Named<HologramKittyOverlay>(window, "KittyOverlay");
                     var cat = Field<HologramKittyVisual>(overlay, "_cat");
@@ -583,7 +655,6 @@ internal static class Program
                     }
                     var button = Named<Button>(window, "ImportButton");
                     Motion.PetWobble(button);
-                    var stopsBeforeHide = Volatile.Read(ref soundStops);
                     window.Hide();
                     PumpUntil(() => !overlay.IsAnimating, "hidden kitty detached rendering");
                     var seconds = Field<double>(overlay, "_seconds");
@@ -593,26 +664,18 @@ internal static class Program
                     Check(TransformParts(button.RenderTransform).All(part => !part.HasAnimatedProperties),
                         "Hiding the companion left a panel/button swat animation running.");
                     Check(cat.RigSnapshot.MotionEnergy == 0, "Hiding the cat retained spring momentum.");
-                    if (SystemParameters.ClientAreaAnimation)
-                        Check(Volatile.Read(ref soundStops) > stopsBeforeHide, "Hiding the companion did not stop audio.");
                     window.Show();
                     PumpUntil(() => overlay.IsAnimating == SystemParameters.ClientAreaAnimation, "visible kitty followed motion preference");
-                    var stopsBeforeMinimize = Volatile.Read(ref soundStops);
                     window.WindowState = WindowState.Minimized;
                     PumpUntil(() => !overlay.IsAnimating, "minimized kitty detached rendering");
-                    if (SystemParameters.ClientAreaAnimation)
-                        Check(Volatile.Read(ref soundStops) > stopsBeforeMinimize, "Minimizing the companion did not stop audio.");
                     window.WindowState = WindowState.Normal;
                     PumpUntil(() => overlay.IsAnimating == SystemParameters.ClientAreaAnimation, "restored kitty resumed rendering");
                     Motion.PetWobble(button);
-                    var stopsBeforeDisable = Volatile.Read(ref soundStops);
                     Named<Button>(window, "KittyToggle").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
                     Check(!overlay.IsAnimating && !Field<bool>(overlay, "_inputAttached") && overlay.Visibility == Visibility.Collapsed,
                         "Disabling the companion retained rendering or input subscriptions.");
                     Check(TransformParts(button.RenderTransform).All(part => !part.HasAnimatedProperties),
                         "Tucking the kitty away retained a swat transform.");
-                    if (SystemParameters.ClientAreaAnimation)
-                        Check(Volatile.Read(ref soundStops) > stopsBeforeDisable, "Disabling the companion did not stop audio.");
                 }
                 finally { CloseWindow(); }
             });
@@ -1430,6 +1493,11 @@ internal static class Program
                         var original = new ModuleStore(profile).Current;
                         Check(original?.Version == "4.0.0" && Field<bool>(window, "_running"),
                             "The first module did not activate after the real worker initialized.");
+                        var liveParticles = Named<ParticleField>(window, "HeroParticles");
+                        PumpUntil(() => liveParticles.Opacity >= .999,
+                            "real tracking startup brightened the particle field");
+                        Check(liveParticles.AnimationsEnabled == SystemParameters.ClientAreaAnimation,
+                            "Real tracking startup did not apply the Windows particle-motion policy.");
                         Check(Field<Process>(window, "_worker").StartInfo.ArgumentList.Contains("--no-discovery"),
                             "The isolated worker could discover a live VRChat session.");
                         var originalPid = Field<Process>(window, "_worker").Id;
@@ -1639,6 +1707,15 @@ internal static class Program
                             "Removing the selected module automatically selected another entry or lost the remaining library.");
                         Check(!Field<bool>(window, "_running") && Field<object?>(window, "_worker") is null,
                             "Removing the active module left its worker running.");
+                        var stoppedParticles = Named<ParticleField>(window, "HeroParticles");
+                        PumpUntil(() => Math.Abs(stoppedParticles.Opacity - .24) < .001,
+                            "real tracking shutdown dimmed the particle field");
+                        Check(!stoppedParticles.AnimationsEnabled && !Field<bool>(stoppedParticles, "attached"),
+                            "Real tracking shutdown left the particle field moving.");
+                        var frozen = Field<double>(stoppedParticles, "seconds");
+                        RenderParticlesAt(stoppedParticles, TimeSpan.FromSeconds(400));
+                        Check(Field<double>(stoppedParticles, "seconds") == frozen,
+                            "Particles advanced after the real worker stopped.");
                         Check(!Named<Button>(window, "StartButton").IsEnabled && !Directory.Exists(updated.DirectoryPath),
                             "The removed active module can still start or its installed payload was retained.");
                         CheckLibraryReferences(afterActive);
@@ -2346,11 +2423,10 @@ internal static class Program
     }
 
     private static MainWindow CreateWindow(string profile, string? workerExecutable = null, ModuleDownloader? moduleDownloader = null,
-        Func<bool, Task>? configureSteamVrAutoLaunch = null, KittyVoice? kittyVoice = null)
+        Func<bool, Task>? configureSteamVrAutoLaunch = null)
     {
         var result = new MainWindow(profile, useDiscovery: false, workerExecutable: workerExecutable,
-            moduleDownloader: moduleDownloader, configureSteamVrAutoLaunch: configureSteamVrAutoLaunch,
-            kittyVoice: kittyVoice ?? new KittyVoice(_ => true, () => { }))
+            moduleDownloader: moduleDownloader, configureSteamVrAutoLaunch: configureSteamVrAutoLaunch)
         {
             ShowActivated = false, ShowInTaskbar = false,
             WindowStartupLocation = WindowStartupLocation.Manual, Left = -20000, Top = -20000

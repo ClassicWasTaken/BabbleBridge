@@ -84,8 +84,8 @@ https://github.com/guygodin/VirtualDesktop.VRCFaceTracking
 https://github.com/ykeara/LinkFT
 
 ORIGINAL VISUAL ASSETS
-Relay's holographic robot-cat artwork, articulated spring animations, original
-synthesized vocalizations, recurrent neural behavior policy, and synthetic training code/examples are original project
+Relay's holographic robot-cat artwork, articulated spring animations, silent
+text vocalizations, recurrent neural behavior policy, and synthetic training code/examples are original project
 work under Apache 2.0. No VRChat mascot artwork or third-party pretrained
 weights are included. See tools/train_kitty_policy.py and tests/Kitty.Tests/README.md
 in the source for model provenance and reproduction instructions.

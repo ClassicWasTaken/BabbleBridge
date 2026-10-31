@@ -114,7 +114,6 @@ function Assert-SteamVrPreferences([bool]$ExpectedOptIn) {
     Assert-True ($settings.StartWithSteamVr -eq $ExpectedOptIn) 'SteamVR opt-in was not preserved or cleared as expected.'
     Assert-True ($settings.StartMinimized -and $settings.CloseWithSteamVr) 'Installer changed unrelated launch preferences.'
     Assert-True $settings.KittyEnabled 'Installer changed the optional kitty preference.'
-    Assert-True (!$settings.KittySoundsEnabled) 'Installer changed the saved kitty mute preference.'
     Assert-True ($settings.ImportedModule -eq 'preserve-user-module') 'Installer changed the isolated imported-module fixture.'
 }
 function Assert-SteamVrRefresh([string]$ExpectedPayload) {
@@ -336,7 +335,7 @@ try {
     Assert-OwnedPath $steamVrProfile
     $null = New-Item -ItemType Directory -Path $steamVrProfile
     [IO.File]::WriteAllText($steamVrSettings, (@{
-        StartWithSteamVr = $false; StartMinimized = $true; CloseWithSteamVr = $true; KittyEnabled = $true; KittySoundsEnabled = $false
+        StartWithSteamVr = $false; StartMinimized = $true; CloseWithSteamVr = $true; KittyEnabled = $true
         ImportedModule = 'preserve-user-module'
     } | ConvertTo-Json))
     $fakeMaintenanceSource = @'

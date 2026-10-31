@@ -6,6 +6,6 @@
     <Nullable>enable</Nullable>
   </PropertyGroup>
   <ItemGroup>
-    <Compile Include="../../src/BabbleFrameBridge.App/KittyVoice.cs" Link="KittyVoice.cs" />
+    <Compile Include="../../src/BabbleFrameBridge.App/KittyCaption.cs" Link="KittyCaption.cs" />
   </ItemGroup>
 </Project>

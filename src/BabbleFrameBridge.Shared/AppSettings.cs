@@ -61,7 +61,6 @@ public sealed class AppSettings
     public bool CloseWithSteamVr { get; set; }
     public bool StartMinimized { get; set; }
     public bool KittyEnabled { get; set; }
-    public bool KittySoundsEnabled { get; set; } = true;
 
     public static AppSettings Load(string root)
     {

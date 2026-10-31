@@ -7,6 +7,7 @@ using System.Globalization;
 using System.Windows;
 using System.Windows.Input;
 using System.Windows.Media;
+using System.Windows.Threading;
 
 namespace BabbleFrameBridge.App;
 
@@ -26,22 +27,24 @@ public sealed class HologramKittyOverlay : FrameworkElement, IDisposable
     private readonly TranslateTransform _placement = new();
     private readonly KittyMind _mind = new();
     private readonly Random _random = new();
-    private KittyVoice _voice = new();
+    private readonly KittyCaption _caption = new();
+    private readonly DispatcherTimer _captionTimer;
+    private double _captionTick;
     private Window? _owner;
     private bool _loaded, _active, _rendering, _inputAttached, _disposed, _positioned, _impactSent;
     private TimeSpan? _lastFrame;
     private double _seconds, _decisionAccumulator, _waypointAge, _cursorMotion, _wavePulse;
-    private double _lastPointerTimestamp, _facing = 1, _bubbleRemaining, _rippleRemaining;
+    private double _lastPointerTimestamp, _facing = 1, _rippleRemaining;
     private Point _position, _target, _pointer, _lastPointer, _ripplePoint;
     private Vector _velocity, _previousPointerDelta;
     private bool _pointerActive;
     private KittyAction _lastAction = KittyAction.Watch;
     private double _observedActionAge;
     private KittyAttention _lastAttention = KittyAttention.Environment;
-    private Point _gazeTarget, _memoryPoint, _restingSpot, _interestPoint;
+    private Point _gazeTarget, _memoryPoint, _restingSpot, _interestPoint, _orbitCenter;
     private Vector _gaze;
     private double _gazeDwell, _novelty, _interestAge = 100, _lift;
-    private bool _voiceSent;
+    private bool _captionSent;
     private FormattedText? _bubble;
 
     /// <summary>Overlay-local coordinates; the root can render-wobble an eligible panel at this point.</summary>
@@ -56,15 +59,9 @@ public sealed class HologramKittyOverlay : FrameworkElement, IDisposable
     public KittyAttention Attention => _mind.Attention;
     public Point GazeTarget => _gazeTarget;
     public string Status => !_active ? "Relay is tucked away." : _mind.Intention;
-    public bool SoundsEnabled { get => _voice.Enabled; set => _voice.Enabled = value; }
-
-    public void SetVoice(KittyVoice voice)
-    {
-        ArgumentNullException.ThrowIfNull(voice);
-        if (ReferenceEquals(_voice, voice)) return;
-        _voice.Dispose();
-        _voice = voice;
-    }
+    public string CaptionText => _caption.Text;
+    public bool CaptionVisible => _active && _caption.Visible;
+    public Rect CaptionBounds { get; private set; } = Rect.Empty;
 
     public HologramKittyOverlay()
     {
@@ -72,6 +69,8 @@ public sealed class HologramKittyOverlay : FrameworkElement, IDisposable
         Visibility = Visibility.Collapsed;
         ClipToBounds = true;
         Cursor = Cursors.Hand;
+        _captionTimer = new DispatcherTimer(DispatcherPriority.Background, Dispatcher) { Interval = TimeSpan.FromMilliseconds(80) };
+        _captionTimer.Tick += OnCaptionTick;
         _cat.RenderTransform = _placement;
         AddVisualChild(_cat);
         AddLogicalChild(_cat);
@@ -159,17 +158,19 @@ public sealed class HologramKittyOverlay : FrameworkElement, IDisposable
                 CompositionTarget.Rendering -= OnRendering;
                 _velocity = default;
                 _lift = 0;
-                _voice.Stop();
                 _cat.ResetRig();
                 PlaceCat();
                 _pointerActive = false;
                 _cursorMotion = _wavePulse = 0;
-                _bubbleRemaining = _rippleRemaining = 0;
+                _rippleRemaining = 0;
+                ClearCaption();
                 _cat.RenderFrame(KittyAction.Watch, .5, _seconds, facing: _facing);
                 AnimationSuspended?.Invoke(this, EventArgs.Empty);
                 InvalidateVisual();
             }
         }
+        if (!visible) ClearCaption();
+        else if (animate) _captionTimer.Stop();
         if (_inputAttached == animate || _owner is null) return;
         _inputAttached = animate;
         if (animate)
@@ -241,9 +242,9 @@ public sealed class HologramKittyOverlay : FrameworkElement, IDisposable
         {
             _mind.Tick(.01, Stimulus());
             ObserveActionChange();
-            ShowBubble(_mind.Irritation > .65 ? "hff." : _mind.Stimulation > .6 ? "!!" : "mrrp", 1.25);
         }
         else _cat.RenderFrame(KittyAction.Watch, .5, _seconds, facing: _facing);
+        ShowBubble(_mind.Irritation > .65 ? "hff." : _mind.Stimulation > .6 ? "!!" : "mrrp", 1.25);
         StateChanged?.Invoke(this, EventArgs.Empty);
         args.Handled = true;
     }
@@ -296,23 +297,27 @@ public sealed class HologramKittyOverlay : FrameworkElement, IDisposable
                 _impactSent = true;
             }
         }
-        if (!_voiceSent && phase >= .22)
+        if (!_captionSent && phase >= .22)
         {
-            var kind = _mind.Action switch { KittyAction.Meow => KittyVocalization.Meow,
-                KittyAction.Chirp => KittyVocalization.Chirp, KittyAction.Yawn => KittyVocalization.Yawn,
-                KittyAction.Knead when _mind.Trust > .5 => KittyVocalization.Purr, _ => (KittyVocalization?)null };
-            if (kind is { } vocalization) _voice.Play(vocalization, _mind.Stimulation);
-            _voiceSent = true;
+            var kind = _mind.Action switch { KittyAction.Meow => KittyCaptionKind.Meow,
+                KittyAction.Chirp => KittyCaptionKind.Chirp, KittyAction.Yawn => KittyCaptionKind.Yawn,
+                KittyAction.Knead when _mind.Trust > .5 => KittyCaptionKind.Purr,
+                KittyAction.Sleep or KittyAction.Doze => KittyCaptionKind.Dream,
+                KittyAction.Sniff or KittyAction.Peek => KittyCaptionKind.Curious,
+                KittyAction.PawLick or KittyAction.FaceWash => KittyCaptionKind.Groom,
+                KittyAction.Startle => KittyCaptionKind.Surprise, _ => (KittyCaptionKind?)null };
+            if (kind is { } vocalization) ShowCaption(vocalization);
+            _captionSent = true;
         }
         _cat.UpdateRig(dt, _velocity.X, _velocity.Y, _facing);
         _cat.RenderFrame(_mind.Action, phase, _seconds, _gaze.X, _gaze.Y, _facing, _mind.Stimulation);
-        var hadOverlayEffects = _bubbleRemaining > 0 || _rippleRemaining > 0;
-        _bubbleRemaining = Math.Max(0, _bubbleRemaining - dt);
+        var hadOverlayEffects = _caption.Visible || _rippleRemaining > 0;
+        _caption.Advance(dt);
         _rippleRemaining = Math.Max(0, _rippleRemaining - dt);
-        if (_bubbleRemaining <= 0) _bubble = null;
+        if (!_caption.Visible) { _bubble = null; CaptionBounds = Rect.Empty; }
         // Include the final zero frame so the retained drawing cannot leave a
         // faint cursor ring behind after its one-shot effect has finished.
-        if (hadOverlayEffects || _bubbleRemaining > 0 || _rippleRemaining > 0) InvalidateVisual();
+        if (hadOverlayEffects || _caption.Visible || _rippleRemaining > 0) InvalidateVisual();
     }
 
     private void ObserveActionChange()
@@ -322,8 +327,9 @@ public sealed class HologramKittyOverlay : FrameworkElement, IDisposable
         if (_mind.Action == _lastAction && !restarted) return;
         _lastAction = _mind.Action;
         _impactSent = false;
-        _voiceSent = false;
+        _captionSent = false;
         _waypointAge = 0;
+        _orbitCenter = _position;
         _target = _mind.Action switch
         {
             KittyAction.Walk or KittyAction.Zoomies or KittyAction.LookAround => WanderPoint(),
@@ -331,15 +337,15 @@ public sealed class HologramKittyOverlay : FrameworkElement, IDisposable
             KittyAction.Stalk or KittyAction.Pounce or KittyAction.Chase when _pointerActive => ClampPosition(new Point(_pointer.X - 72, _pointer.Y - 62)),
             KittyAction.Swat when _pointerActive => ClampPosition(new Point(_pointer.X - 72 - _facing * 62, _pointer.Y - 59)),
             KittyAction.Grumpy when _pointerActive => ClampPosition(_position + AwayFromPointer() * 50),
+            KittyAction.Backoff when _pointerActive => ClampPosition(_position + AwayFromPointer() * 95),
+            KittyAction.Startle when _pointerActive => ClampPosition(_position + AwayFromPointer() * 38),
+            KittyAction.Peek when _pointerActive => ClampPosition(_position - AwayFromPointer() * 18),
             KittyAction.Circle => ClampPosition(_restingSpot),
             _ => _position
         };
         if (_mind.Action == KittyAction.Zoomies) ShowBubble("!!", 1);
         else if (_mind.Action == KittyAction.Grumpy) ShowBubble("hff.", 1.6);
         else if (_mind.Action is KittyAction.Swat or KittyAction.SmackPanel) ShowBubble("bap!", .65);
-        else if (_mind.Action == KittyAction.Chirp) ShowBubble("prrp", .9);
-        else if (_mind.Action == KittyAction.Meow) ShowBubble("mew", 1.1);
-        else if (_mind.Action == KittyAction.Yawn) ShowBubble("...", .9);
         if (_mind.Action is KittyAction.Loaf or KittyAction.Sleep) _restingSpot = _position;
         StateChanged?.Invoke(this, EventArgs.Empty);
     }
@@ -354,6 +360,11 @@ public sealed class HologramKittyOverlay : FrameworkElement, IDisposable
             var angle = _mind.ActionAge / Math.Max(1, _mind.ActionDuration) * Math.PI * 2;
             _target = ClampPosition(_restingSpot + new Vector(Math.Cos(angle) * 22, Math.Sin(angle) * 11));
         }
+        else if (action == KittyAction.TailChase)
+        {
+            var angle = _mind.ActionAge * 4;
+            _target = ClampPosition(_orbitCenter + new Vector(Math.Cos(angle) * 43, Math.Sin(angle) * 23));
+        }
         else if (action == KittyAction.Swat)
             _target = _pointerActive && (_pointer - FacePoint()).Length > 92
                 ? ClampPosition(new Point(_pointer.X - 72 - _facing * 62, _pointer.Y - 59)) : _position;
@@ -364,17 +375,26 @@ public sealed class HologramKittyOverlay : FrameworkElement, IDisposable
         }
         var moving = action is KittyAction.Walk or KittyAction.Chase or KittyAction.Zoomies or KittyAction.Grumpy or KittyAction.Swat
             or KittyAction.Stalk or KittyAction.Pounce or KittyAction.Inspect or KittyAction.Sniff or KittyAction.Rub or KittyAction.Circle;
+        moving |= action is KittyAction.Backoff or KittyAction.Peek or KittyAction.Startle or KittyAction.TailChase;
         var desired = moving ? _target - _position : default;
         var speed = action switch { KittyAction.Zoomies => 420, KittyAction.Pounce => 310, KittyAction.Stalk => 42,
-            KittyAction.Chase => 190, KittyAction.Swat => 140, KittyAction.Grumpy => 65, KittyAction.Circle => 60, _ => 78 };
+            KittyAction.Chase => 190, KittyAction.Swat => 140, KittyAction.Grumpy => 65, KittyAction.Circle => 60,
+            KittyAction.TailChase => 150, KittyAction.Backoff => 105, KittyAction.Peek => 25, _ => 78 };
+        var phase = Math.Clamp((_mind.ActionAge + _decisionAccumulator) / Math.Max(.1, _mind.ActionDuration), 0, 1);
+        if (action == KittyAction.Pounce && phase < .18) desired = default;
         var desiredVelocity = desired.Length > 1 ? desired / desired.Length * Math.Min(speed, desired.Length * 4) : default;
-        _velocity += (desiredVelocity - _velocity) * Math.Min(1, dt * (action == KittyAction.Zoomies ? 9 : 6));
+        var velocityChange = (desiredVelocity - _velocity) * (1 - Math.Exp(-dt * (action == KittyAction.Zoomies ? 9 : 6)));
+        var changeLimit = (action == KittyAction.Zoomies ? 1500 : action is KittyAction.Pounce or KittyAction.Startle ? 1800 : 750) * dt;
+        if (velocityChange.Length > changeLimit) velocityChange *= changeLimit / velocityChange.Length;
+        _velocity += velocityChange;
         _position = ClampPosition(_position + _velocity * dt);
-        if (Math.Abs(_velocity.X) > 6) _facing = Math.Sign(_velocity.X);
+        if (action is KittyAction.Backoff or KittyAction.Startle && _pointerActive)
+            _facing = _pointer.X >= _position.X + 72 ? 1 : -1;
+        else if (Math.Abs(_velocity.X) > 6) _facing = Math.Sign(_velocity.X);
         else if (_mind.Attention == KittyAttention.Cursor && _pointerActive && action is KittyAction.Watch or KittyAction.Swat)
             _facing = _pointer.X >= _position.X + 72 ? 1 : -1;
-        var phase = Math.Clamp((_mind.ActionAge + _decisionAccumulator) / Math.Max(.1, _mind.ActionDuration), 0, 1);
-        _lift = action == KittyAction.Pounce ? Math.Sin(Math.PI * phase) * 28 : 0;
+        _lift = action switch { KittyAction.Pounce => Math.Sin(Math.PI * Math.Clamp((phase - .18) / .65, 0, 1)) * 28,
+            KittyAction.Startle => Math.Sin(Math.PI * phase) * 10, _ => 0 };
         PlaceCat();
     }
 
@@ -453,9 +473,39 @@ public sealed class HologramKittyOverlay : FrameworkElement, IDisposable
 
     private void ShowBubble(string text, double duration)
     {
-        _bubble = new FormattedText(text, CultureInfo.InvariantCulture, FlowDirection.LeftToRight,
+        if (!CanDisplayCaption() || !_caption.Show(text, duration)) return;
+        RefreshCaptionText();
+    }
+
+    private void ShowCaption(KittyCaptionKind kind)
+    {
+        if (!CanDisplayCaption() || !_caption.ShowFor(kind, kind == KittyCaptionKind.Surprise)) return;
+        RefreshCaptionText();
+    }
+
+    private bool CanDisplayCaption() => _active && _loaded && IsVisible && _owner is { IsVisible: true }
+        && _owner.WindowState != WindowState.Minimized;
+
+    private void RefreshCaptionText()
+    {
+        _bubble = new FormattedText(_caption.Text, CultureInfo.InvariantCulture, FlowDirection.LeftToRight,
             new Typeface("Segoe UI Semibold"), 11, BubbleInk, VisualTreeHelper.GetDpi(this).PixelsPerDip);
-        _bubbleRemaining = duration;
+        if (!_rendering) { _captionTick = Stopwatch.GetTimestamp() / (double)Stopwatch.Frequency; _captionTimer.Start(); }
+        InvalidateVisual();
+    }
+
+    private void ClearCaption()
+    {
+        _captionTimer.Stop(); _caption.Clear(); _bubble = null; CaptionBounds = Rect.Empty;
+        InvalidateVisual();
+    }
+
+    private void OnCaptionTick(object? sender, EventArgs args)
+    {
+        if (!CanDisplayCaption()) { ClearCaption(); return; }
+        var now = Stopwatch.GetTimestamp() / (double)Stopwatch.Frequency;
+        _caption.Advance(Math.Max(0, now - _captionTick)); _captionTick = now;
+        if (!_caption.Visible) { ClearCaption(); return; }
         InvalidateVisual();
     }
 
@@ -463,13 +513,21 @@ public sealed class HologramKittyOverlay : FrameworkElement, IDisposable
     {
         base.OnRender(drawing);
         if (!_active) return;
-        if (_bubbleRemaining > 0 && _bubble is { } text)
+        if (_caption.Visible && _bubble is { } text)
         {
-            var width = text.Width + 18;
-            var x = Math.Clamp(_position.X + 72 - width / 2, 3, Math.Max(3, ActualWidth - width - 3));
-            var y = Math.Max(3, _position.Y - 4);
-            drawing.DrawRoundedRectangle(BubbleFill, BubbleOutline, new Rect(x, y, width, 24), 10, 10);
-            drawing.DrawText(text, new Point(x + 9, y + 4));
+            var width = Math.Min(text.Width + 22, Math.Max(12, ActualWidth - 12));
+            var x = Math.Clamp(_position.X + 72 - width / 2, 6, Math.Max(6, ActualWidth - width - 6));
+            var preferredY = _position.Y - _lift - 23;
+            if (preferredY < 6) preferredY = _position.Y - _lift + CatSize + 2;
+            var motion = SystemParameters.ClientAreaAnimation;
+            var y = Math.Clamp(preferredY + (motion ? _caption.OffsetY : 0), 6, Math.Max(6, ActualHeight - 34));
+            CaptionBounds = new Rect(x, y, width, 27);
+            drawing.PushOpacity(motion ? _caption.Opacity : 1);
+            var scale = motion ? _caption.Scale : 1;
+            drawing.PushTransform(new ScaleTransform(scale, scale, x + width / 2, y + 27));
+            drawing.DrawRoundedRectangle(BubbleFill, BubbleOutline, CaptionBounds, 12, 12);
+            drawing.DrawText(text, new Point(x + 11, y + 6));
+            drawing.Pop(); drawing.Pop();
         }
         if (_rippleRemaining > 0)
         {
@@ -516,12 +574,12 @@ public sealed class HologramKittyOverlay : FrameworkElement, IDisposable
         if (_disposed) return;
         _disposed = true;
         _active = _rendering = false;
-        _voice.Dispose();
+        _captionTimer.Stop(); _captionTimer.Tick -= OnCaptionTick;
         _cat.ResetRig();
         CompositionTarget.Rendering -= OnRendering;
         DetachOwner();
         _bubble = null;
-        _bubbleRemaining = _rippleRemaining = 0;
+        _caption.Clear(); CaptionBounds = Rect.Empty; _rippleRemaining = 0;
         AnimationSuspended?.Invoke(this, EventArgs.Empty);
         Visibility = Visibility.Collapsed;
     }

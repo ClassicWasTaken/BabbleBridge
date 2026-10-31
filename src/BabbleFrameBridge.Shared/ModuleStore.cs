@@ -312,7 +312,7 @@ public sealed class ModuleStore
                 // Prepare safe recovery before moving any files: if the process stops between
                 // the move and main-state commit, this backup already excludes the removed ID.
                 WriteAtomic(backupPath, next, keepBackup: false);
-                Directory.Move(releaseRoot, removedRoot);
+                MoveRemovalDirectory(releaseRoot, removedRoot);
                 moved = true;
                 WriteAtomic(_statePath, next, keepBackup: false);
                 _state = next;
@@ -321,7 +321,7 @@ public sealed class ModuleStore
             {
                 if (moved)
                 {
-                    try { Directory.Move(removedRoot, releaseRoot); }
+                    try { MoveRemovalDirectory(removedRoot, releaseRoot); }
                     catch (Exception restoreError) when (restoreError is IOException or UnauthorizedAccessException)
                     {
                         // Keep the sanitized backup valid if a concurrent file lock prevents
@@ -340,6 +340,25 @@ public sealed class ModuleStore
                 throw;
             }
             TryDeleteRemovedRelease(removedRoot, stored.Id);
+        }
+    }
+
+    private void MoveRemovalDirectory(string source, string destination)
+    {
+        // Windows scanners can briefly open a just-inspected module directory
+        // without delete sharing. Retry only the owned atomic rename, keeping
+        // the transaction uncommitted and preserving real permission failures.
+        ReadOnlySpan<int> delays = [20, 40, 70, 110];
+        for (var attempt = 0; ; attempt++)
+        {
+            if (attempt > 0) EnsureRemovalTree(source);
+            try { Directory.Move(source, destination); return; }
+            catch (Exception error) when (OperatingSystem.IsWindows() && attempt < delays.Length
+                && (error is IOException or UnauthorizedAccessException)
+                && ((error.HResult & 0xffff) is 5 or 32 or 33))
+            {
+                Thread.Sleep(delays[attempt]);
+            }
         }
     }
 

@@ -57,4 +57,38 @@ Check(rig.Snapshot.FacingScale < -.99, "The facing spring never finished its tur
 rig.Reset();
 Check(rig.Snapshot.Head == default && rig.Snapshot.MotionEnergy == 0 && rig.Snapshot.StretchX == 1,
     "Disabling/reducing motion must fully reset the rig.");
+var poses = new KittyPoseBlend();
+Check(poses.Count == 35 && poses[0] == 1, "The refined pose vocabulary must start in a stable watch pose.");
+poses.Step(1d / 60, 7);
+Check(poses[0] is > .95 and < 1 && poses[7] is > 0 and < .05,
+    "Changing from watch to sleep snapped directly to the sleeping geometry.");
+var beforeInterrupt = Enumerable.Range(0, poses.Count).Select(index => poses[index]).ToArray();
+poses.Step(1d / 144, 6);
+Check(Math.Abs(poses[7] - beforeInterrupt[7]) < .04 && poses.TransitionEnergy > 0,
+    "An interrupted pose discarded its continuous blend state.");
+for (var i = 0; i < 720; i++) poses.Step(1d / 144, 6);
+Check(Math.Abs(poses[6] - 1) < .000001 && poses.TransitionEnergy < .000001,
+    "Blended action transitions must settle completely without residual jitter.");
+static double[] BlendAt(int fps)
+{
+    var blend = new KittyPoseBlend();
+    for (var i = 0; i < fps; i++) blend.Step(1d / fps, 7);
+    for (var elapsed = 0d; elapsed < .2; elapsed += 1d / fps)
+        blend.Step(Math.Min(1d / fps, .2 - elapsed), 6);
+    return Enumerable.Range(0, blend.Count).Select(index => blend[index]).ToArray();
+}
+var blend30 = BlendAt(30); var blend60 = BlendAt(60); var blend144 = BlendAt(144);
+Check(Math.Abs(blend30[6] - blend60[6]) < .000001 && Math.Abs(blend60[6] - blend144[6]) < .000001,
+    "Pose morphing changed visibly with the display's refresh rate.");
+for (var i = 0; i < 2000; i++)
+{
+    poses.Step(i % 7 == 0 ? .09 : .004, i % poses.Count);
+    var sum = Enumerable.Range(0, poses.Count).Sum(index => poses[index]);
+    Check(double.IsFinite(poses.TransitionEnergy) && Math.Abs(sum - 1) < .000001,
+        "Rapid action interruptions escaped the normalized, finite pose blend.");
+}
+var poseBeforeInvalidTime = poses[6]; poses.Step(double.NaN, 6); poses.Step(-1, 6);
+Check(poses[6] == poseBeforeInvalidTime, "Invalid time changed the visual pose blend.");
+poses.Reset(12);
+Check(poses[12] == 1 && poses.TransitionEnergy == 0, "Suspending motion must reset every pose clock.");
 Console.WriteLine($"PASS {checks} articulated spring checks: inertial lag, chain independence, bounded motion, frame-rate consistency and reset.");

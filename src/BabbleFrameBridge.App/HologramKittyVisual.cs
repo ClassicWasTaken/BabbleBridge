@@ -38,6 +38,11 @@ public sealed class HologramKittyVisual : FrameworkElement
     private static readonly Geometry Smile = Geometry("M66,63 Q71,70 78,63");
     private KittyAction _action;
     private double _phase, _time, _lookX, _lookY, _facing = 1, _excitement;
+    private readonly KittyPoseBlend _poses = new();
+    private readonly double[] _channels = new double[12];
+    private readonly Point[] _tailPoints = new Point[9];
+    private double _frameDelta, _gaitPhase;
+    private bool _poseReady, _resetPose, _channelsReady;
     private readonly KittySpringRig _rig = new();
     private readonly ContainerVisual _scene = new();
     private readonly DrawingVisual[] _parts = Enumerable.Range(0, 23).Select(_ => new DrawingVisual()).ToArray();
@@ -51,13 +56,10 @@ public sealed class HologramKittyVisual : FrameworkElement
 
     public int BodyPartCount => _parts.Length;
     public KittyRigSnapshot RigSnapshot => _rig.Snapshot;
-    public double MouthOpenness => _action switch
-    {
-        KittyAction.Yawn => Math.Sin(Math.PI * Unit((_phase - .12) / .72)),
-        KittyAction.Meow => Math.Sin(Math.PI * Unit((_phase - .12) / .55)) * .76,
-        KittyAction.Chirp => Math.Max(0, Math.Sin(_phase * Math.PI * 3)) * .5,
-        _ => 0
-    };
+    public double PoseTransitionEnergy => _poses.TransitionEnergy;
+    public double MouthOpenness => Weight(KittyAction.Yawn) * Math.Sin(Math.PI * Unit((_phase - .12) / .72))
+        + Weight(KittyAction.Meow) * Math.Sin(Math.PI * Unit((_phase - .12) / .55)) * .76
+        + Weight(KittyAction.Chirp) * Math.Max(0, Math.Sin(_phase * Math.PI * 3)) * .5;
 
     public HologramKittyVisual()
     {
@@ -73,10 +75,11 @@ public sealed class HologramKittyVisual : FrameworkElement
     public void UpdateRig(double deltaSeconds, double velocityX, double velocityY, double facing = 1)
     {
         _usesRigMotion = true;
+        _frameDelta = double.IsFinite(deltaSeconds) ? Math.Clamp(deltaSeconds, 0, .1) : 0;
         _rig.Step(deltaSeconds, velocityX, velocityY, facing);
     }
 
-    public void ResetRig() { _rig.Reset(_facing); InvalidateVisual(); }
+    public void ResetRig() { _rig.Reset(_facing); _poses.Reset((int)_action); _resetPose = true; _frameDelta = 0; _channelsReady = false; InvalidateVisual(); }
     protected override int VisualChildrenCount => 1;
     protected override Visual GetVisualChild(int index) => index == 0 ? _scene : throw new ArgumentOutOfRangeException(nameof(index));
 
@@ -84,11 +87,27 @@ public sealed class HologramKittyVisual : FrameworkElement
     public void RenderFrame(KittyAction action, double phase, double time, double lookX = 0,
         double lookY = 0, double facing = 1, double excitement = 0)
     {
+        if ((int)action < 0 || (int)action >= _poses.Count) action = KittyAction.Watch;
         _action = action; _phase = Unit(phase); _time = double.IsFinite(time) ? Math.Max(0, time) : 0;
-        _lookX = SignedUnit(lookX); _lookY = SignedUnit(lookY); _facing = facing < 0 ? -1 : 1;
+        if (!_poseReady || _resetPose || !_usesRigMotion) { _poses.Reset((int)action); _poseReady = true; _resetPose = false; }
+        else _poses.Step(_frameDelta, (int)action);
+        var smoothing = _usesRigMotion ? 1 - Math.Exp(-_frameDelta * 13) : 1;
+        _lookX += (SignedUnit(lookX) - _lookX) * smoothing; _lookY += (SignedUnit(lookY) - _lookY) * smoothing;
+        _facing = facing < 0 ? -1 : 1;
         _excitement = Unit(excitement);
+        var frequency = 2 + Weight(KittyAction.Walk) * 7 + (Weight(KittyAction.Chase) + Weight(KittyAction.Circle)
+            + Weight(KittyAction.Backoff)) * 13 + Weight(KittyAction.Zoomies) * 20 + Weight(KittyAction.TailChase) * 17;
+        _gaitPhase = _usesRigMotion ? _gaitPhase + _frameDelta * frequency : _time * frequency;
         InvalidateVisual();
     }
+
+    private double Weight(KittyAction action) => _poses[(int)action];
+    private double Smooth(int channel, double target)
+    {
+        if (!_channelsReady || !_usesRigMotion || _frameDelta <= 0) return _channels[channel] = target;
+        return _channels[channel] += (target - _channels[channel]) * (1 - Math.Exp(-_frameDelta * 17));
+    }
+    private static double Mix(double from, double to, double amount) => from + (to - from) * Math.Clamp(amount, 0, 1);
 
     /// <summary>A separate original cat-face drawing for the companion's launcher.</summary>
     public static DrawingImage CreateHeadIcon()
@@ -148,43 +167,66 @@ public sealed class HologramKittyVisual : FrameworkElement
         var turn = _usesRigMotion ? rig.FacingScale : _facing;
         _sceneTransform.Matrix = new Matrix(scale * turn, 0, 0, scale,
             (ActualWidth - 144 * scale) * .5 + 72 * scale * (1 - turn), (ActualHeight - 144 * scale) * .5);
-        var running = _action is KittyAction.Walk or KittyAction.Chase or KittyAction.Zoomies or KittyAction.Circle;
-        var sleeping = _action == KittyAction.Sleep;
-        var loaf = _action == KittyAction.Loaf;
-        var grooming = _action == KittyAction.Groom;
-        var grumpy = _action == KittyAction.Grumpy;
-        var stretching = _action == KittyAction.Stretch;
-        var stalking = _action == KittyAction.Stalk;
-        var pouncing = _action == KittyAction.Pounce;
-        var kneading = _action == KittyAction.Knead;
-        var rolling = _action == KittyAction.Roll;
-        var rubbing = _action == KittyAction.Rub;
-        var gait = Math.Sin(_time * (_action == KittyAction.Zoomies ? 22 : _action == KittyAction.Walk ? 9 : 15));
-        var breath = Math.Sin(_time * (sleeping ? 1.8 : 2.5));
+        var run = Weight(KittyAction.Walk) + Weight(KittyAction.Chase) + Weight(KittyAction.Zoomies)
+            + Weight(KittyAction.Circle) + Weight(KittyAction.Backoff) + Weight(KittyAction.TailChase);
+        var sleep = Weight(KittyAction.Sleep);
+        var doze = Weight(KittyAction.Doze);
+        var loafWeight = Weight(KittyAction.Loaf) + doze * .75;
+        var rest = Unit(sleep + loafWeight + Weight(KittyAction.Flop) * .8);
+        var wash = Weight(KittyAction.Groom) + Weight(KittyAction.PawLick) + Weight(KittyAction.FaceWash);
+        var anger = Weight(KittyAction.Grumpy);
+        var stretch = Weight(KittyAction.Stretch);
+        var stalk = Weight(KittyAction.Stalk) + Weight(KittyAction.ButtWiggle);
+        var pounce = Weight(KittyAction.Pounce);
+        var knead = Weight(KittyAction.Knead);
+        var roll = Weight(KittyAction.Roll);
+        var rub = Weight(KittyAction.Rub);
+        var startle = Weight(KittyAction.Startle);
+        var peek = Weight(KittyAction.Peek);
+        var wiggle = Weight(KittyAction.ButtWiggle);
+        var tailChase = Weight(KittyAction.TailChase);
+        var flop = Weight(KittyAction.Flop);
+        var blinkWeight = Weight(KittyAction.SlowBlink);
+        var gait = Math.Sin(_gaitPhase);
+        var breath = Math.Sin(_time * Mix(2.5, 1.8, sleep));
         var burst = Math.Sin(Math.PI * _phase);
-        var pounceJump = pouncing ? Math.Sin(Math.PI * Unit((_phase - .23) / .66)) * -11 : 0;
-        var bounce = running ? -Math.Abs(gait) * (_action == KittyAction.Zoomies ? 4.5 : 2.2) : breath * .65;
-        bounce += pounceJump;
-        var lean = running ? 3 + _excitement * 2 : grumpy ? -3 : stretching ? -7 : rubbing ? Math.Sin(_time * 3) * 5 : rolling ? burst * 18 : 0;
-        var leftEnd = new Point(60 - gait * (running ? 13 : 0), 127 - Math.Max(0, gait) * (running ? 9 : 0));
-        var rightEnd = new Point(86 + gait * (running ? 13 : 0), 127 - Math.Max(0, -gait) * (running ? 9 : 0));
-        if (stretching) { leftEnd = new Point(43 - burst * 7, 130); rightEnd = new Point(92 + burst * 13, 130); }
-        if (kneading) { leftEnd.Y -= Math.Max(0, Math.Sin(_time * 5)) * 8; rightEnd.Y -= Math.Max(0, -Math.Sin(_time * 5)) * 8; }
-        if (stalking || pouncing) { leftEnd.X -= 7; rightEnd.X += 8; leftEnd.Y -= pouncing ? burst * 7 : 0; }
-        if (grooming) rightEnd = new Point(72 + Math.Sin(_time * 7) * 3, 71 + Math.Cos(_time * 7) * 2);
-        if (_action is KittyAction.Swat or KittyAction.SmackPanel)
-        {
-            var extension = _action == KittyAction.SmackPanel ? Math.Sin(Math.PI * Math.Min(1, _phase * 1.25)) : burst;
-            rightEnd = new Point(85 + extension * 34, 126 - extension * 62 + _lookY * extension * 14);
-        }
-        if (_action == KittyAction.Scratch)
-        {
-            leftEnd = new Point(109, 94 + Math.Sin(_time * 12) * 12);
-            rightEnd = new Point(116, 94 - Math.Sin(_time * 12) * 12);
-        }
-        var headY = sleeping ? 34 + breath * .5 : loaf ? 22 : grooming ? 9 : stretching ? 14 * burst : stalking ? 12 : pouncing ? 8 : rolling ? 12 : running ? gait * .7 : _lookY * 1.4;
-        var headAngle = sleeping ? -13 : grooming ? -14 + Math.Sin(_time * 6) * 2 : grumpy ? -7 : rubbing ? Math.Sin(_time * 3) * 15 : rolling ? burst * 25 : _action == KittyAction.Yawn ? -7 * burst : _lookX * 5 + (running ? -4 : Math.Sin(_time * .65) * 1.5);
-        var tail = TailPoints(running, sleeping, grumpy);
+        var bounce = Smooth(0, Mix(breath * .65, -Math.Abs(gait) * (2.2 + Weight(KittyAction.Zoomies) * 2.3), run)
+            - pounce * Math.Sin(Math.PI * Unit((_phase - .23) / .66)) * 11 - startle * burst * 2.5);
+        var lean = Smooth(1, run * (3 + _excitement * 2) - anger * 3 - stretch * 7 + rub * Math.Sin(_time * 3) * 5
+            + roll * burst * 18 - Weight(KittyAction.Backoff) * 6 - flop * burst * 18
+            + tailChase * Math.Sin(_time * 6) * 10);
+        var leftEnd = new Point(60 - gait * run * 13, 127 - Math.Max(0, gait) * run * 9);
+        var rightEnd = new Point(86 + gait * run * 13, 127 - Math.Max(0, -gait) * run * 9);
+        leftEnd = new Point(Mix(leftEnd.X, 43 - burst * 7, stretch), Mix(leftEnd.Y, 130, stretch));
+        rightEnd = new Point(Mix(rightEnd.X, 92 + burst * 13, stretch), Mix(rightEnd.Y, 130, stretch));
+        leftEnd.Y -= Math.Max(0, Math.Sin(_time * 5)) * knead * 8;
+        rightEnd.Y -= Math.Max(0, -Math.Sin(_time * 5)) * knead * 8;
+        leftEnd.X -= (stalk + pounce) * 7; rightEnd.X += (stalk + pounce) * 8;
+        leftEnd.Y -= pounce * burst * 7;
+        rightEnd = new Point(Mix(rightEnd.X, 72 + Math.Sin(_time * 7) * 3, wash),
+            Mix(rightEnd.Y, 71 + Math.Cos(_time * 7) * 2, wash));
+        var swat = Weight(KittyAction.Swat) + Weight(KittyAction.SmackPanel);
+        var extension = Weight(KittyAction.SmackPanel) * Math.Sin(Math.PI * Math.Min(1, _phase * 1.25))
+            + Weight(KittyAction.Swat) * burst;
+        rightEnd = new Point(Mix(rightEnd.X, 85 + extension * 34, swat),
+            Mix(rightEnd.Y, 126 - extension * 62 + _lookY * extension * 14, swat));
+        var scratch = Weight(KittyAction.Scratch);
+        leftEnd = new Point(Mix(leftEnd.X, 109, scratch), Mix(leftEnd.Y, 94 + Math.Sin(_time * 12) * 12, scratch));
+        rightEnd = new Point(Mix(rightEnd.X, 116, scratch), Mix(rightEnd.Y, 94 - Math.Sin(_time * 12) * 12, scratch));
+        leftEnd = new Point(Smooth(2, Mix(leftEnd.X, 48, startle)), Smooth(3, Mix(leftEnd.Y, 108 - burst * 8, startle)));
+        rightEnd = new Point(Smooth(4, Mix(rightEnd.X, 98, startle)), Smooth(5, Mix(rightEnd.Y, 108 - burst * 8, startle)));
+        var headY = Smooth(6, sleep * (34 + breath * .5) + loafWeight * 22 + wash * 9 + stretch * 14 * burst
+            + stalk * 12 + pounce * 8 + roll * 12 + peek * 10 + flop * 23
+            + (1 - Unit(rest + wash + stretch + stalk + pounce + roll + peek + startle + flop)) * (run * gait * .7 + _lookY * 1.4));
+        var headAngle = Smooth(7, sleep * -13 + wash * (-14 + Math.Sin(_time * 6) * 2) - anger * 7
+            + rub * Math.Sin(_time * 3) * 15 + roll * burst * 25 - Weight(KittyAction.Yawn) * 7 * burst
+            - peek * 12 - flop * burst * 17 + wiggle * Math.Sin(_time * 13) * 2
+            + (1 - Unit(sleep + wash + anger + rub + roll + peek + flop)) * (_lookX * 5 - run * 4 + Math.Sin(_time * .65) * 1.5));
+        var headX = Smooth(8, (Weight(KittyAction.Sniff) + Weight(KittyAction.Inspect)) * (3 + Math.Sin(_time * 6) * 1.5)
+            + peek * 5 + rub * Math.Sin(_time * 3) * 2);
+        var faceBlink = Unit((1 - sleep) * (1 - doze * .7) * (1 - wash * .72)
+            * (1 - blinkWeight * Math.Pow(burst, .35)) * (1 - Weight(KittyAction.Yawn) * .88));
+        var tail = TailPoints(run, sleep, anger, tailChase, wiggle);
         _tailHitPoints = tail;
         Array.Fill(_pawHitPoints, new Point(double.NaN, double.NaN));
         for (var i = 0; i < _parts.Length; i++)
@@ -203,28 +245,26 @@ public sealed class HologramKittyVisual : FrameworkElement
             var joint = i switch { 11 => rig.Hip, 12 or 14 => rig.Belly, 13 => rig.Shoulder,
                 >= 17 and <= 20 or 22 => rig.Head, 9 or 10 => _rig.LimbOffset(i == 10, false),
                 _ => _rig.LimbOffset(i == 16, true) };
-            part.PushTransform(new TranslateTransform(joint.X, bounce + joint.Y));
+            part.PushTransform(new TranslateTransform(joint.X + (i is >= 17 and <= 20 or 22 ? headX : 0), bounce + joint.Y));
             part.PushTransform(new RotateTransform(lean + joint.Angle, 72, 118));
             var hitMatrix = Matrix.Identity;
             hitMatrix.RotateAt(lean + joint.Angle, 72, 118);
-            hitMatrix.Translate(joint.X, bounce + joint.Y);
+            hitMatrix.Translate(joint.X + (i is >= 17 and <= 20 or 22 ? headX : 0), bounce + joint.Y);
             switch (i)
             {
                 case 9:
-                    if (!sleeping && !loaf) { DrawLimb(part, new Point(58, 104), new Point(48 + gait * (running ? 8 : 0), 120), new Point(46 - gait * (running ? 11 : 0), 127), .65); _pawHitPoints[0] = hitMatrix.Transform(new Point(46 - gait * (running ? 11 : 0), 127)); }
+                    part.PushOpacity(1 - rest); DrawLimb(part, new Point(58, 104), new Point(48 + gait * run * 8, 120), new Point(46 - gait * run * 11, 127), .65); part.Pop(); _pawHitPoints[0] = hitMatrix.Transform(new Point(46 - gait * run * 11, 127));
                     break;
                 case 10:
-                    if (!sleeping && !loaf) { DrawLimb(part, new Point(88, 105), new Point(98 - gait * (running ? 8 : 0), 120), new Point(101 + gait * (running ? 11 : 0), 127), .65); _pawHitPoints[1] = hitMatrix.Transform(new Point(101 + gait * (running ? 11 : 0), 127)); }
+                    part.PushOpacity(1 - rest); DrawLimb(part, new Point(88, 105), new Point(98 - gait * run * 8, 120), new Point(101 + gait * run * 11, 127), .65); part.Pop(); _pawHitPoints[1] = hitMatrix.Transform(new Point(101 + gait * run * 11, 127));
                     break;
                 case 11: case 12: case 13:
                     var band = i - 11;
-                    var cx = sleeping ? 90 - band * 15 : 74 - band;
-                    var cy = sleeping || loaf ? 117.0 - band * 2 : 117.0 - band * 13;
-                    if (stalking) cy += band * 5;
-                    if (pouncing) cy += band * (1 - burst) * 4;
+                    var cx = Mix(74 - band, 90 - band * 15, sleep) + wiggle * Math.Sin(_time * 15 - band * .9) * (3 - band);
+                    var cy = Mix(117.0 - band * 13, 117.0 - band * 2, rest) + stalk * band * 5 + pounce * band * (1 - burst) * 4;
                     part.PushTransform(new ScaleTransform(rig.StretchX, rig.StretchY, 73, 117));
-                    var width = sleeping ? 32 : band == 2 ? 39 : 46;
-                    var height = sleeping || loaf ? 21 : band == 0 ? 19 : 22;
+                    var width = Mix(band == 2 ? 37 : band == 1 ? 43 : 45, 32, sleep);
+                    var height = Mix(band == 0 ? 21 : 23, 21, rest);
                     _bodyHitRects[band] = new Rect(cx - width / 2, cy - height / 2, width, height);
                     var bodyHit = Matrix.Identity; bodyHit.ScaleAt(rig.StretchX, rig.StretchY, 73, 117); bodyHit.Append(hitMatrix);
                     _bodyHitTransforms[band] = bodyHit;
@@ -235,72 +275,81 @@ public sealed class HologramKittyVisual : FrameworkElement
                     part.Pop();
                     break;
                 case 14:
-                    if (!sleeping && !loaf)
+                    part.PushOpacity(1 - rest);
                     {
                         part.DrawGeometry(Visor, SoftEdge, Core);
                         part.DrawEllipse(Cyan, null, new Point(70, 98), 2.8, 2.8);
                         part.DrawEllipse(Pale, null, new Point(69.2, 97.2), 1, 1);
                     }
+                    part.Pop();
                     break;
                 case 15:
-                    _pawHitPoints[2] = hitMatrix.Transform(sleeping || loaf ? new Point(51, 126) : leftEnd);
-                    if (sleeping || loaf) DrawPaw(part, 51, 126, 0, .9);
-                    else DrawLimb(part, new Point(58, 88), new Point(56, 109), leftEnd, 1);
+                    _pawHitPoints[2] = hitMatrix.Transform(new Point(Mix(leftEnd.X, 51, rest), Mix(leftEnd.Y, 126, rest)));
+                    part.PushOpacity(rest); DrawPaw(part, 51, 126, 0, .9); part.Pop();
+                    part.PushOpacity(1 - rest); DrawLimb(part, new Point(58, 88), new Point(56, 109), leftEnd, 1); part.Pop();
                     break;
                 case 16:
-                    _pawHitPoints[3] = hitMatrix.Transform(sleeping || loaf ? new Point(96, 126) : rightEnd);
-                    if (sleeping || loaf) DrawPaw(part, 96, 126, 0, .9);
-                    else DrawLimb(part, new Point(85, 89), new Point(90 + (rightEnd.X - 86) * .4, (90 + rightEnd.Y) * .5), rightEnd, 1);
-                    if (_action is KittyAction.Swat or KittyAction.SmackPanel or KittyAction.Scratch && burst > .5)
+                    _pawHitPoints[3] = hitMatrix.Transform(new Point(Mix(rightEnd.X, 96, rest), Mix(rightEnd.Y, 126, rest)));
+                    part.PushOpacity(rest); DrawPaw(part, 96, 126, 0, .9); part.Pop();
+                    part.PushOpacity(1 - rest); DrawLimb(part, new Point(85, 89), new Point(90 + (rightEnd.X - 86) * .4, (90 + rightEnd.Y) * .5), rightEnd, 1); part.Pop();
+                    part.PushOpacity(Unit(swat + scratch) * Unit((burst - .3) * 3));
                     {
                         part.DrawLine(Fine, new Point(rightEnd.X + 8, rightEnd.Y - 9), new Point(rightEnd.X + 15, rightEnd.Y - 14));
                         part.DrawLine(Fine, new Point(rightEnd.X + 11, rightEnd.Y - 2), new Point(rightEnd.X + 20, rightEnd.Y - 3));
                     }
+                    part.Pop();
                     break;
                 case 17: case 18: case 19: case 20:
                     if (i == 17) { var headHit = Matrix.Identity; headHit.RotateAt(headAngle, 72, 59); headHit.Translate(0, headY); headHit.Append(hitMatrix); _headHitTransform = headHit; }
                     var layer = i == 17 ? HeadLayer.Shell : i == 18 ? HeadLayer.LeftEar : i == 19 ? HeadLayer.RightEar : HeadLayer.Face;
-                    var ear = i == 18 ? rig.LeftEarAngle : i == 19 ? rig.RightEarAngle : 0;
-                    DrawHead(part, headY, headAngle, _time, sleeping, grooming, grumpy, _lookX * _facing, _lookY, false,
-                        layer, MouthOpenness, _action == KittyAction.SlowBlink ? 1 - Math.Pow(burst, .35) : _action == KittyAction.Yawn ? .12 : loaf ? .55 : -1, ear);
+                    var flick = Weight(KittyAction.EarFlick) * Math.Sin(_phase * Math.PI * 4) * Math.Pow(Math.Sin(Math.PI * _phase), 2) * 20;
+                    var lazyFlick = Math.Pow(Math.Max(0, Math.Sin(_time * .61)), 18) * Math.Sin(_time * 19) * 3;
+                    var ear = i == 18 ? rig.LeftEarAngle - anger * 11 - startle * 16 + lazyFlick
+                        : i == 19 ? rig.RightEarAngle + anger * 11 + startle * 16 + flick - lazyFlick * .6 : 0;
+                    DrawHead(part, headY, headAngle, _time, false, false, false, _lookX * _facing, _lookY, false,
+                        layer, MouthOpenness, faceBlink, ear, anger, startle);
                     break;
                 case 21:
-                    if (sleeping) DrawSleep(part);
-                    if (grumpy) DrawGrumpy(part);
-                    if (_action == KittyAction.Zoomies) DrawSpeed(part);
-                    if (_action is KittyAction.Sniff or KittyAction.Inspect)
-                    {
-                        var sniff = Math.Sin(_time * 7);
-                        part.DrawEllipse(null, Fine, new Point(111 + sniff, 63), 2 + sniff * .5, 2);
-                    }
+                    part.PushOpacity(Unit(sleep + doze * .7)); DrawSleep(part); part.Pop();
+                    part.PushOpacity(anger); DrawGrumpy(part); part.Pop();
+                    part.PushOpacity(Weight(KittyAction.Zoomies)); DrawSpeed(part); part.Pop();
+                    part.PushOpacity(Unit(Weight(KittyAction.Sniff) + Weight(KittyAction.Inspect)));
+                    var sniff = Math.Sin(_time * 7);
+                    part.DrawEllipse(null, Fine, new Point(111 + sniff, 63), 2 + sniff * .5, 2);
+                    part.Pop();
                     break;
                 case 22:
-                    if (grooming)
-                    {
-                        DrawPaw(part, 74 + Math.Sin(_time * 7) * 3, 80 + Math.Cos(_time * 7) * 2, -24, .8);
-                        if (Math.Sin(_time * 9) > .15) part.DrawEllipse(Lavender, null, new Point(73, 76), 1.7, 2.8);
-                    }
+                    part.PushOpacity(wash);
+                    var washingFace = Weight(KittyAction.FaceWash);
+                    var washY = Mix(80 + Math.Cos(_time * 7) * 2, 57 + Math.Sin(_time * 5) * 10, washingFace);
+                    DrawPaw(part, 74 + Math.Sin(_time * 7) * 3, washY, -24, .8);
+                    part.PushOpacity(Unit(Math.Sin(_time * 9) * 3));
+                    part.DrawEllipse(Lavender, null, new Point(73, 76), 1.7, 2.8);
+                    part.Pop(); part.Pop();
                     break;
             }
             part.Pop(); part.Pop();
         }
+        _channelsReady = true;
     }
 
-    private Point[] TailPoints(bool running, bool sleeping, bool grumpy)
+    private Point[] TailPoints(double running, double sleeping, double grumpy, double chasing, double wiggle)
     {
-        var points = new Point[9];
+        var points = _tailPoints;
         points[0] = new Point(96, 111);
-        var swing = Math.Sin(_time * (grumpy ? 8 : running ? 9 : 2)) * (grumpy ? 8 : running ? 5 : 3);
+        var swing = Math.Sin(_time * (2 + grumpy * 6 + running * 7 + chasing * 7 + wiggle * 12)) * (3 + grumpy * 5 + running * 2 + chasing * 4);
         for (var i = 1; i <= 8; i++)
         {
             var t = i / 8.0;
             Point p;
-            if (sleeping)
-                p = Cubic(new Point(96, 111), new Point(131, 132), new Point(132, 90), new Point(109, 97), t);
-            else if (t <= .625)
+            if (t <= .625)
                 p = Cubic(new Point(96, 111), new Point(126, 121), new Point(132, 99 + swing), new Point(123, 86 + swing), t / .625);
             else
                 p = Cubic(new Point(123, 86 + swing), new Point(112, 72 + swing), new Point(128, 68 + swing), new Point(132, 78 + swing), (t - .625) / .375);
+            var curled = Cubic(new Point(96, 111), new Point(131, 132), new Point(132, 90), new Point(109, 97), t);
+            p = new Point(Mix(p.X, curled.X, sleeping), Mix(p.Y, curled.Y, sleeping));
+            var caught = Cubic(new Point(96, 111), new Point(132, 113), new Point(125, 60), new Point(105, 83), t);
+            p = new Point(Mix(p.X, caught.X, chasing), Mix(p.Y, caught.Y, chasing));
             var offset = _rig.TailOffset(i - 1);
             points[i] = new Point(p.X + offset.X * .65, p.Y + offset.Y * .65);
         }
@@ -333,7 +382,7 @@ public sealed class HologramKittyVisual : FrameworkElement
     private enum HeadLayer { All, Shell, LeftEar, RightEar, Face }
     private static void DrawHead(DrawingContext drawing, double offsetY, double angle, double time,
         bool sleeping, bool grooming, bool grumpy, double lookX, double lookY, bool icon,
-        HeadLayer layer = HeadLayer.All, double mouthOpen = 0, double blinkOverride = -1, double earAngle = 0)
+        HeadLayer layer = HeadLayer.All, double mouthOpen = 0, double blinkOverride = -1, double earAngle = 0, double anger = 0, double alert = 0)
     {
         drawing.PushTransform(new TranslateTransform(0, offsetY));
         drawing.PushTransform(new RotateTransform(angle, 72, 59));
@@ -372,17 +421,19 @@ public sealed class HologramKittyVisual : FrameworkElement
         {
             drawing.DrawGeometry(Visor, SoftEdge, VisorShape);
             drawing.PushClip(VisorShape);
-            for (var y = 41; y < 73; y += 4) drawing.DrawLine(PenScan, new Point(34, y), new Point(106, y));
+            for (var y = 43; y < 73; y += 6) drawing.DrawLine(PenScan, new Point(34, y), new Point(106, y));
             var scan = 39 + (time * 9 % 34);
             if (!icon) drawing.DrawLine(Scan, new Point(37, scan), new Point(103, scan));
+            drawing.DrawGeometry(VisorShine, null, VisorReflection);
             var blinkCycle = time % 5.7;
             var blink = !icon && blinkCycle > 5.50 ? Math.Max(.07, Math.Abs(blinkCycle - 5.60) * 10) : 1;
             if (sleeping) blink = 0;
-            else if (blinkOverride >= 0) blink = blinkOverride;
+            else if (blinkOverride >= 0) blink *= blinkOverride;
             else if (grooming) blink = .24;
-            var eyeHeight = grumpy ? 4.2 : 8.4 * blink;
-            DrawEye(drawing, 54 + lookX * 2.3, 54 + lookY * 1.5, eyeHeight, grumpy, sleeping, false);
-            DrawEye(drawing, 87 + lookX * 2.3, 54 + lookY * 1.5, eyeHeight, grumpy, sleeping, true);
+            anger = Math.Max(anger, grumpy ? 1 : 0);
+            var eyeHeight = 8.4 * blink * (1 + alert * .16);
+            DrawEye(drawing, 54 + lookX * 2.3, 54 + lookY * 1.5, eyeHeight, anger, sleeping, false);
+            DrawEye(drawing, 87 + lookX * 2.3, 54 + lookY * 1.5, eyeHeight * (1 - .035 * Math.Sin(time * .8)), anger, sleeping, true);
             drawing.DrawEllipse(Cheek, null, new Point(45, 65), 4, 1.6);
             drawing.DrawEllipse(Cheek, null, new Point(96, 65), 4, 1.6);
             if (!sleeping)
@@ -393,21 +444,25 @@ public sealed class HologramKittyVisual : FrameworkElement
                     drawing.DrawEllipse(Dark, Fine, new Point(72, 66), 2.4 + mouthOpen * 4.8, 1 + mouthOpen * 6.5);
                     if (mouthOpen > .5) drawing.DrawEllipse(Lavender, null, new Point(72, 69.5), 2.4, 1.2);
                 }
-                else if (grumpy)
+                else
                 {
+                    drawing.PushOpacity(1 - anger); drawing.DrawGeometry(null, Fine, grooming ? Smile : Mouth); drawing.Pop();
+                    drawing.PushOpacity(anger);
                     drawing.DrawLine(PurpleLine, new Point(67, 68), new Point(72, 66));
                     drawing.DrawLine(PurpleLine, new Point(72, 66), new Point(77, 68));
+                    drawing.Pop();
                 }
-                else drawing.DrawGeometry(null, Fine, grooming ? Smile : Mouth);
             }
             drawing.Pop();
         }
         drawing.Pop(); drawing.Pop();
     }
 
-    private static readonly Pen PenScan = Pen(Brush("#102CF0FF"), .5), Scan = Pen(Brush("#296AE3F9"), 1.8);
+    private static readonly Pen PenScan = Pen(Brush("#0B2CF0FF"), .5), Scan = Pen(Brush("#206AE3F9"), 1.4);
+    private static readonly Brush VisorShine = Brush("#103FF0FF");
+    private static readonly Geometry VisorReflection = Geometry("M39,39 L62,39 41,72 36,68Z");
     private static readonly Geometry Nose = Geometry("M69,60 L75,60 72,63Z");
-    private static void DrawEye(DrawingContext drawing, double x, double y, double height, bool grumpy, bool asleep, bool right)
+    private static void DrawEye(DrawingContext drawing, double x, double y, double height, double anger, bool asleep, bool right)
     {
         if (asleep || height < 1)
         {
@@ -416,19 +471,18 @@ public sealed class HologramKittyVisual : FrameworkElement
             { context.BeginFigure(new Point(x - 7, y), false, false); context.QuadraticBezierTo(new Point(x, y + 5), new Point(x + 7, y), true, false); }
             geometry.Freeze(); drawing.DrawGeometry(null, Edge, geometry); return;
         }
-        if (grumpy)
-        {
-            drawing.PushTransform(new RotateTransform(right ? 14 : -14, x, y));
-            drawing.DrawRoundedRectangle(Lavender, null, new Rect(x - 7.3, y - height * .5, 14.6, height), 1.8, 1.8);
-            drawing.DrawRectangle(Visor, null, new Rect(x - 9, y - height - 2, 18, height));
-            drawing.Pop(); return;
-        }
+        drawing.PushOpacity(1 - anger);
         drawing.DrawEllipse(Halo, null, new Point(x, y), 10.8, height + 2.5);
         drawing.DrawEllipse(Cyan, null, new Point(x, y), 7.8, height);
         drawing.DrawEllipse(Blue, null, new Point(x + 1.1, y + 1.2), 5.5, height * .76);
         drawing.DrawEllipse(Visor, null, new Point(x + 1.4, y + .8), 3.7, height * .66);
         drawing.DrawEllipse(Pale, null, new Point(x - 2.1, y - height * .35), 2.2, Math.Min(2.6, height * .3));
         drawing.DrawEllipse(Pale, null, new Point(x + 3.2, y + height * .43), .9, Math.Min(1.1, height * .15));
+        drawing.Pop();
+        drawing.PushOpacity(anger);
+        drawing.PushTransform(new RotateTransform(right ? 14 : -14, x, y));
+        drawing.DrawRoundedRectangle(Lavender, null, new Rect(x - 7.3, y - 2.1, 14.6, 4.2), 1.8, 1.8);
+        drawing.Pop(); drawing.Pop();
     }
 
     private static void DrawLimb(DrawingContext drawing, Point shoulder, Point elbow, Point paw, double opacity)

@@ -8,6 +8,46 @@ public readonly record struct KittyRigSnapshot(KittyJoint Hip, KittyJoint Belly,
     KittyJoint Head, double LeftEarAngle, double RightEarAngle, double StretchX,
     double StretchY, KittyJoint TailTip, double MotionEnergy, double FacingScale);
 
+/// <summary>Continuous, critically damped pose weights. Interrupting a pose preserves its momentum.</summary>
+public sealed class KittyPoseBlend
+{
+    private readonly double[] _weights, _velocities;
+    public int Count => _weights.Length;
+    public double TransitionEnergy => _velocities.Sum(value => value * value);
+    public double this[int index] => index >= 0 && index < Count ? Math.Clamp(_weights[index], 0, 1) : 0;
+
+    public KittyPoseBlend(int count = 35)
+    {
+        if (count < 1 || count > 256) throw new ArgumentOutOfRangeException(nameof(count));
+        _weights = new double[count]; _velocities = new double[count]; Reset();
+    }
+
+    public void Reset(int pose = 0)
+    {
+        if (pose < 0 || pose >= Count) throw new ArgumentOutOfRangeException(nameof(pose));
+        Array.Clear(_weights); Array.Clear(_velocities); _weights[pose] = 1;
+    }
+
+    public void Step(double deltaSeconds, int pose)
+    {
+        if (pose < 0 || pose >= Count) throw new ArgumentOutOfRangeException(nameof(pose));
+        if (!double.IsFinite(deltaSeconds) || deltaSeconds <= 0) return;
+        var dt = Math.Min(.1, deltaSeconds);
+        const double frequency = 15;
+        var decay = Math.Exp(-frequency * dt);
+        for (var i = 0; i < Count; i++)
+        {
+            var target = i == pose ? 1d : 0d;
+            var offset = _weights[i] - target;
+            var impulse = _velocities[i] + frequency * offset;
+            _weights[i] = target + (offset + impulse * dt) * decay;
+            _velocities[i] = (_velocities[i] - frequency * impulse * dt) * decay;
+            if (Math.Abs(_weights[i] - target) < .000001 && Math.Abs(_velocities[i]) < .00001)
+            { _weights[i] = target; _velocities[i] = 0; }
+        }
+    }
+}
+
 /// <summary>
 /// Small articulated spring rig: three torso vertebrae, an independently lagging
 /// head, two ears and eight trailing tail links. It consumes movement velocity,
