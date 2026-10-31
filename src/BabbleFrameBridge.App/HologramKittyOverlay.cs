@@ -26,6 +26,7 @@ public sealed class HologramKittyOverlay : FrameworkElement, IDisposable
     private readonly TranslateTransform _placement = new();
     private readonly KittyMind _mind = new();
     private readonly Random _random = new();
+    private KittyVoice _voice = new();
     private Window? _owner;
     private bool _loaded, _active, _rendering, _inputAttached, _disposed, _positioned, _impactSent;
     private TimeSpan? _lastFrame;
@@ -36,6 +37,11 @@ public sealed class HologramKittyOverlay : FrameworkElement, IDisposable
     private bool _pointerActive;
     private KittyAction _lastAction = KittyAction.Watch;
     private double _observedActionAge;
+    private KittyAttention _lastAttention = KittyAttention.Environment;
+    private Point _gazeTarget, _memoryPoint, _restingSpot, _interestPoint;
+    private Vector _gaze;
+    private double _gazeDwell, _novelty, _interestAge = 100, _lift;
+    private bool _voiceSent;
     private FormattedText? _bubble;
 
     /// <summary>Overlay-local coordinates; the root can render-wobble an eligible panel at this point.</summary>
@@ -46,19 +52,19 @@ public sealed class HologramKittyOverlay : FrameworkElement, IDisposable
     public bool IsActive => _active;
     public bool IsAnimating => _rendering;
     public KittyAction BrainAction => _mind.Action;
-    public Rect CatBounds => new(_position.X + 29, _position.Y + 20, 88, 115);
-    public string Status => !_active ? "Relay is tucked away." : _mind.Action switch
+    public Rect CatBounds => new(_position.X + 29, _position.Y - _lift + 20, 88, 115);
+    public KittyAttention Attention => _mind.Attention;
+    public Point GazeTarget => _gazeTarget;
+    public string Status => !_active ? "Relay is tucked away." : _mind.Intention;
+    public bool SoundsEnabled { get => _voice.Enabled; set => _voice.Enabled = value; }
+
+    public void SetVoice(KittyVoice voice)
     {
-        KittyAction.Sleep => "Relay is recharging.",
-        KittyAction.Groom => "Relay is grooming its hologram.",
-        KittyAction.Zoomies => "Relay has the zoomies!",
-        KittyAction.Grumpy => "Relay needs a little space.",
-        KittyAction.SmackPanel => "Relay: bap!",
-        KittyAction.Swat or KittyAction.Chase => "Relay is hunting your cursor.",
-        KittyAction.Walk => "Relay is exploring.",
-        KittyAction.Stretch => "Relay is stretching.",
-        _ => _mind.Irritation > .65 ? "Relay is getting grumpy." : "Relay is watching."
-    };
+        ArgumentNullException.ThrowIfNull(voice);
+        if (ReferenceEquals(_voice, voice)) return;
+        _voice.Dispose();
+        _voice = voice;
+    }
 
     public HologramKittyOverlay()
     {
@@ -84,6 +90,8 @@ public sealed class HologramKittyOverlay : FrameworkElement, IDisposable
                 PlaceCat();
             }
             _velocity = default;
+            _lift = 0;
+            _cat.ResetRig();
             _rippleRemaining = 0;
             AnimationSuspended?.Invoke(this, EventArgs.Empty);
             InvalidateVisual();
@@ -150,6 +158,10 @@ public sealed class HologramKittyOverlay : FrameworkElement, IDisposable
             {
                 CompositionTarget.Rendering -= OnRendering;
                 _velocity = default;
+                _lift = 0;
+                _voice.Stop();
+                _cat.ResetRig();
+                PlaceCat();
                 _pointerActive = false;
                 _cursorMotion = _wavePulse = 0;
                 _bubbleRemaining = _rippleRemaining = 0;
@@ -163,11 +175,13 @@ public sealed class HologramKittyOverlay : FrameworkElement, IDisposable
         if (animate)
         {
             _owner.PreviewMouseMove += OnPointerMove;
+            _owner.PreviewMouseDown += OnWindowClick;
             _owner.MouseLeave += OnPointerLeave;
         }
         else
         {
             _owner.PreviewMouseMove -= OnPointerMove;
+            _owner.PreviewMouseDown -= OnWindowClick;
             _owner.MouseLeave -= OnPointerLeave;
         }
     }
@@ -191,6 +205,7 @@ public sealed class HologramKittyOverlay : FrameworkElement, IDisposable
         }
         _lastPointerTimestamp = now;
         _lastPointer = _pointer = point;
+        _memoryPoint = point;
         _previousPointerDelta = delta;
     }
 
@@ -199,6 +214,15 @@ public sealed class HologramKittyOverlay : FrameworkElement, IDisposable
         _pointerActive = false;
         _previousPointerDelta = default;
         _lastPointerTimestamp = 0;
+    }
+
+    private void OnWindowClick(object sender, MouseButtonEventArgs args)
+    {
+        var point = args.GetPosition(this);
+        if (HitCat(point)) return;
+        _interestPoint = _memoryPoint = point;
+        _interestAge = 0;
+        _novelty = 1;
     }
 
     protected override void OnMouseDown(MouseButtonEventArgs args)
@@ -232,7 +256,7 @@ public sealed class HologramKittyOverlay : FrameworkElement, IDisposable
         var paw = PawPoint();
         var panelNear = paw.X >= 225 && paw.Y >= 100 && paw.Y < ActualHeight - 35
             && HasSmackTarget(paw);
-        return new KittyStimulus(near, motion, panelNear ? 1 : 0);
+        return new KittyStimulus(near, motion, panelNear ? 1 : 0, _novelty, _pointerActive ? 1 : 0);
     }
 
     private void OnRendering(object? sender, EventArgs args)
@@ -243,6 +267,8 @@ public sealed class HologramKittyOverlay : FrameworkElement, IDisposable
         if (dt <= 0) return;
         _seconds += dt;
         _waypointAge += dt;
+        _interestAge += dt;
+        _novelty *= Math.Exp(-dt / 7);
         _decisionAccumulator += dt;
         _cursorMotion *= Math.Exp(-dt * 3.5);
         _wavePulse *= Math.Exp(-dt * 1.5);
@@ -254,12 +280,13 @@ public sealed class HologramKittyOverlay : FrameworkElement, IDisposable
         }
         UpdateMovement(dt);
         var phase = Math.Clamp((_mind.ActionAge + _decisionAccumulator) / Math.Max(.1, _mind.ActionDuration), 0, 1);
+        UpdateGaze(dt);
         if (!_impactSent && phase >= .4)
         {
-            if (_mind.Action == KittyAction.SmackPanel)
+            if (_mind.Action is KittyAction.SmackPanel or KittyAction.Scratch)
             {
                 var point = PawPoint(phase);
-                if (HasSmackTarget(point)) ImpactRequested?.Invoke(point, .75 + _mind.Stimulation * .25);
+                if (HasSmackTarget(point)) ImpactRequested?.Invoke(point, _mind.Action == KittyAction.Scratch ? .35 : .75 + _mind.Stimulation * .25);
                 Pulse(point);
                 _impactSent = true;
             }
@@ -269,9 +296,16 @@ public sealed class HologramKittyOverlay : FrameworkElement, IDisposable
                 _impactSent = true;
             }
         }
-        var gaze = _pointerActive ? _pointer - FacePoint() : default;
-        _cat.RenderFrame(_mind.Action, phase, _seconds, Math.Clamp(gaze.X / 130, -1, 1),
-            Math.Clamp(gaze.Y / 130, -1, 1), _facing, _mind.Stimulation);
+        if (!_voiceSent && phase >= .22)
+        {
+            var kind = _mind.Action switch { KittyAction.Meow => KittyVocalization.Meow,
+                KittyAction.Chirp => KittyVocalization.Chirp, KittyAction.Yawn => KittyVocalization.Yawn,
+                KittyAction.Knead when _mind.Trust > .5 => KittyVocalization.Purr, _ => (KittyVocalization?)null };
+            if (kind is { } vocalization) _voice.Play(vocalization, _mind.Stimulation);
+            _voiceSent = true;
+        }
+        _cat.UpdateRig(dt, _velocity.X, _velocity.Y, _facing);
+        _cat.RenderFrame(_mind.Action, phase, _seconds, _gaze.X, _gaze.Y, _facing, _mind.Stimulation);
         var hadOverlayEffects = _bubbleRemaining > 0 || _rippleRemaining > 0;
         _bubbleRemaining = Math.Max(0, _bubbleRemaining - dt);
         _rippleRemaining = Math.Max(0, _rippleRemaining - dt);
@@ -288,26 +322,38 @@ public sealed class HologramKittyOverlay : FrameworkElement, IDisposable
         if (_mind.Action == _lastAction && !restarted) return;
         _lastAction = _mind.Action;
         _impactSent = false;
+        _voiceSent = false;
         _waypointAge = 0;
         _target = _mind.Action switch
         {
-            KittyAction.Walk or KittyAction.Zoomies => WanderPoint(),
-            KittyAction.Chase when _pointerActive => ClampPosition(new Point(_pointer.X - 72, _pointer.Y - 62)),
+            KittyAction.Walk or KittyAction.Zoomies or KittyAction.LookAround => WanderPoint(),
+            KittyAction.Inspect or KittyAction.Sniff or KittyAction.Rub when _interestAge < 15 => ClampPosition(new Point(_interestPoint.X - 90, _interestPoint.Y - 85)),
+            KittyAction.Stalk or KittyAction.Pounce or KittyAction.Chase when _pointerActive => ClampPosition(new Point(_pointer.X - 72, _pointer.Y - 62)),
             KittyAction.Swat when _pointerActive => ClampPosition(new Point(_pointer.X - 72 - _facing * 62, _pointer.Y - 59)),
             KittyAction.Grumpy when _pointerActive => ClampPosition(_position + AwayFromPointer() * 50),
+            KittyAction.Circle => ClampPosition(_restingSpot),
             _ => _position
         };
         if (_mind.Action == KittyAction.Zoomies) ShowBubble("!!", 1);
         else if (_mind.Action == KittyAction.Grumpy) ShowBubble("hff.", 1.6);
         else if (_mind.Action is KittyAction.Swat or KittyAction.SmackPanel) ShowBubble("bap!", .65);
+        else if (_mind.Action == KittyAction.Chirp) ShowBubble("prrp", .9);
+        else if (_mind.Action == KittyAction.Meow) ShowBubble("mew", 1.1);
+        else if (_mind.Action == KittyAction.Yawn) ShowBubble("...", .9);
+        if (_mind.Action is KittyAction.Loaf or KittyAction.Sleep) _restingSpot = _position;
         StateChanged?.Invoke(this, EventArgs.Empty);
     }
 
     private void UpdateMovement(double dt)
     {
         var action = _mind.Action;
-        if (action == KittyAction.Chase && _pointerActive)
+        if (action is KittyAction.Chase or KittyAction.Stalk && _pointerActive)
             _target = ClampPosition(new Point(_pointer.X - 72 - _facing * 30, _pointer.Y - 62));
+        else if (action == KittyAction.Circle)
+        {
+            var angle = _mind.ActionAge / Math.Max(1, _mind.ActionDuration) * Math.PI * 2;
+            _target = ClampPosition(_restingSpot + new Vector(Math.Cos(angle) * 22, Math.Sin(angle) * 11));
+        }
         else if (action == KittyAction.Swat)
             _target = _pointerActive && (_pointer - FacePoint()).Length > 92
                 ? ClampPosition(new Point(_pointer.X - 72 - _facing * 62, _pointer.Y - 59)) : _position;
@@ -316,16 +362,43 @@ public sealed class HologramKittyOverlay : FrameworkElement, IDisposable
             _target = WanderPoint();
             _waypointAge = 0;
         }
-        var moving = action is KittyAction.Walk or KittyAction.Chase or KittyAction.Zoomies or KittyAction.Grumpy or KittyAction.Swat;
+        var moving = action is KittyAction.Walk or KittyAction.Chase or KittyAction.Zoomies or KittyAction.Grumpy or KittyAction.Swat
+            or KittyAction.Stalk or KittyAction.Pounce or KittyAction.Inspect or KittyAction.Sniff or KittyAction.Rub or KittyAction.Circle;
         var desired = moving ? _target - _position : default;
-        var speed = action switch { KittyAction.Zoomies => 420, KittyAction.Chase => 190, KittyAction.Swat => 140, KittyAction.Grumpy => 65, _ => 78 };
+        var speed = action switch { KittyAction.Zoomies => 420, KittyAction.Pounce => 310, KittyAction.Stalk => 42,
+            KittyAction.Chase => 190, KittyAction.Swat => 140, KittyAction.Grumpy => 65, KittyAction.Circle => 60, _ => 78 };
         var desiredVelocity = desired.Length > 1 ? desired / desired.Length * Math.Min(speed, desired.Length * 4) : default;
         _velocity += (desiredVelocity - _velocity) * Math.Min(1, dt * (action == KittyAction.Zoomies ? 9 : 6));
         _position = ClampPosition(_position + _velocity * dt);
         if (Math.Abs(_velocity.X) > 6) _facing = Math.Sign(_velocity.X);
-        else if (_pointerActive && action is KittyAction.Watch or KittyAction.Swat or KittyAction.SmackPanel)
+        else if (_mind.Attention == KittyAttention.Cursor && _pointerActive && action is KittyAction.Watch or KittyAction.Swat)
             _facing = _pointer.X >= _position.X + 72 ? 1 : -1;
+        var phase = Math.Clamp((_mind.ActionAge + _decisionAccumulator) / Math.Max(.1, _mind.ActionDuration), 0, 1);
+        _lift = action == KittyAction.Pounce ? Math.Sin(Math.PI * phase) * 28 : 0;
         PlaceCat();
+    }
+
+    private void UpdateGaze(double dt)
+    {
+        _gazeDwell -= dt;
+        var attention = _mind.Attention;
+        if (_lastAttention != attention || _gazeDwell <= 0)
+        {
+            _lastAttention = attention;
+            _gazeDwell = 1.4 + _random.NextDouble() * 2.8;
+            _gazeTarget = attention switch {
+                KittyAttention.Self => FacePoint() + new Vector(_facing * 18, 70),
+                KittyAttention.Rest => FacePoint() + new Vector(_facing * 35, 48),
+                KittyAttention.Memory => _memoryPoint,
+                _ => _interestAge < 9 ? _interestPoint : new Point(40 + _random.NextDouble() * Math.Max(1, ActualWidth - 80),
+                    90 + _random.NextDouble() * Math.Max(1, ActualHeight - 150)) };
+        }
+        if (attention == KittyAttention.Cursor && _pointerActive) _gazeTarget = _pointer;
+        if (attention is KittyAttention.Self or KittyAttention.Rest)
+            _gazeTarget = FacePoint() + new Vector(_facing * 28, attention == KittyAttention.Rest ? 45 : 65);
+        var direction = _gazeTarget - FacePoint();
+        var wanted = new Vector(Math.Clamp(direction.X / 180, -1, 1), Math.Clamp(direction.Y / 160, -1, 1));
+        _gaze += (wanted - _gaze) * (1 - Math.Exp(-dt * 5.5));
     }
 
     private Vector AwayFromPointer()
@@ -343,6 +416,8 @@ public sealed class HologramKittyOverlay : FrameworkElement, IDisposable
         _positioned = true;
         _position = ClampPosition(new Point(245, ActualHeight - 265));
         _target = _position;
+        _restingSpot = _position;
+        _gazeTarget = _memoryPoint = new Point(Math.Max(40, ActualWidth * .62), Math.Max(90, ActualHeight * .35));
     }
 
     private Point ClampPosition(Point point)
@@ -356,7 +431,7 @@ public sealed class HologramKittyOverlay : FrameworkElement, IDisposable
         return new Point(x, y);
     }
 
-    private Point FacePoint() => new(_position.X + 72, _position.Y + 59);
+    private Point FacePoint() => new(_position.X + 72, _position.Y - _lift + 59);
     private bool HasSmackTarget(Point point)
     {
         try { return CanSmackAt?.Invoke(point) ?? true; }
@@ -368,12 +443,12 @@ public sealed class HologramKittyOverlay : FrameworkElement, IDisposable
         // same gaze offset, reflection and breathing translation keep the UI
         // impact at the holographic paw rather than below its feet.
         var extension = Math.Sin(Math.PI * Math.Min(1, phase * 1.25));
-        var lookY = _pointerActive ? Math.Clamp((_pointer.Y - FacePoint().Y) / 130, -1, 1) : 0;
+        var lookY = _gaze.Y;
         var localX = 85 + extension * 34;
         var localY = 126 - extension * 62 + lookY * extension * 14 + Math.Sin(_seconds * 2.5) * .75;
-        return new Point(_position.X + (_facing < 0 ? 144 - localX : localX), _position.Y + localY);
+        return new Point(_position.X + (_facing < 0 ? 144 - localX : localX), _position.Y - _lift + localY);
     }
-    private void PlaceCat() { _placement.X = _position.X; _placement.Y = _position.Y; }
+    private void PlaceCat() { _placement.X = _position.X; _placement.Y = _position.Y - _lift; }
     private void Pulse(Point point) { _ripplePoint = point; _rippleRemaining = .4; InvalidateVisual(); }
 
     private void ShowBubble(string text, double duration)
@@ -407,9 +482,8 @@ public sealed class HologramKittyOverlay : FrameworkElement, IDisposable
 
     private bool HitCat(Point point)
     {
-        var local = point - _position;
-        return new Rect(34, 20, 78, 70).Contains(new Point(local.X, local.Y))
-            || Math.Pow((local.X - 72) / 39, 2) + Math.Pow((local.Y - 106) / 30, 2) <= 1;
+        var local = point - new Point(_position.X, _position.Y - _lift);
+        return _cat.ContainsBody(new Point(local.X, local.Y));
     }
 
     protected override HitTestResult? HitTestCore(PointHitTestParameters parameters) =>
@@ -429,6 +503,7 @@ public sealed class HologramKittyOverlay : FrameworkElement, IDisposable
         _owner.StateChanged -= OwnerStateChanged;
         _owner.Closed -= OwnerClosed;
         _owner.PreviewMouseMove -= OnPointerMove;
+        _owner.PreviewMouseDown -= OnWindowClick;
         _owner.MouseLeave -= OnPointerLeave;
         SystemParameters.StaticPropertyChanged -= SystemPreferenceChanged;
         _owner = null;
@@ -441,6 +516,8 @@ public sealed class HologramKittyOverlay : FrameworkElement, IDisposable
         if (_disposed) return;
         _disposed = true;
         _active = _rendering = false;
+        _voice.Dispose();
+        _cat.ResetRig();
         CompositionTarget.Rendering -= OnRendering;
         DetachOwner();
         _bubble = null;

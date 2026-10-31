@@ -2,7 +2,7 @@
 
 The original Face Tracking Bridge code and original headset artwork are
 Copyright (c) 2026 Frame Bridge contributors, licensed under [Apache 2.0](LICENSE).
-Relay's original robot-cat vectors, animations, neural policy and synthetic
+Relay's original robot-cat vectors, spring animations, synthesized voices, recurrent neural policy and synthetic
 training examples use the same license. No VRChat mascot assets or third-party
 pretrained weights are distributed. [Model provenance](tests/Kitty.Tests/README.md).
 Third-party works retain their own copyrights and terms. This file maps those

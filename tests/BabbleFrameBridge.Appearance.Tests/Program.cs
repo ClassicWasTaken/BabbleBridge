@@ -486,6 +486,52 @@ internal static class Program
                 finally { CloseWindow(); }
             });
 
+            Test("kitty sound preferences default on, mute immediately and survive connection saves and reopening", () =>
+            {
+                var profile = Path.Combine(root, "kitty-sound-preferences");
+                Directory.CreateDirectory(profile);
+                // An existing profile has no field for the new sound preference.
+                File.WriteAllText(Path.Combine(profile, "settings.json"), "{\"AutoStart\":false,\"KittyEnabled\":true}");
+                var played = 0; var stopped = 0;
+                using var voice = new KittyVoice(_ => { Interlocked.Increment(ref played); return true; },
+                    () => Interlocked.Increment(ref stopped), synthesize: (_, _, _, _) => new byte[44]);
+                try
+                {
+                    window = CreateWindow(profile, kittyVoice: voice); window.Show();
+                    PumpUntil(() => Field<bool>(window, "_initialized") && !Field<bool>(window, "_busy"), "kitty sound profile loaded");
+                    var overlay = Named<HologramKittyOverlay>(window, "KittyOverlay");
+                    var sounds = Named<CheckBox>(window, "KittySoundsBox");
+                    Check(AppSettings.Load(profile).KittySoundsEnabled && sounds.IsChecked == true && overlay.SoundsEnabled,
+                        "The sound preference did not default on for an existing profile.");
+                    Check(Named<StackPanel>(window, "PreferencesPage").IsAncestorOf(sounds),
+                        "The companion sound preference is outside the Settings page.");
+                    Check(voice.Play(KittyVocalization.Chirp), "The fake voice could not start before muting.");
+                    PumpUntil(() => voice.PendingPlayback.IsCompleted, "fake voice synthesis completed");
+                    Check(Volatile.Read(ref played) == 1, "The fake audio output was not injected.");
+                    var beforeMute = Volatile.Read(ref stopped);
+                    sounds.IsChecked = false;
+                    Check(Volatile.Read(ref stopped) > beforeMute && !voice.Enabled && !overlay.SoundsEnabled
+                        && !AppSettings.Load(profile).KittySoundsEnabled,
+                        "Muting did not stop playback immediately or save the sound preference.");
+                    Check(!voice.Play(KittyVocalization.Meow), "A muted companion accepted another voice.");
+                    InvokeSaveConnection();
+                    Check(!AppSettings.Load(profile).KittySoundsEnabled && AppSettings.Load(profile).KittyEnabled,
+                        "Saving a connection reset sound or companion preferences.");
+                    CloseWindow();
+                    using var reopenedVoice = new KittyVoice(_ => true, () => { });
+                    window = CreateWindow(profile, kittyVoice: reopenedVoice); window.Show();
+                    PumpUntil(() => Field<bool>(window, "_initialized") && !Field<bool>(window, "_busy"), "muted kitty profile reopened");
+                    sounds = Named<CheckBox>(window, "KittySoundsBox");
+                    Check(sounds.IsChecked == false && !reopenedVoice.Enabled
+                        && !Named<HologramKittyOverlay>(window, "KittyOverlay").SoundsEnabled,
+                        "Reopening lost the saved mute preference.");
+                    sounds.IsChecked = true;
+                    Check(AppSettings.Load(profile).KittySoundsEnabled && reopenedVoice.Enabled,
+                        "The muted companion could not be enabled again.");
+                }
+                finally { CloseWindow(); }
+            });
+
             Test("kitty hit testing covers its body while empty space and the launcher remain usable", () =>
             {
                 var profile = Path.Combine(root, "kitty-hit-testing");
@@ -519,13 +565,25 @@ internal static class Program
             {
                 var profile = Path.Combine(root, "kitty-suspension");
                 new AppSettings { AutoStart = false, KittyEnabled = true }.Save(profile);
+                var soundStops = 0;
+                using var voice = new KittyVoice(_ => true, () => Interlocked.Increment(ref soundStops));
                 try
                 {
-                    window = CreateWindow(profile); window.Show();
+                    window = CreateWindow(profile, kittyVoice: voice); window.Show();
                     PumpUntil(() => Field<bool>(window, "_initialized") && !Field<bool>(window, "_busy"), "kitty suspension window loaded");
                     var overlay = Named<HologramKittyOverlay>(window, "KittyOverlay");
+                    var cat = Field<HologramKittyVisual>(overlay, "_cat");
+                    PumpUntil(() => overlay.IsAnimating == SystemParameters.ClientAreaAnimation, "kitty suspension rendering policy established");
+                    Check(cat.BodyPartCount >= 16, "The cat has no independently articulated visual parts.");
+                    if (SystemParameters.ClientAreaAnimation)
+                    {
+                        cat.UpdateRig(1d / 60, 350, 55);
+                        cat.UpdateRig(1d / 60, 350, 55);
+                        Check(cat.RigSnapshot.MotionEnergy > 0, "Movement did not excite the cat's spring rig.");
+                    }
                     var button = Named<Button>(window, "ImportButton");
                     Motion.PetWobble(button);
+                    var stopsBeforeHide = Volatile.Read(ref soundStops);
                     window.Hide();
                     PumpUntil(() => !overlay.IsAnimating, "hidden kitty detached rendering");
                     var seconds = Field<double>(overlay, "_seconds");
@@ -534,18 +592,27 @@ internal static class Program
                         "A hidden companion kept advancing or listening to pointer motion.");
                     Check(TransformParts(button.RenderTransform).All(part => !part.HasAnimatedProperties),
                         "Hiding the companion left a panel/button swat animation running.");
+                    Check(cat.RigSnapshot.MotionEnergy == 0, "Hiding the cat retained spring momentum.");
+                    if (SystemParameters.ClientAreaAnimation)
+                        Check(Volatile.Read(ref soundStops) > stopsBeforeHide, "Hiding the companion did not stop audio.");
                     window.Show();
                     PumpUntil(() => overlay.IsAnimating == SystemParameters.ClientAreaAnimation, "visible kitty followed motion preference");
+                    var stopsBeforeMinimize = Volatile.Read(ref soundStops);
                     window.WindowState = WindowState.Minimized;
                     PumpUntil(() => !overlay.IsAnimating, "minimized kitty detached rendering");
+                    if (SystemParameters.ClientAreaAnimation)
+                        Check(Volatile.Read(ref soundStops) > stopsBeforeMinimize, "Minimizing the companion did not stop audio.");
                     window.WindowState = WindowState.Normal;
                     PumpUntil(() => overlay.IsAnimating == SystemParameters.ClientAreaAnimation, "restored kitty resumed rendering");
                     Motion.PetWobble(button);
+                    var stopsBeforeDisable = Volatile.Read(ref soundStops);
                     Named<Button>(window, "KittyToggle").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
                     Check(!overlay.IsAnimating && !Field<bool>(overlay, "_inputAttached") && overlay.Visibility == Visibility.Collapsed,
                         "Disabling the companion retained rendering or input subscriptions.");
                     Check(TransformParts(button.RenderTransform).All(part => !part.HasAnimatedProperties),
                         "Tucking the kitty away retained a swat transform.");
+                    if (SystemParameters.ClientAreaAnimation)
+                        Check(Volatile.Read(ref soundStops) > stopsBeforeDisable, "Disabling the companion did not stop audio.");
                 }
                 finally { CloseWindow(); }
             });
@@ -2278,10 +2345,12 @@ internal static class Program
         return failed == 0 ? 0 : 1;
     }
 
-    private static MainWindow CreateWindow(string profile, string? workerExecutable = null, ModuleDownloader? moduleDownloader = null, Func<bool, Task>? configureSteamVrAutoLaunch = null)
+    private static MainWindow CreateWindow(string profile, string? workerExecutable = null, ModuleDownloader? moduleDownloader = null,
+        Func<bool, Task>? configureSteamVrAutoLaunch = null, KittyVoice? kittyVoice = null)
     {
         var result = new MainWindow(profile, useDiscovery: false, workerExecutable: workerExecutable,
-            moduleDownloader: moduleDownloader, configureSteamVrAutoLaunch: configureSteamVrAutoLaunch)
+            moduleDownloader: moduleDownloader, configureSteamVrAutoLaunch: configureSteamVrAutoLaunch,
+            kittyVoice: kittyVoice ?? new KittyVoice(_ => true, () => { }))
         {
             ShowActivated = false, ShowInTaskbar = false,
             WindowStartupLocation = WindowStartupLocation.Manual, Left = -20000, Top = -20000

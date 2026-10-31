@@ -47,6 +47,12 @@ jobs:
       - name: Check local kitty neural policy and behavior recovery
         run: dotnet run --project tests/Kitty.Tests -c Release
 
+      - name: Check articulated kitty spring stability
+        run: dotnet run --project tests/Kitty.Spring.Tests -c Release
+
+      - name: Check synthesized kitty voices without audio playback
+        run: dotnet run --project tests/KittyVoice.Tests -c Release
+
       - name: Check module download validation and cancellation
         run: dotnet run --project tests/BabbleFrameBridge.Download.Tests -c Release
 

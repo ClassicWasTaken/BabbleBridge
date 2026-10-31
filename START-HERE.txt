@@ -1,4 +1,4 @@
-FACE TRACKING BRIDGE 1.1.0 — WINDOWS x64
+FACE TRACKING BRIDGE 1.2.0 — WINDOWS x64
 
 PREREQUISITE
 Install the Microsoft Visual C++ v14 Redistributable (x64) from Microsoft:
@@ -132,17 +132,26 @@ Click the kitty face in the bottom-left sidebar to enable or hide Relay. The
 choice is remembered. Wave your pointer near its face to excite it; gentle
 clicks invite play and repeated pestering can make it grumpy. Relay may chase
 and swat your cursor, give panels and buttons a visual wobble, get the zoomies,
-groom, stretch, or recharge in a nap. It settles down when left alone.
+groom, stretch, or recharge in a nap. It also sniffs, kneads, loafs, slow-blinks,
+stalks, pounces, rubs against surfaces, and looks around. Play and rest unfold
+in sequences; recent events, curiosity, trust, fatigue and habituation influence
+what it does next. It can ignore a familiar cursor and attend to other things.
+Its head, torso pieces, ears, paws and tail links use independent spring motion
+for soft follow-through. Meows, chirps, yawns and purring are synthesized locally.
+Turn Kitty sounds off in Settings to mute them. Muting is remembered, and audio
+stops when the window or kitty is hidden.
 The kitty never clicks controls, changes connection settings or moves your
 system cursor. Only the cat itself intercepts clicks; the rest of the app stays
 usable. Its renderer follows display refresh and pauses when disabled, hidden,
 minimized or in the tray. Windows reduced-motion settings keep it still.
-The original local behavior model has 378 parameters and needs no model
+The original recurrent behavior model has 3,470 parameters and needs no model
 download, network connection, account or external AI runtime. It was trained
 on original synthetic behavior examples; mouse interactions are not recorded
 or uploaded. The cat's original vector artwork and animations are included
 under Apache 2.0. No VRChat mascot image or pretrained third-party model is
-bundled. See tests/Kitty.Tests/README.md in the source for training provenance.
+bundled. Its internal needs, memories and intentions are a software simulation.
+See docs/RELAY-BEHAVIOR.md and tests/Kitty.Tests/README.md in the source for
+behavior references and synthetic-training provenance.
 
 UPDATE OR REMOVE THE APP
 Run a Face Tracking Bridge installer over the existing app; first choose Quit

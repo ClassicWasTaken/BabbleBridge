@@ -4,10 +4,10 @@ Result: PASS
 
 Isolated per-user install, reinstall, upgrade, downgrade rejection and uninstall.
 The test used a separate random application identity and workspace install and shortcut folders.
-Real application payloads tested: 1.0.4 to 1.1.0.
+Real application payloads tested: 1.1.0 to 1.2.0.
 Shortcut collision protection and running-application install/uninstall guards were exercised.
 SteamVR hooks used an isolated fake helper; real SteamVR registration and native APIs were excluded.
-The isolated KittyEnabled preference remained enabled through reinstall, upgrade and uninstall cleanup.
+The isolated fixture's KittyEnabled=true and KittySoundsEnabled=false preferences survived reinstall, upgrade and uninstall.
 Installed-worker mapping used the existing --all-parameters diagnostic mode.
 VRChat avatar discovery was excluded to avoid interference with a running local game.
 
@@ -19,7 +19,7 @@ VRChat avatar discovery was excluded to avoid interference with a running local 
 - An unrelated same-name desktop shortcut survived unchecked installation and explicitly selected reinstallation.
 - Setup rejected an update while the isolated application mutex existed, before changing version or files.
 - Upgrade refreshes the same owned SteamVR registration after replacing app files and preserves the automatic-launch choice.
-- Real app binaries upgraded from 1.0.4 to 1.1.0; installed app and worker hashes match the new payload.
+- Real app binaries upgraded from 1.1.0 to 1.2.0; installed app and worker hashes match the new payload.
 - Upgrade registers the Face Tracking Bridge name with the same application identity and installation directory.
 - The real upgrade migrates owned FaceTracking Bridge Start menu shortcuts after their new replacements exist.
 - Exact generation-2 Babble Bridge 1.0.1/1.0.2 and FaceTracking Bridge 1.0.3 migrate to 1.0.0; existing 1.0.0 reinstalls normally.

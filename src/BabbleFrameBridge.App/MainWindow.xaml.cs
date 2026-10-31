@@ -38,6 +38,7 @@ public partial class MainWindow : Window
     private bool _exitRequested;
     private WindowState _restoreWindowState = WindowState.Normal;
     private bool _syncingStartupPreferences;
+    private bool _syncingKittySound;
     private AppSettings _settings;
     private Process? _worker;
     private Task? _stopTask;
@@ -64,7 +65,7 @@ public partial class MainWindow : Window
     public bool CloseWithSteamVr => _settings.CloseWithSteamVr;
     public bool StartMinimized => _settings.StartMinimized;
 
-    public MainWindow(string root, bool useDiscovery = true, string? workerExecutable = null, ModuleDownloader? moduleDownloader = null, Func<bool, Task>? configureSteamVrAutoLaunch = null)
+    public MainWindow(string root, bool useDiscovery = true, string? workerExecutable = null, ModuleDownloader? moduleDownloader = null, Func<bool, Task>? configureSteamVrAutoLaunch = null, KittyVoice? kittyVoice = null)
     {
         InitializeComponent();
         _noticeTimer = new DispatcherTimer(DispatcherPriority.Background, Dispatcher);
@@ -92,6 +93,9 @@ public partial class MainWindow : Window
         AutoStartBox.IsChecked = _settings.AutoStart;
         SyncStartupPreferences();
         KittyFace.Source = HologramKittyVisual.CreateHeadIcon();
+        if (kittyVoice is not null) KittyOverlay.SetVoice(kittyVoice);
+        KittyOverlay.SoundsEnabled = _settings.KittySoundsEnabled;
+        KittySoundsBox.IsChecked = _settings.KittySoundsEnabled;
         KittyOverlay.Attach(this);
         KittyOverlay.CanSmackAt = point => FindKittyTarget(point) is not null;
         KittyOverlay.ImpactRequested = (point, strength) => { if (FindKittyTarget(point) is { } target) Motion.PetWobble(target, strength); };
@@ -175,6 +179,26 @@ public partial class MainWindow : Window
         KittyOverlay.SetActive(_settings.KittyEnabled);
         if (!_settings.KittyEnabled) Motion.ResetPetWobbles();
         UpdateKittyButton();
+    }
+
+    private void KittySounds_Changed(object sender, RoutedEventArgs e)
+    {
+        if (!_initialized || _syncingKittySound || _closing) return;
+        var previous = _settings.KittySoundsEnabled;
+        try
+        {
+            _settings.KittySoundsEnabled = KittySoundsBox.IsChecked == true;
+            _settings.Save(_root);
+        }
+        catch (Exception error)
+        {
+            _settings.KittySoundsEnabled = previous;
+            _syncingKittySound = true;
+            KittySoundsBox.IsChecked = previous;
+            _syncingKittySound = false;
+            ShowNotice("The kitty sound preference could not be saved. " + error.Message, true);
+        }
+        KittyOverlay.SoundsEnabled = _settings.KittySoundsEnabled;
     }
 
     private void UpdateKittyButton()
@@ -924,6 +948,7 @@ public partial class MainWindow : Window
             CloseWithSteamVr = _settings.CloseWithSteamVr,
             StartMinimized = _settings.StartMinimized,
             KittyEnabled = _settings.KittyEnabled,
+            KittySoundsEnabled = _settings.KittySoundsEnabled,
             AutoStart = AutoStartBox.IsChecked == true };
         ValidateConnection(updated, _store.Current);
         var previous = _settings;
@@ -937,6 +962,7 @@ public partial class MainWindow : Window
         {
             await StopWorker();
             previous.KittyEnabled = _settings.KittyEnabled;
+            previous.KittySoundsEnabled = _settings.KittySoundsEnabled;
             previous.Save(_root); _settings = previous;
             HostBox.Text = previous.OutputHost; PortBox.Text = previous.OutputPort.ToString(); ReceiveBox.Text = previous.ReceivePort.ToString();
             if (wasRunning && _store.Current is { } current)

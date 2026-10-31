@@ -538,12 +538,14 @@ try
         settings.CloseWithSteamVr = true;
         settings.StartMinimized = true;
         settings.KittyEnabled = true;
+        settings.KittySoundsEnabled = false;
         settings.Save(dataRoot);
         var reloaded = AppSettings.Load(dataRoot);
         Check(reloaded.OutputHost == settings.OutputHost && reloaded.OutputPort == 19000 && reloaded.AutoStart, "Settings did not persist.");
         Check(reloaded.StartWithSteamVr && reloaded.CloseWithSteamVr && reloaded.StartMinimized,
             "SteamVR startup, shutdown or minimized preferences did not persist.");
         Check(reloaded.KittyEnabled, "The optional kitty preference did not persist.");
+        Check(!reloaded.KittySoundsEnabled, "The kitty mute preference did not persist.");
         foreach (var invalidPort in new[] { 0, 65536, settings.ReceivePort })
         {
             settings.OutputPort = invalidPort;
