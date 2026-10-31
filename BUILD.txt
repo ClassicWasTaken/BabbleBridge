@@ -5,7 +5,9 @@ The native OSC library needs Microsoft's Visual C++ v14 Redistributable (x64)
 on the computer running it. Install that prerequisite from Microsoft's official
 download page; this project does not redistribute a DLL copied from System32.
 https://learn.microsoft.com/en-us/cpp/windows/latest-supported-vc-redist
-The app is WPF; the worker hosts the actual VRCFaceTracking mapper and module.
+The app is WPF; the worker hosts the VRCFaceTracking mapper. A shared eye/face
+module runs once. Split sources use isolated module hosts and one combined
+mapper/output pipeline.
 
 Run PowerShell from this source folder:
   .\build.ps1
@@ -19,6 +21,7 @@ symbols. build.ps1 removes stale PDBs from reused publish folders.
 
 Run tests:
   dotnet run --project tests/BabbleFrameBridge.Tests -c Release -- 'C:\Path\Baballonia-module.zip'
+  dotnet run --project tests/BabbleFrameBridge.ChannelSelection.Tests -c Release
   dotnet run --project tests/EyeData.Tests -c Release
   dotnet run --project tests/BabbleFrameBridge.NativeFace.Tests -c Release
   dotnet run --project tests/BabbleFrameBridge.Appearance.Tests -c Release -- --module-zip 'C:\Path\Baballonia-module.zip' --publish-dir dist/BabbleFrameBridge
@@ -39,11 +42,13 @@ LAYOUT
 
 The app and source package include no tracking module. Obtain compatible
 VRCFaceTracking SDK module ZIPs separately. The supported connection families
-are Babble Headset Runtime, Baballonia desktop, Virtual Desktop, and Steam Link
-using Ykeara LinkFT. See START-HERE.txt for their setup and source links.
+are Babble Headset Runtime, Baballonia desktop, Virtual Desktop, Steam Link
+using Ykeara LinkFT, SRanipal, Bigscreen Beyond, and EyeTrackVR. See START-HERE.txt
+for their setup and source links.
 Baballonia ZIPs are used by the real-module integration commands above; other
 hardware/module combinations need their own checks. Installed modules can be
-selected independently, with a separate saved input profile for each connection.
+assigned to the saved eye and face roles, with a separate input profile for
+each connection. A repeated module ID represents one instance, not two.
 New ZIPs can update module payloads without recompiling the bridge when their
 module API remains compatible.
 The worker is a separate process for reliable unload/restart; it is not an OS

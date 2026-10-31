@@ -14,6 +14,7 @@ using System.Security.Cryptography;
 using System.Text.Json.Nodes;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Controls.Primitives;
 using System.Windows.Automation;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
@@ -1066,6 +1067,68 @@ internal static class Program
                 finally { CloseWindow(); }
             });
 
+            Test("a read-only disk log leaves live activity text and the interface usable", () =>
+            {
+                var profile = Path.Combine(root, "read-only-log");
+                new AppSettings { AutoStart = false }.Save(profile);
+                string? logPath = null; var originalAttributes = FileAttributes.Normal;
+                try
+                {
+                    window = CreateWindow(profile); window.Show();
+                    PumpUntil(() => Field<bool>(window, "_initialized") && !Field<bool>(window, "_busy"), "read-only log profile initialized");
+                    logPath = Field<string>(window, "_logPath");
+                    var originalLog = File.ReadAllBytes(logPath); originalAttributes = File.GetAttributes(logPath);
+                    File.SetAttributes(logPath, originalAttributes | FileAttributes.ReadOnly);
+                    const string marker = "Read-only log regression keeps activity visible.";
+                    Method(window, "Log").Invoke(window, [marker]);
+                    Check(Named<TextBox>(window, "LogBox").Text.Contains(marker)
+                        && Named<TextBlock>(window, "LatestActivity").Text == marker,
+                        "A denied disk-log write discarded the on-screen activity update.");
+                    Check(File.ReadAllBytes(logPath).SequenceEqual(originalLog), "The read-only log fixture was unexpectedly overwritten.");
+                    Named<RadioButton>(window, "ModulesNav").IsChecked = true; Pump();
+                    Check(Named<StackPanel>(window, "ModulesPage").Visibility == Visibility.Visible
+                        && Named<Button>(window, "ModuleImportButton").IsEnabled && !Field<bool>(window, "_closing"),
+                        "A denied log write crashed or disabled the interface.");
+                }
+                finally
+                {
+                    if (logPath is not null && File.Exists(logPath)) File.SetAttributes(logPath, originalAttributes);
+                    CloseWindow();
+                }
+            });
+
+            Test("bridge auto-start restores its saved and visible preference when writing settings fails", () =>
+            {
+                var profile = Path.Combine(root, "bridge-autostart-save-failure");
+                new AppSettings { AutoStart = false, StartMinimized = true }.Save(profile);
+                try
+                {
+                    window = CreateWindow(profile); window.Show();
+                    PumpUntil(() => Field<bool>(window, "_initialized") && !Field<bool>(window, "_busy"), "bridge auto-start failure profile loaded");
+                    var settingsPath = Path.Combine(profile, "settings.json");
+                    var original = File.ReadAllText(settingsPath);
+                    using (var locked = new FileStream(settingsPath, FileMode.Open, FileAccess.Read, FileShare.Read))
+                    {
+                        DispatchInput(() => Named<CheckBox>(window, "AutoStartBox").IsChecked = true);
+                        PumpUntil(() => !Field<bool>(window, "_busy") && Field<Task>(window, "_startupPreferenceTask").IsCompleted,
+                            "bridge auto-start save failure rolled back");
+                        Check(!Field<AppSettings>(window, "_settings").AutoStart
+                            && Named<CheckBox>(window, "AutoStartBox").IsChecked == false,
+                            "A failed auto-start write left the in-memory or visible setting enabled.");
+                    }
+                    Check(File.ReadAllText(settingsPath) == original && !AppSettings.Load(profile).AutoStart
+                        && AppSettings.Load(profile).StartMinimized,
+                        "A failed auto-start write changed saved settings or another startup preference.");
+                    Check(Named<Border>(window, "GlobalNotice").Visibility == Visibility.Visible
+                        && Named<Button>(window, "SaveButton").IsEnabled,
+                        "The failed auto-start write crashed the interface or left it permanently busy.");
+                    DispatchInput(() => Named<CheckBox>(window, "AutoStartBox").IsChecked = true);
+                    PumpUntil(() => !Field<bool>(window, "_busy") && AppSettings.Load(profile).AutoStart,
+                        "bridge auto-start could retry after the settings lock was released");
+                }
+                finally { CloseWindow(); }
+            });
+
             Test("closing waits for an in-flight SteamVR registration to finish saving", () =>
             {
                 var profile = Path.Combine(root, "startup-closing");
@@ -1659,6 +1722,175 @@ internal static class Program
 
             if (suppliedZip is not null && published is not null)
             {
+                Test("Manage modules keeps its fill, template and navigation while the real bridge starts and stops", () =>
+                {
+                    var profile = Path.Combine(root, "module-navigation-start-stop");
+                    var fixtures = Path.Combine(root, "module-navigation-fixtures"); Directory.CreateDirectory(fixtures);
+                    using var output = ReservePort();
+                    var reservations = Enumerable.Range(0, 3).Select(_ => ReservePort()).ToArray();
+                    var receive = PortOf(reservations[0]); var link = PortOf(reservations[1]); var input = PortOf(reservations[2]);
+                    foreach (var reservation in reservations) reservation.Dispose();
+                    new AppSettings { AutoStart = false, OutputPort = PortOf(output), ReceivePort = receive, LinkPort = link }.Save(profile);
+                    new ModuleStore(profile).Install(ModuleFixture(suppliedZip, fixtures, "4.0.21", input, link));
+                    try
+                    {
+                        window = CreateWindow(profile, workerExecutable); window.Show();
+                        PumpUntil(() => Field<bool>(window, "_initialized") && !Field<bool>(window, "_busy"), "navigation profile initialized");
+                        var navigation = Named<Button>(window, "ImportButton"); navigation.ApplyTemplate();
+                        var chrome = (Border)navigation.Template.FindName("Chrome", navigation);
+                        PumpUntil(() => chrome.Opacity >= .999, "module navigation chrome settled before operation");
+                        var template = navigation.Template; var fill = ColorOf(chrome.Background);
+                        var states = new List<bool>(); navigation.IsEnabledChanged += (_, _) => states.Add(navigation.IsEnabled);
+                        var minimumOpacity = chrome.Opacity;
+                        foreach (var expectedRunning in new[] { true, false })
+                        {
+                            Named<RadioButton>(window, "OverviewNav").IsChecked = true; Pump();
+                            var observedBusy = false; var navigationEnabled = false; var importDisabled = false; var navigated = false;
+                            BeginButtonClick(Named<Button>(window, "StartButton"), () =>
+                            {
+                                observedBusy = Field<bool>(window, "_busy");
+                                navigationEnabled = navigation.IsEnabled;
+                                importDisabled = !Named<Button>(window, "ModuleImportButton").IsEnabled;
+                                if (navigationEnabled) navigation.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                                navigated = Named<StackPanel>(window, "ModulesPage").Visibility == Visibility.Visible;
+                            });
+                            Check(observedBusy, "The real bridge operation did not expose its pending state.");
+                            Check(navigationEnabled && importDisabled,
+                                "Bridge startup disabled navigation or left executable module import enabled.");
+                            Check(navigated,
+                                "Manage modules could not navigate during a bridge operation.");
+                            var clock = Stopwatch.StartNew();
+                            while (Field<bool>(window, "_busy") && clock.Elapsed < TimeSpan.FromSeconds(40))
+                            { Pump(); minimumOpacity = Math.Min(minimumOpacity, chrome.Opacity); Thread.Sleep(5); }
+                            Check(!Field<bool>(window, "_busy") && Field<bool>(window, "_running") == expectedRunning,
+                                "The real bridge did not finish its requested start/stop operation.");
+                            PumpFor(TimeSpan.FromMilliseconds(160)); minimumOpacity = Math.Min(minimumOpacity, chrome.Opacity);
+                            Check(ReferenceEquals(navigation.Template, template) && ColorOf(chrome.Background) == fill,
+                                "A bridge operation replaced the module navigation template or fill.");
+                        }
+                        Check(states.All(enabled => enabled) && minimumOpacity >= .99 && Motion.GetFeedbackOpacity(chrome) >= .99,
+                            "Manage modules flashed through disabled-opacity feedback during start/stop.");
+                        Check(Named<Button>(window, "ModuleImportButton").IsEnabled,
+                            "Actual module import did not become available after the bridge operation.");
+                    }
+                    finally { CloseWindow(); }
+                });
+
+                Test("eye and face selectors apply one or two modules transactionally and preserve the role pair", () =>
+                {
+                    var profile = Path.Combine(root, "module-role-selection");
+                    var fixtures = Path.Combine(root, "module-role-fixtures"); Directory.CreateDirectory(fixtures);
+                    using var output = ReservePort(); using var occupied = ReservePort();
+                    var reservations = Enumerable.Range(0, 5).Select(_ => ReservePort()).ToArray();
+                    var receive = PortOf(reservations[0]); var link = PortOf(reservations[1]);
+                    var eyePort = PortOf(reservations[2]); var facePort = PortOf(reservations[3]); var changedReceive = PortOf(reservations[4]);
+                    foreach (var reservation in reservations) reservation.Dispose();
+                    new AppSettings { AutoStart = false, OutputPort = PortOf(output), ReceivePort = receive, LinkPort = link }.Save(profile);
+                    var store = new ModuleStore(profile);
+                    var eye = store.Prepare(ModuleFixture(suppliedZip, fixtures, "4.0.31", eyePort, link), ModuleKind.BaballoniaDesktop); store.Register(eye);
+                    var face = store.Prepare(ModuleFixture(suppliedZip, fixtures, "4.0.32", facePort, link), ModuleKind.BaballoniaDesktop); store.Register(face);
+                    var collision = store.Prepare(ModuleFixture(suppliedZip, fixtures, "4.0.33", eyePort, link), ModuleKind.BaballoniaDesktop); store.Register(collision);
+                    var blocked = store.Prepare(ModuleFixture(suppliedZip, fixtures, "4.0.34", PortOf(occupied), link), ModuleKind.BaballoniaDesktop); store.Register(blocked);
+                    store.Activate(eye);
+                    void Apply(ModuleRelease eyeSource, ModuleRelease faceSource)
+                    {
+                        Named<RadioButton>(window!, "ModulesNav").IsChecked = true;
+                        Named<ComboBox>(window!, "EyeModuleBox").SelectedValue = eyeSource.Id;
+                        Named<ComboBox>(window!, "FaceModuleBox").SelectedValue = faceSource.Id;
+                        BeginButtonClick(Named<Button>(window!, "ApplySourcesButton"));
+                        PumpUntil(() => !Field<bool>(window!, "_busy"), "role selection transaction completed", TimeSpan.FromSeconds(60));
+                    }
+                    void CheckPair(ModuleRelease eyeSource, ModuleRelease faceSource, bool checkDraft = true)
+                    {
+                        var saved = new ModuleStore(profile).Selection;
+                        Check(saved.EyeModule == eyeSource && saved.FaceModule == faceSource && saved.IsComplete,
+                            "The persisted eye/face pair differs from the selected modules.");
+                        if (checkDraft)
+                            Check((string?)Named<ComboBox>(window!, "EyeModuleBox").SelectedValue == eyeSource.Id
+                                && (string?)Named<ComboBox>(window!, "FaceModuleBox").SelectedValue == faceSource.Id,
+                                "The source selectors lost their saved role assignments.");
+                    }
+                    try
+                    {
+                        window = CreateWindow(profile, workerExecutable); themes.AttachWindow(window); window.Show();
+                        PumpUntil(() => Field<bool>(window, "_initialized") && !Field<bool>(window, "_busy"), "role selection profile initialized");
+                        Named<RadioButton>(window, "ModulesNav").IsChecked = true; Pump();
+                        var priorTheme = themes.CurrentIsDark;
+                        foreach (var dark in new[] { false, true })
+                        {
+                            themes.ApplyTheme(dark); Pump();
+                            foreach (var name in new[] { "EyeModuleBox", "FaceModuleBox" })
+                            {
+                                var combo = Named<ComboBox>(window, name); combo.ApplyTemplate();
+                                var chrome = (Border)combo.Template.FindName("SelectChrome", combo);
+                                Check(ColorOf(chrome.Background) == ColorOf((Brush)Application.Current.FindResource("InputBackground"))
+                                    && Contrast(ColorOf(combo.Foreground), ColorOf(chrome.Background)) >= 4.5,
+                                    "A role selector ignored its active light/dark input palette.");
+                                combo.RaiseEvent(new KeyEventArgs(Keyboard.PrimaryDevice, PresentationSource.FromVisual(window),
+                                    Environment.TickCount, Key.F4) { RoutedEvent = Keyboard.KeyDownEvent });
+                                PumpUntil(() => combo.IsDropDownOpen, "keyboard opened the module selector");
+                                var popup = (Popup)combo.Template.FindName("PART_Popup", combo);
+                                var popupChrome = (Border)popup.Child;
+                                PumpUntil(() => popupChrome.ActualWidth > 0 && popupChrome.ActualHeight > 0, "module dropdown finished layout");
+                                Check(Math.Abs(popupChrome.ActualWidth - combo.ActualWidth) <= 1
+                                    && popupChrome.ActualHeight <= combo.MaxDropDownHeight + 16,
+                                    "The module dropdown exceeded its selector width or bounded height.");
+                                Check(ColorOf(chrome.BorderBrush) == ColorOf((Brush)Application.Current.FindResource("Focus"))
+                                    && ColorOf(popupChrome.Background) == ColorOf((Brush)Application.Current.FindResource("InputBackground")),
+                                    "The open selector lost its focus border or popup palette.");
+                                var item = (ComboBoxItem)combo.ItemContainerGenerator.ContainerFromIndex(combo.SelectedIndex);
+                                Check(Contrast(ColorOf(item.Foreground), ColorOf((Brush)Application.Current.FindResource("NavSelected"))) >= 4.5
+                                    && Contrast(ColorOf((Brush)Application.Current.FindResource("HeroInk")), ColorOf((Brush)Application.Current.FindResource("NavHover"))) >= 4.5,
+                                    "Selected or highlighted module choices have low text contrast.");
+                                combo.IsDropDownOpen = false; Pump();
+                            }
+                            SavePreview(window, renderDirectory, dark ? "module-sources-dark.png" : "module-sources-light.png");
+                        }
+                        themes.ApplyTheme(priorTheme);
+                        Apply(eye, eye); CheckPair(eye, eye);
+                        Check(Field<bool>(window, "_running") && WorkerArgument("--face-module") is null,
+                            "Selecting one module for both roles unnecessarily requested a second module instance.");
+                        var singlePid = Field<Process>(window, "_worker").Id;
+                        Apply(eye, face); CheckPair(eye, face);
+                        var pairPid = Field<Process>(window, "_worker").Id;
+                        Check(Field<bool>(window, "_running") && pairPid != singlePid
+                            && WorkerArgument("--module") == Path.Combine(eye.DirectoryPath, eye.DllFileName)
+                            && WorkerArgument("--face-module") == Path.Combine(face.DirectoryPath, face.DllFileName)
+                            && Field<Process>(window, "_worker").StartInfo.ArgumentList.Count(argument => argument == "--face-module") == 1,
+                            "Split role selection did not create one output worker with exactly two module inputs.");
+                        var savedPairState = File.ReadAllText(Path.Combine(profile, "modules", "module-state.json"));
+                        Apply(eye, collision); CheckPair(eye, face, checkDraft: false);
+                        Check(Field<bool>(window, "_running") && Field<Process>(window, "_worker").Id == pairPid
+                            && File.ReadAllText(Path.Combine(profile, "modules", "module-state.json")) == savedPairState,
+                            "A prevalidated input-port collision interrupted the working pair or changed its saved selection.");
+                        Apply(eye, blocked); CheckPair(eye, face, checkDraft: false);
+                        Check(Field<bool>(window, "_running") && File.ReadAllText(Path.Combine(profile, "modules", "module-state.json")) == savedPairState,
+                            "A module initialization failure did not restore the complete previous role pair.");
+                        Named<ComboBox>(window, "EyeModuleBox").SelectedValue = eye.Id;
+                        Named<ComboBox>(window, "FaceModuleBox").SelectedValue = face.Id;
+                        Named<TextBox>(window, "ReceiveBox").Text = changedReceive.ToString(); InvokeSaveConnection(); CheckPair(eye, face);
+                        Check(AppSettings.Load(profile).ReceivePort == changedReceive && WorkerArgument("--face-module") is not null,
+                            "Saving the shared VRChat connection discarded the face-module input.");
+                        Apply(eye, eye); CheckPair(eye, eye);
+                        InvokeRollback(); CheckPair(eye, face);
+                        Check(Field<bool>(window, "_running") && WorkerArgument("--face-module") is not null,
+                            "Rollback restored only the primary module of the previous role pair.");
+                        CloseWindow(); window = CreateWindow(profile, workerExecutable); window.Show();
+                        PumpUntil(() => Field<bool>(window, "_initialized") && !Field<bool>(window, "_busy"), "role selection reopened");
+                        CheckPair(eye, face);
+                        Check(Field<object?>(window, "_worker") is null, "Reopening a saved role pair ignored AutoStart=false.");
+                        BeginButtonClick(Named<Button>(window, "StartButton"));
+                        PumpUntil(() => !Field<bool>(window, "_busy") && Field<bool>(window, "_running"), "saved pair restarted", TimeSpan.FromSeconds(40));
+                        InvokeCardButton(face, "Remove module"); InvokeCardButton(face, "Confirm remove module");
+                        var afterRemoval = new ModuleStore(profile);
+                        Check(!afterRemoval.Selection.IsComplete && !afterRemoval.Installed.Any(module => module.Id == face.Id)
+                            && afterRemoval.Installed.Any(module => module.Id == eye.Id)
+                            && Field<object?>(window, "_worker") is null && !Field<bool>(window, "_running"),
+                            "Removing the assigned face source left a live worker or an incomplete saved role pair.");
+                    }
+                    finally { CloseWindow(); }
+                });
+
                 Test("module ZIP updates activate only after startup, recover from failure, and roll back across relaunch", () =>
                 {
                     var executable = workerExecutable!;
@@ -1762,7 +1994,7 @@ internal static class Program
                         Check(Named<Border>(window, "GlobalNotice").Visibility == Visibility.Visible
                             && Named<TextBlock>(window, "GlobalNoticeText").Text.Contains("The new module could not start."),
                             "The failed update did not leave a clear error notification.");
-                        Check(Named<TextBox>(window, "LogBox").Text.Contains("Restored the previous active module."),
+                        Check(Named<TextBox>(window, "LogBox").Text.Contains("Restored the previous tracking sources."),
                             "The UI did not confirm recovery of the previous worker.");
 
                         InvokeRollback();
@@ -2567,7 +2799,7 @@ internal static class Program
                                 "A failed VD activation did not restore the prior selected tracking worker.");
                             Check(Named<Border>(window, "GlobalNotice").Visibility == Visibility.Visible
                                 && Named<TextBlock>(window, "GlobalNoticeText").Text.Contains("could not start", StringComparison.OrdinalIgnoreCase)
-                                && Named<TextBox>(window, "LogBox").Text.Contains("Restored the previous active module."),
+                                && Named<TextBox>(window, "LogBox").Text.Contains("Restored the previous tracking sources."),
                                 "The VD startup error was lost or the recovery was not explained.");
                         }
                         CheckAvailableDownloads(ModuleKind.BaballoniaDesktop, ModuleKind.SteamLink);
@@ -3020,13 +3252,18 @@ internal static class Program
             .Single(button => button.Tag is ModuleKind candidate && candidate == kind);
     }
 
-    private static void BeginButtonClick(Button button)
+    private static void BeginButtonClick(Button button, Action? afterClick = null)
     {
         Check(button.IsEnabled, "The requested interface action is disabled: " + AutomationProperties.GetName(button));
+        DispatchInput(() => { button.RaiseEvent(new RoutedEventArgs(Button.ClickEvent)); afterClick?.Invoke(); });
+    }
+
+    private static void DispatchInput(Action input)
+    {
         var started = false;
         window!.Dispatcher.BeginInvoke(new Action(() =>
         {
-            button.RaiseEvent(new RoutedEventArgs(Button.ClickEvent)); started = true;
+            input(); started = true;
         }));
         PumpUntil(() => started, "interface action began");
     }

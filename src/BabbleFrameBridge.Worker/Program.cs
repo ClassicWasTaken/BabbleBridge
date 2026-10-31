@@ -24,7 +24,7 @@ using VRCFaceTracking.Core.Services;
 
 namespace BabbleFrameBridge.Worker;
 
-internal static class Program
+internal static partial class Program
 {
     private static readonly object OutputLock = new();
     internal static void Emit(object message)
@@ -73,6 +73,26 @@ internal static class Program
             var moduleName = Arg("--module-name", provider.Name).Trim();
             if (moduleName.Length is 0 or > 200 || moduleName.Any(char.IsControl))
                 throw new ArgumentException("The module display name must be between 1 and 200 characters.");
+            StartLifetimeWatchers(options, stop);
+            if (!Has("--face-module") && (Has("--face-kind") || Has("--face-name") || Has("--face-input-port")))
+                throw new ArgumentException("Choose a face module before specifying its kind, name, or input port.");
+            if (Has("--face-module") && !Has("--input-only"))
+            {
+                var facePath = Path.GetFullPath(Arg("--face-module"));
+                if (!File.Exists(facePath)) throw new FileNotFoundException("The selected face module DLL was not found.", facePath);
+                if (!Enum.TryParse<ModuleKind>(Arg("--face-kind"), true, out var faceKind) || !Enum.IsDefined(faceKind))
+                    throw new ArgumentException("Choose a supported face tracking module.");
+                var faceName = Arg("--face-name", ModuleCatalog.Get(faceKind).Name).Trim();
+                if (faceName.Length is 0 or > 200 || faceName.Any(char.IsControl)) throw new ArgumentException("The face module name is invalid.");
+                var eyePort = Has("--input-port") ? int.Parse(Arg("--input-port")) : (int?)null;
+                var facePort = Has("--face-input-port") ? int.Parse(Arg("--face-input-port")) : (int?)null;
+                if (kind != faceKind || !string.Equals(modulePath, facePath, StringComparison.OrdinalIgnoreCase))
+                    return await SplitModuleCoordinator.RunAsync(new(modulePath, kind, moduleName, eyePort),
+                        new(facePath, faceKind, faceName, facePort), dataRoot, settings, Has("--all-parameters"), Has("--no-discovery"), stop.Token);
+                if (facePort is not null && eyePort is not null && facePort != eyePort)
+                    throw new ArgumentException("One module cannot use different eye and face input ports.");
+                if (facePort is not null && eyePort is null) options["--input-port"] = facePort.Value.ToString();
+            }
             var babbleModule = kind is ModuleKind.BabbleHeadsetRuntime or ModuleKind.BaballoniaDesktop;
             var headsetSource = kind == ModuleKind.BabbleHeadsetRuntime;
             var desktopSource = kind == ModuleKind.BaballoniaDesktop;
@@ -134,47 +154,9 @@ internal static class Program
                 else CheckPort(inputPort, IPAddress.Any);
             }
 
-            _ = Task.Run(async () =>
-            {
-                try
-                {
-                    while (!stop.IsCancellationRequested)
-                    {
-                        var input = await Console.In.ReadLineAsync(stop.Token);
-                        if (input == null || input.Equals("stop", StringComparison.OrdinalIgnoreCase)) { stop.Cancel(); break; }
-                    }
-                }
-                catch (OperationCanceledException) { }
-            });
-            if (Has("--parent"))
-            {
-                int parent = int.Parse(Arg("--parent"));
-                _ = Task.Run(async () =>
-                {
-                    try
-                    {
-                        while (!stop.IsCancellationRequested)
-                        {
-                            using var process = Process.GetProcessById(parent);
-                            if (process.HasExited) { stop.Cancel(); break; }
-                            await Task.Delay(1000, stop.Token);
-                        }
-                    }
-                    catch (Exception e) when (e is ArgumentException or InvalidOperationException or OperationCanceledException) { stop.Cancel(); }
-                });
-            }
-            Console.CancelKeyPress += (_, e) => { e.Cancel = true; stop.Cancel(); };
             using var logs = LoggerFactory.Create(builder => builder.AddProvider(new JsonLogProvider()));
             var mutator = new UnifiedTrackingMutator(logs.CreateLogger<UnifiedTrackingMutator>(), new NoSettings());
             mutator.Enabled = false;
-            var target = new WorkerOscTarget();
-            send = new OscSendService(logs.CreateLogger<OscSendService>(), target);
-            long messages = 0;
-            send.OnMessagesDispatched = n => Interlocked.Add(ref messages, n);
-            target.DestinationAddress = settings.OutputHost;
-            target.OutPort = settings.OutputPort;
-            target.InPort = settings.ReceivePort;
-            sender = new ParameterSenderService(send);
 
             AssemblyLoadContext.Default.Resolving += (_, name) =>
             {
@@ -223,6 +205,15 @@ internal static class Program
                 stop.Cancel();
             };
             if (reinitEvent?.EventHandlerType == typeof(Action)) reinitEvent.AddEventHandler(module, requestRestart);
+
+            if (Has("--input-only"))
+                return RunInputOnly(module, kind, moduleName, inputPort, claims, stop.Token);
+
+            var target = new WorkerOscTarget { DestinationAddress = settings.OutputHost, OutPort = settings.OutputPort, InPort = settings.ReceivePort };
+            send = new OscSendService(logs.CreateLogger<OscSendService>(), target);
+            long messages = 0;
+            send.OnMessagesDispatched = n => Interlocked.Add(ref messages, n);
+            sender = new ParameterSenderService(send);
 
             // Set the source policy before every mapper/sender callback, including the first frame.
             // The disabled mutator passes through this same data object.
@@ -448,9 +439,10 @@ internal static class Program
             string? value = null;
             switch (name)
             {
-                case "--no-discovery": case "--all-parameters": break;
+                case "--no-discovery": case "--all-parameters": case "--input-only": break;
                 case "--module": case "--data": case "--kind": case "--module-name":
                 case "--input-port": case "--output-port": case "--parent":
+                case "--face-module": case "--face-kind": case "--face-name": case "--face-input-port":
                     if (++index >= args.Length) throw new ArgumentException($"Missing value for {name}.");
                     value = args[index];
                     break;

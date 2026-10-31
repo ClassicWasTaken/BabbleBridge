@@ -60,16 +60,41 @@ public sealed class ModuleStore
 
     public ModuleRelease? Current { get { lock (_gate) return ReadRelease(_state.Current); } }
     public ModuleRelease? Previous { get { lock (_gate) return ReadRelease(_state.Previous); } }
+    public ModuleRelease? EyeModule { get { lock (_gate) return ReadRelease(EyeId); } }
+    public ModuleRelease? FaceModule { get { lock (_gate) return ReadRelease(FaceId); } }
+    public ModuleRelease? PreviousEyeModule { get { lock (_gate) return ReadRelease(PreviousEyeId); } }
+    public ModuleRelease? PreviousFaceModule { get { lock (_gate) return ReadRelease(PreviousFaceId); } }
+    public ModuleChannelSelection Selection { get { lock (_gate) return ReadSelection(EyeId, FaceId); } }
+    public ModuleChannelSelection PreviousSelection { get { lock (_gate) return ReadSelection(PreviousEyeId, PreviousFaceId); } }
     public IReadOnlyList<ModuleRelease> Installed { get { lock (_gate) return InstalledIds().Select(id => ReadRelease(id)!).OrderBy(x => x.Kind).ThenByDescending(x => x.InstalledAt).ToArray(); } }
 
-    private string[] InstalledIds() => (_state.Installed ?? []).Concat(new[] { _state.Current, _state.Previous }.OfType<string>()).Distinct().ToArray();
+    // A legacy selection owns both roles until the next state write upgrades it.
+    // Schema 3 uses explicit nulls so a cleared selection cannot reappear via Current.
+    private string? EyeId => _state.Schema < 3 ? _state.Current : _state.EyeModuleId;
+    private string? FaceId => _state.Schema < 3 ? _state.Current : _state.FaceModuleId;
+    private string? PreviousEyeId => _state.Schema < 3 ? _state.Previous : _state.PreviousEyeId;
+    private string? PreviousFaceId => _state.Schema < 3 ? _state.Previous : _state.PreviousFaceId;
+    private ModuleChannelSelection ReadSelection(string? eyeId, string? faceId)
+    {
+        var eye = ReadRelease(eyeId);
+        return new(eye, eyeId == faceId ? eye : ReadRelease(faceId));
+    }
+
+    private string[] InstalledIds() => (_state.Installed ?? [])
+        .Concat(new[] { _state.Current, _state.Previous, EyeId, FaceId, PreviousEyeId, PreviousFaceId }.OfType<string>())
+        .Distinct().ToArray();
+
+    private static StoreState SelectionState(string? eyeId, string? faceId, string? previousEyeId,
+        string? previousFaceId, IEnumerable<string> installed) => new(3, eyeId, previousEyeId,
+            installed.Concat(new[] { eyeId, faceId, previousEyeId, previousFaceId }.OfType<string>()).Distinct().ToArray(),
+            eyeId, faceId, previousEyeId, previousFaceId);
 
     public void Register(ModuleRelease release)
     {
         lock (_gate)
         {
             if (ReadRelease(release.Id) != release) throw new InvalidDataException("The module does not belong to this library.");
-            var next = new StoreState(2, _state.Current, _state.Previous, InstalledIds().Append(release.Id).Distinct().ToArray());
+            var next = SelectionState(EyeId, FaceId, PreviousEyeId, PreviousFaceId, InstalledIds().Append(release.Id));
             WriteAtomic(_statePath, next); _state = next;
         }
     }
@@ -114,7 +139,7 @@ public sealed class ModuleStore
                 release = release with { Kind = source == TrackingInputSource.BaballoniaDesktop ? ModuleKind.BaballoniaDesktop : ModuleKind.BabbleHeadsetRuntime, SupportsHeadset = supports };
                 WriteAtomic(Path.Combine(_releasesRoot, id, "release.json"), release);
             }
-            var next = new StoreState(2, _state.Current, _state.Previous, ids);
+            var next = SelectionState(EyeId, FaceId, PreviousEyeId, PreviousFaceId, ids);
             WriteAtomic(_statePath, next); _state = next;
             if (Current is { SupportsHeadset: true, IsAvailable: true } current)
                 Register(CreateCompanion(current));
@@ -249,7 +274,7 @@ public sealed class ModuleStore
         }
     }
 
-    /// <summary>Atomically activates a prepared release, preserving the current release for rollback.</summary>
+    /// <summary>Atomically assigns a prepared release to both roles, preserving the previous role pair.</summary>
     public void Activate(ModuleRelease release)
     {
         ArgumentNullException.ThrowIfNull(release);
@@ -258,11 +283,44 @@ public sealed class ModuleStore
             var stored = ReadRelease(release.Id) ?? throw new InvalidDataException("The prepared module no longer exists.");
             if (stored != release) throw new InvalidDataException("The prepared module does not belong to this store.");
             ValidateAssembly(Path.Combine(stored.DirectoryPath, stored.DllFileName), stored.Kind == ModuleKind.Custom ? stored.AssemblyName! : ModuleCatalog.Get(stored.Kind).AssemblyName);
-            if (_state.Current == stored.Id) return;
-            var next = new StoreState(2, stored.Id, _state.Current, InstalledIds().Append(stored.Id).Distinct().ToArray());
+            if (EyeId == stored.Id && FaceId == stored.Id) return;
+            var next = SelectionState(stored.Id, stored.Id, EyeId, FaceId, InstalledIds().Append(stored.Id));
             WriteAtomic(_statePath, next);
             _state = next;
         }
+    }
+
+    /// <summary>
+    /// Selects registered releases for the eye and face roles in one transaction.
+    /// A shared release is validated and instantiated only once by consumers.
+    /// </summary>
+    public void SelectChannels(ModuleRelease eye, ModuleRelease face)
+    {
+        ArgumentNullException.ThrowIfNull(eye);
+        ArgumentNullException.ThrowIfNull(face);
+        lock (_gate)
+        {
+            ValidateRegisteredSelection(eye, face);
+            if (EyeId == eye.Id && FaceId == face.Id) return;
+            var next = SelectionState(eye.Id, face.Id, EyeId, FaceId, InstalledIds());
+            WriteAtomic(_statePath, next);
+            _state = next;
+        }
+    }
+
+    private void ValidateRegisteredSelection(ModuleRelease eye, ModuleRelease face)
+    {
+        var registered = InstalledIds().ToHashSet(StringComparer.Ordinal);
+        foreach (var release in new[] { eye, face }.DistinctBy(module => module.Id))
+        {
+            if (!registered.Contains(release.Id) || ReadRelease(release.Id) != release)
+                throw new InvalidDataException("The selected module does not belong to this library.");
+            ValidateAssembly(Path.Combine(release.DirectoryPath, release.DllFileName),
+                release.Kind == ModuleKind.Custom ? release.AssemblyName! : ModuleCatalog.Get(release.Kind).AssemblyName);
+        }
+        // Do not let two values with the same ID bypass identity validation.
+        if (eye.Id == face.Id && eye != face)
+            throw new InvalidDataException("The selected module does not belong to this library.");
     }
 
     public ModuleRelease Install(string zipPath)
@@ -273,15 +331,20 @@ public sealed class ModuleStore
     }
 
     public ModuleRelease Rollback()
+        => RestorePreviousChannels().PrimaryModule!;
+
+    /// <summary>Restores the whole previous role pair; invoking again undoes the restore.</summary>
+    public ModuleChannelSelection RestorePreviousChannels()
     {
         lock (_gate)
         {
-            var release = ReadRelease(_state.Previous) ?? throw new InvalidOperationException("There is no previous module to restore.");
-            ValidateAssembly(Path.Combine(release.DirectoryPath, release.DllFileName), release.Kind == ModuleKind.Custom ? release.AssemblyName! : ModuleCatalog.Get(release.Kind).AssemblyName);
-            var next = new StoreState(2, _state.Previous, _state.Current, InstalledIds());
+            var selection = ReadSelection(PreviousEyeId, PreviousFaceId);
+            if (!selection.IsComplete) throw new InvalidOperationException("There is no previous module selection to restore.");
+            ValidateRegisteredSelection(selection.EyeModule!, selection.FaceModule!);
+            var next = SelectionState(PreviousEyeId, PreviousFaceId, EyeId, FaceId, InstalledIds());
             WriteAtomic(_statePath, next);
             _state = next;
-            return release;
+            return selection;
         }
     }
 
@@ -301,9 +364,13 @@ public sealed class ModuleStore
             EnsureNoReparsePoint(_statePath + ".backup");
             if (Directory.Exists(removedRoot) || File.Exists(removedRoot))
                 throw new IOException("A previous removal is still being cleaned up. Reopen the app and try again.");
-            var next = new StoreState(2, _state.Current == stored.Id ? null : _state.Current,
-                _state.Previous == stored.Id ? null : _state.Previous,
-                InstalledIds().Where(id => id != stored.Id).ToArray());
+            // Losing either role stops the pair. Never silently repurpose the
+            // surviving source as the missing role, including during recovery.
+            var selected = EyeId == stored.Id || FaceId == stored.Id;
+            var previous = PreviousEyeId == stored.Id || PreviousFaceId == stored.Id;
+            var next = SelectionState(selected ? null : EyeId, selected ? null : FaceId,
+                previous ? null : PreviousEyeId, previous ? null : PreviousFaceId,
+                InstalledIds().Where(id => id != stored.Id));
             var backupPath = _statePath + ".backup";
             var oldBackup = File.Exists(backupPath) ? File.ReadAllBytes(backupPath) : null;
             var moved = false;
@@ -447,9 +514,18 @@ public sealed class ModuleStore
             {
                 var state = JsonSerializer.Deserialize<StoreState>(File.ReadAllText(path), JsonOptions)
                     ?? throw new InvalidDataException("Empty module state.");
-                if (state.Schema is not 1 and not 2) throw new InvalidDataException("Unsupported module state version.");
+                if (state.Schema is not 1 and not 2 and not 3) throw new InvalidDataException("Unsupported module state version.");
                 _ = ReadRelease(state.Current);
                 _ = ReadRelease(state.Previous);
+                if (state.Schema == 3)
+                {
+                    if ((state.EyeModuleId is null) != (state.FaceModuleId is null)
+                        || (state.PreviousEyeId is null) != (state.PreviousFaceId is null)
+                        || state.Current != state.EyeModuleId || state.Previous != state.PreviousEyeId)
+                        throw new InvalidDataException("The saved tracking role selection is inconsistent.");
+                    foreach (var id in new[] { state.EyeModuleId, state.FaceModuleId, state.PreviousEyeId, state.PreviousFaceId })
+                        _ = ReadRelease(id);
+                }
                 foreach (var id in state.Installed ?? []) _ = ReadRelease(id);
                 // Repair the primary after recovery, so a later normal save cannot replace
                 // the valid backup with a corrupt or interrupted-removal manifest.
@@ -651,7 +727,8 @@ public sealed class ModuleStore
         finally { if (File.Exists(temporary)) File.Delete(temporary); }
     }
 
-    private sealed record StoreState(int Schema, string? Current, string? Previous, string[]? Installed = null);
+    private sealed record StoreState(int Schema, string? Current, string? Previous, string[]? Installed = null,
+        string? EyeModuleId = null, string? FaceModuleId = null, string? PreviousEyeId = null, string? PreviousFaceId = null);
     private sealed class ModuleManifest
     {
         public string? ModuleId { get; set; }

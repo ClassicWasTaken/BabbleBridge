@@ -22,12 +22,13 @@ namespace BabbleFrameBridge.Worker;
 internal sealed class AvatarRouter : IAsyncDisposable
 {
     private readonly ILoggerFactory logs;
-    private readonly WorkerOscTarget target;
+    private readonly IOscTarget target;
     private readonly ParameterSenderService sender;
     private readonly AppSettings settings;
     private readonly bool allParameters;
     private readonly NativeFaceSender nativeFace;
     private readonly bool noDiscovery;
+    private readonly Func<IPEndPoint?>? endpointSource;
     private readonly HttpClient http = new() { Timeout = TimeSpan.FromSeconds(2) };
     private readonly CancellationTokenSource stop = new();
     private UdpClient? receiver;
@@ -41,8 +42,9 @@ internal sealed class AvatarRouter : IAsyncDisposable
     public string AvatarName { get; private set; } = "Waiting for VRChat";
     public int ParameterCount { get; private set; }
 
-    public AvatarRouter(ILoggerFactory logs, WorkerOscTarget target, ParameterSenderService sender, AppSettings settings, bool allParameters, NativeFaceSender nativeFace, bool noDiscovery = false)
-    { this.logs = logs; this.target = target; this.sender = sender; this.settings = settings; this.allParameters = allParameters; this.nativeFace = nativeFace; this.noDiscovery = noDiscovery; }
+    public AvatarRouter(ILoggerFactory logs, IOscTarget target, ParameterSenderService sender, AppSettings settings, bool allParameters, NativeFaceSender nativeFace, bool noDiscovery = false,
+        Func<IPEndPoint?>? endpointSource = null)
+    { this.logs = logs; this.target = target; this.sender = sender; this.settings = settings; this.allParameters = allParameters; this.nativeFace = nativeFace; this.noDiscovery = noDiscovery; this.endpointSource = endpointSource; }
 
     public Task StartAsync(CancellationToken cancellationToken)
     {
@@ -120,7 +122,7 @@ internal sealed class AvatarRouter : IAsyncDisposable
                 {
                     var id = requestedAvatar = Interlocked.Exchange(ref pendingAvatar, null);
                     var revision = Volatile.Read(ref avatarRevision);
-                    var endpoint = discovery?.VrchatClientEndpoint;
+                    var endpoint = endpointSource?.Invoke() ?? discovery?.VrchatClientEndpoint;
                     if (endpoint != null)
                     {
                         var origin = $"http://{endpoint}";
@@ -174,7 +176,9 @@ internal sealed class AvatarRouter : IAsyncDisposable
                 // VRChat can restart and change OSCQuery ports. Drop the old endpoint and rediscover.
                 if (discovery != null) discovery.VrchatClientEndpoint = null!;
                 if (requestedAvatar != null) Interlocked.CompareExchange(ref pendingAvatar, requestedAvatar, null);
-                SetNativeMode(false);
+                // Discovery failure says nothing about the avatar's capability.
+                // Keep the last validated route until /avatar/change, an explicit
+                // capability message, or a successful query provides new evidence.
                 Program.Emit(new { type = "log", level = "Warning", message = "Waiting for VRChat OSCQuery: " + e.Message });
                 try { await Task.Delay(2000, stop.Token); } catch (OperationCanceledException) { break; }
             }

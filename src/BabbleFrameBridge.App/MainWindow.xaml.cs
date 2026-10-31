@@ -129,7 +129,7 @@ public partial class MainWindow : Window
             if (_store.Current is { } current)
             {
                 SetStoppedState();
-                if (_settings.AutoStart && current.IsAvailable) await StartWorker(current);
+                if (_settings.AutoStart && SelectedSourcesAvailable) await StartSelectedSources();
             }
             else
             {
@@ -315,9 +315,12 @@ public partial class MainWindow : Window
     private void RefreshButtons()
     {
         UpdateBridgeParticles();
-        StartButton.IsEnabled = !_busy && _initialized && (_running || _store.Current is { IsAvailable: true });
-        ImportButton.IsEnabled = !_busy && _initialized;
-        RollbackButton.IsEnabled = !_busy && _store.Previous is { IsAvailable: true };
+        StartButton.IsEnabled = !_busy && _initialized && (_running || SelectedSourcesAvailable);
+        // Navigation stays available while a tracking operation is busy. Making
+        // it a disabled action caused a visible fade on every Start/Stop.
+        ImportButton.IsEnabled = _initialized && !_closing;
+        ModuleImportButton.IsEnabled = !_busy && _initialized && !_closing;
+        RollbackButton.IsEnabled = !_busy && _store.PreviousSelection.IsComplete && _store.PreviousSelection.Modules.All(module => module.IsAvailable);
         SaveButton.IsEnabled = !_busy && _initialized;
         AutoStartBox.IsEnabled = !_busy && _initialized;
         StartWithSteamVrBox.IsEnabled = !_busy && _initialized && _configureSteamVrAutoLaunch is not null;
@@ -326,6 +329,7 @@ public partial class MainWindow : Window
         StartButton.Content = _running ? "Stop bridge" : "Start bridge";
         RefreshLibrary();
         RefreshDownloadChoices();
+        RefreshSourceChoices();
     }
 
     private void RefreshModule()
@@ -340,6 +344,12 @@ public partial class MainWindow : Window
             : current.Kind == ModuleKind.Custom ? "Module-managed input · follow this module’s setup instructions."
             : $"{ConnectionFor(current)} · input selected automatically";
         ProviderTag.Text = current is null ? "MODULES" : NameFor(current).ToUpperInvariant();
+        if (_store.Selection is { IsComplete: true } selection && selection.Modules.Count > 1)
+        {
+            ModuleLabel.Text = NameFor(selection.EyeModule!) + " + " + NameFor(selection.FaceModule!);
+            PackageDetail.Text = "Eyes: " + ConnectionFor(selection.EyeModule!) + " · Face: " + ConnectionFor(selection.FaceModule!);
+            ProviderTag.Text = "COMBINED TRACKING";
+        }
         RefreshButtons();
     }
 
@@ -351,14 +361,14 @@ public partial class MainWindow : Window
             ModuleKind.VirtualDesktop => 3, ModuleKind.SRanipal => 4, ModuleKind.Beyond => 5, ModuleKind.EyeTrackVR => 6, _ => 7
         }).Select(release => new ModuleCard(release,
             NameFor(release), release.IsAvailable ? $"Version {release.Version} · {ConnectionFor(release)}" : "Module files missing",
-            release.IsAvailable ? InstructionsFor(release) + (IsOlderBaballoniaModule(release) ? "\nExpressions Alpha needs module 3.2.0 or newer for eye tracking." : "") : "Restore or re-import this module, or remove its profile. Your other modules are available.",
-            !release.IsAvailable ? "Unavailable" : release.Id == _store.Current?.Id ? "Selected ✓" : "Use module",
-            !_busy && _initialized && release.IsAvailable && release.Id != _store.Current?.Id,
+            release.IsAvailable ? InstructionsFor(release) + SourceAssignmentHint(release) + (IsOlderBaballoniaModule(release) ? "\nExpressions Alpha needs module 3.2.0 or newer for eye tracking." : "") : "Restore or re-import this module, or remove its profile. Your other modules are available.",
+            !release.IsAvailable ? "Unavailable" : IsSelectedForBoth(release) ? "Selected ✓" : "Use module",
+            !_busy && _initialized && release.IsAvailable && !IsSelectedForBoth(release),
             !_busy && _initialized,
             release.IsAvailable && IsOlderBaballoniaModule(release) ? Visibility.Visible : Visibility.Collapsed,
             !_busy && _initialized && release.IsAvailable && IsOlderBaballoniaModule(release),
             release.Id == _pendingRemovalId ? Visibility.Visible : Visibility.Collapsed,
-            release.Id == _store.Current?.Id ? "Remove this profile and its module settings? The bridge will stop." : "Remove this profile and its module settings?")).ToArray();
+            _store.Selection.IsSelected(release.Id) ? "Remove this profile and its module settings? The bridge will stop." : "Remove this profile and its module settings?")).ToArray();
     }
 
     private sealed record DownloadCard(ModuleKind Kind, string Name, string Detail, string OfficialUrl, bool CanDownload)
@@ -450,7 +460,7 @@ public partial class MainWindow : Window
     private Task UpdateBaballonia(ModuleRelease release)
     {
         if (_busy || _closing || !_initialized || !release.IsAvailable || !IsOlderBaballoniaModule(release)) return Task.CompletedTask;
-        var activate = _store.Current?.Id == release.Id;
+        var activate = _store.Selection.IsSelected(release.Id);
         // Reuse a compatible installed profile only when it receives the same input.
         // Other profiles' saved connections must never change as a side effect.
         var compatible = _store.Installed.Where(item => item.IsAvailable && IsAlphaCompatibleBaballoniaModule(item)
@@ -459,7 +469,7 @@ public partial class MainWindow : Window
         return _downloadTask = compatible is not null
             ? RunOperation(async () =>
             {
-                if (activate) await SwitchModule(compatible);
+                if (activate) await ReplaceSelectedSource(release, compatible);
                 else ShowNotice("A compatible Baballonia module is already in your library. Choose Use module when you’re ready.");
             })
             : DownloadModuleCore(ModuleKind.BaballoniaDesktop, release, activate);
@@ -569,7 +579,8 @@ public partial class MainWindow : Window
 
     private async Task RemoveModule(ModuleRelease release)
     {
-        var selected = _store.Current?.Id == release.Id;
+        var selected = _store.Selection.IsSelected(release.Id);
+        var previousSelection = _store.Selection;
         var wasRunning = _running;
         _pendingRemovalId = null;
         if (selected) { _pendingRestart = false; await StopWorker(); }
@@ -579,9 +590,9 @@ public partial class MainWindow : Window
         }
         catch
         {
-            if (selected && wasRunning && _store.Current?.Id == release.Id)
+            if (selected && wasRunning && _store.Selection.IsSelected(release.Id))
             {
-                try { await StartWorker(release); }
+                try { await StartWorker(previousSelection.EyeModule!, previousSelection.FaceModule!); }
                 catch (Exception restoreFailure) { Log("The module could not restart after removal failed: " + restoreFailure.Message); }
             }
             RefreshModule();
@@ -597,6 +608,7 @@ public partial class MainWindow : Window
     private int InputPortFor(ModuleRelease release)
     {
         if (release.Kind == ModuleKind.BabbleHeadsetRuntime) return _settings.LinkPort;
+        if (release.Kind == ModuleKind.EyeTrackVR) return EyeTrackVrPortFor(release);
         if (release.Kind != ModuleKind.BaballoniaDesktop) return ModuleCatalog.Get(release.Kind).InputPort;
         return BaballoniaOscPortFor(release);
     }
@@ -624,13 +636,18 @@ public partial class MainWindow : Window
     private string ConnectionFor(ModuleRelease release) => release.Kind == ModuleKind.Custom ? "Module-managed input"
         : InputPortFor(release) is var port && port > 0 ? $"UDP {port}"
         : release.Kind == ModuleKind.VirtualDesktop ? "Shared memory · Virtual Desktop Streamer" : ModuleCatalog.Get(release.Kind).Connection;
-    private string InstructionsFor(ModuleRelease release) => release.Kind == ModuleKind.BaballoniaDesktop
+    private string InstructionsFor(ModuleRelease release) => release.Kind == ModuleKind.EyeTrackVR
+        ? $"Start EyeTrackVR and send its VRCFT eye-tracking output to this computer on UDP {InputPortFor(release)}. Provides eye tracking."
+        : release.Kind == ModuleKind.BaballoniaDesktop
         ? $"Enable Baballonia’s VRCFaceTracking output to 127.0.0.1:{InputPortFor(release)}."
             + (release.SupportsHeadset ? " This profile uses the BFR package. The dedicated Baballonia desktop download uses module 3.2.0." : "")
         : ModuleCatalog.Get(release.Kind).Instructions;
-    private string ProviderInstructions => (_sessionRelease ?? _store.Current) is { } release ? InstructionsFor(release) : Provider.Instructions;
+    private string ProviderInstructions => ActiveSources.Modules.Count > 1
+        ? "Eyes: " + NameFor(ActiveSources.EyeModule!) + ". Face: " + NameFor(ActiveSources.FaceModule!) + "."
+        : (_sessionRelease ?? _store.Current) is { } release ? InstructionsFor(release) : Provider.Instructions;
     private static string NameFor(ModuleRelease release) => release.Kind == ModuleKind.Custom ? release.ModuleName : ModuleCatalog.Get(release.Kind).Name;
-    private string ProviderName => (_sessionRelease ?? _store.Current) is { } release ? NameFor(release) : Provider.Name;
+    private string ProviderName => ActiveSources.Modules.Count > 1 ? "Combined tracking"
+        : (_sessionRelease ?? _store.Current) is { } release ? NameFor(release) : Provider.Name;
     private ModuleDefinition Provider => ModuleCatalog.Get((_sessionRelease ?? _store.Current)?.Kind ?? ModuleKind.BabbleHeadsetRuntime);
 
     private void SetState(string title, string detail, bool live, bool error = false)
@@ -641,7 +658,7 @@ public partial class MainWindow : Window
 
     private void UpdateSourceLabels()
     {
-        if (!_running && _store.Current is { IsAvailable: false }) HeadsetState.Text = ProviderName + " · unavailable";
+        if (!_running && _store.Current is not null && !SelectedSourcesAvailable) HeadsetState.Text = ProviderName + " · unavailable";
         else HeadsetState.Text = _sessionRelease is null && _store.Current is null
             ? _store.Installed.Count > 0 ? "Choose a module" : "Waiting for module" : ProviderName + " · ready";
     }
@@ -658,7 +675,7 @@ public partial class MainWindow : Window
     {
         UpdateSourceLabels();
         if (_store.Current is null) SetNoModuleState();
-        else if (_store.Current is { IsAvailable: false })
+        else if (!SelectedSourcesAvailable)
             SetState("Module files missing", "Open Modules to restore, re-import, or remove this profile. Your other modules are available.", false, true);
         else SetState("Bridge stopped", "Start the bridge with " + ProviderName + ".", false);
     }
@@ -726,7 +743,7 @@ public partial class MainWindow : Window
             try {
                 if (File.Exists(_logPath) && new FileInfo(_logPath).Length > 8_000_000) File.Move(_logPath, _logPath + ".previous", true);
                 File.AppendAllText(_logPath, line + Environment.NewLine);
-            } catch (IOException) { }
+            } catch (Exception error) when (error is IOException or UnauthorizedAccessException) { }
         }
         LogBox.AppendText(line + Environment.NewLine);
         LatestActivity.Text = message;
@@ -734,12 +751,15 @@ public partial class MainWindow : Window
         LogBox.ScrollToEnd();
     }
 
-    private async Task StartWorker(ModuleRelease release)
+    private async Task StartWorker(ModuleRelease release, ModuleRelease? faceRelease = null)
     {
         if (_closing) throw new OperationCanceledException("The app is closing.");
-        if (!release.IsAvailable) throw new InvalidOperationException("This module’s DLL is missing. Restore or re-import it, or select another installed module.");
+        faceRelease ??= release;
+        if (!release.IsAvailable || !faceRelease.IsAvailable) throw new InvalidOperationException("A selected module’s DLL is missing. Restore or re-import it, or select another installed module.");
+        ValidateSourcePair(_settings, release, faceRelease);
         if (_worker is not null) await StopWorker();
         _sessionRelease = release;
+        _sessionFaceRelease = faceRelease;
         _awaitingTrackingSource = false;
         var inputPort = InputPortFor(release);
         ValidateConnection(_settings, release);
@@ -754,6 +774,14 @@ public partial class MainWindow : Window
         start.ArgumentList.Add("--kind"); start.ArgumentList.Add(release.Kind.ToString());
         start.ArgumentList.Add("--module-name"); start.ArgumentList.Add(NameFor(release));
         if (release.Kind is ModuleKind.BabbleHeadsetRuntime or ModuleKind.BaballoniaDesktop) { start.ArgumentList.Add("--input-port"); start.ArgumentList.Add(inputPort.ToString()); }
+        if (faceRelease.Id != release.Id)
+        {
+            start.ArgumentList.Add("--face-module"); start.ArgumentList.Add(Path.Combine(faceRelease.DirectoryPath, faceRelease.DllFileName));
+            start.ArgumentList.Add("--face-kind"); start.ArgumentList.Add(faceRelease.Kind.ToString());
+            start.ArgumentList.Add("--face-name"); start.ArgumentList.Add(NameFor(faceRelease));
+            if (faceRelease.Kind is ModuleKind.BabbleHeadsetRuntime or ModuleKind.BaballoniaDesktop)
+            { start.ArgumentList.Add("--face-input-port"); start.ArgumentList.Add(InputPortFor(faceRelease).ToString()); }
+        }
         start.ArgumentList.Add("--parent"); start.ArgumentList.Add(Environment.ProcessId.ToString());
         if (!_useDiscovery) start.ArgumentList.Add("--no-discovery");
         var process = new Process { StartInfo = start, EnableRaisingEvents = true };
@@ -802,6 +830,7 @@ public partial class MainWindow : Window
         var process = _worker;
         var wasRunning = _running;
         var session = _sessionRelease;
+        var faceSession = _sessionFaceRelease;
         var wasAwaiting = _awaitingTrackingSource;
         _worker = null; _running = false;
         UpdateBridgeParticles();
@@ -826,7 +855,7 @@ public partial class MainWindow : Window
                 {
                     // Keep ownership if Windows could not confirm shutdown. Changing or
                     // deleting a module must not strand a worker that still holds its ports.
-                    _worker = process; _running = wasRunning; _sessionRelease = session; _awaitingTrackingSource = wasAwaiting;
+                    _worker = process; _running = wasRunning; _sessionRelease = session; _sessionFaceRelease = faceSession; _awaitingTrackingSource = wasAwaiting;
                     UpdateBridgeParticles();
                     throw new InvalidOperationException("The tracking runtime could not stop. Try stopping the bridge again before changing modules.", failure);
                 }
@@ -834,6 +863,7 @@ public partial class MainWindow : Window
             finally { if (_worker != process) process.Dispose(); }
         }
         _sessionRelease = null;
+        _sessionFaceRelease = null;
         _awaitingTrackingSource = false;
         OutputRate.Text = "0 msgs/s"; SenderCadence.Text = "Bridge idle";
         UpdateSourceLabels();
@@ -857,8 +887,9 @@ public partial class MainWindow : Window
             if (item.ValueKind != JsonValueKind.Object) { Log(line); return; }
             switch (Str(item, "type")) {
                 case "waiting":
-                    if (Provider.Kind is not (ModuleKind.VirtualDesktop or ModuleKind.Beyond or ModuleKind.SRanipal)
-                        || Str(item, "source") != Provider.Kind.ToString()) break;
+                    if (ActiveSources.Modules.Count > 1 ? Str(item, "source") != "Combined"
+                        : Provider.Kind is not (ModuleKind.VirtualDesktop or ModuleKind.Beyond or ModuleKind.SRanipal)
+                            || Str(item, "source") != Provider.Kind.ToString()) break;
                     _awaitingTrackingSource = true;
                     _ready?.TrySetResult(true);
                     Log(Str(item, "message", "Waiting for " + ProviderName + " tracking data."));
@@ -901,7 +932,10 @@ public partial class MainWindow : Window
         TargetLabel.Text = $"{actualHost} : {(actualPort > 0 ? actualPort : _settings.OutputPort):0}";
         if (_running && !_busy)
         {
-            if (Provider.Kind == ModuleKind.BabbleHeadsetRuntime)
+            if (ActiveSources.Modules.Count > 1)
+                SetState("Combined tracking", "Eyes: " + (Bool(item, "eyeAvailable") ? "active" : "waiting")
+                    + " · Face: " + (Bool(item, "faceAvailable") ? "active" : "waiting"), Bool(item, "eyeAvailable") || Bool(item, "faceAvailable"));
+            else if (Provider.Kind == ModuleKind.BabbleHeadsetRuntime)
                 SetState(linked ? "Headset connected" : "Listening for headset",
                     receiving ? "Receiving expressions from the headset runtime." : linked ? "Connected. Waiting for expression data from the headset." : ProviderInstructions, true);
             else if (Provider.Kind == ModuleKind.VirtualDesktop)
@@ -920,17 +954,18 @@ public partial class MainWindow : Window
         if (_store.Current is null) return;
         if (DateTime.UtcNow - _restartWindow > TimeSpan.FromMinutes(1)) { _restartWindow = DateTime.UtcNow; _restartCount = 0; }
         if (++_restartCount > 5) { Log("Tracking mode changed repeatedly. Restart the bridge when headset settings settle."); return; }
-        await RunOperation(async () => { await StopWorker(); await StartWorker(_store.Current!); });
+        await RunOperation(async () => { await StopWorker(); await StartSelectedSources(); });
     }
 
     private async void Start_Click(object sender, RoutedEventArgs e) => await RunOperation(async () => {
         if (_running) await StopWorker();
-        else if (_store.Current is { } current) await StartWorker(current);
+        else if (_store.Current is not null) await StartSelectedSources();
         else ShowNotice("Add a supported module ZIP before starting the bridge.");
     });
 
     private async void Import_Click(object sender, RoutedEventArgs e)
     {
+        if (_busy || !_initialized || _closing) return;
         var picker = new OpenFileDialog { Title = "Import VRCFaceTracking module", Filter = "Module DLL or ZIP (*.dll;*.zip)|*.dll;*.zip|Module DLL (*.dll)|*.dll|Module ZIP (*.zip)|*.zip", CheckFileExists = true };
         if (picker.ShowDialog(this) == true) await UpdateModule(picker.FileName);
     }
@@ -966,7 +1001,8 @@ public partial class MainWindow : Window
             if (requestedKind is null && _store.Current?.Kind == companion.Kind) release = companion;
         }
         RefreshModule();
-        if (activate) await SwitchModule(release);
+        if (activate && upgradeFrom is not null) await ReplaceSelectedSource(upgradeFrom, release);
+        else if (activate) await SwitchModule(release);
         else
         {
             var message = NameFor(release) + " added. Choose Use module when you’re ready.";
@@ -992,39 +1028,13 @@ public partial class MainWindow : Window
         File.WriteAllText(nextPath, nextConfig.ToJsonString(new() { WriteIndented = true }));
     }
 
-    private async Task SwitchModule(ModuleRelease release)
+    private Task SwitchModule(ModuleRelease release) => ApplyModuleSources(release, release);
+
+    private async void Rollback_Click(object sender, RoutedEventArgs e) => await RunOperation(async () =>
     {
-        if (!release.IsAvailable) throw new InvalidOperationException("This module’s DLL is missing. Restore or re-import it, or select another installed module.");
-        var old = _store.Current;
-        var wasRunning = _running;
-        _pendingRestart = false;
-        await StopWorker();
-        try {
-            await StartWorker(release);
-            _store.Activate(release);
-            RefreshModule();
-            var activated = _awaitingTrackingSource ? ProviderName + " selected. Waiting for your headset connection."
-                : old is null ? $"Module {release.Version} is active. Your tracking source is ready."
-                : $"Module {release.Version} is active. Your previous module is saved.";
-            Log(activated);
-            ShowNotice(activated);
-        }
-        catch (Exception failure) {
-            await StopWorker();
-            Log("The update could not start: " + failure.Message);
-            if (wasRunning && old is not null) {
-                try { await StartWorker(old); Log("Restored the previous active module."); }
-                catch (Exception restoreFailure) { Log("Previous module could not restart: " + restoreFailure.Message); }
-            }
-            RefreshModule();
-            throw new InvalidOperationException((old is null
-                ? "The module could not start. No module was activated. "
-                : "The new module could not start. Your previous module is still installed. ") + failure.Message);
-        }
-    }
-
-    private async void Rollback_Click(object sender, RoutedEventArgs e) => await RunOperation(async () => { var previous = _store.Previous; if (previous is not null) await SwitchModule(previous); });
-
+        var previous = _store.PreviousSelection;
+        if (previous.IsComplete) await ApplyModuleSources(previous.EyeModule!, previous.FaceModule!);
+    });
     private async void Save_Click(object sender, RoutedEventArgs e) => await RunOperation(async () => {
         if (!int.TryParse(PortBox.Text, out var port) || !int.TryParse(ReceiveBox.Text, out var receive)) throw new InvalidOperationException("Enter valid port numbers.");
         var updated = new AppSettings { OutputHost = HostBox.Text.Trim(), OutputPort = port, ReceivePort = receive,
@@ -1035,13 +1045,13 @@ public partial class MainWindow : Window
             StartMinimized = _settings.StartMinimized,
             KittyEnabled = false,
             AutoStart = AutoStartBox.IsChecked == true };
-        ValidateConnection(updated, _store.Current);
+        if (_store.Selection.IsComplete) ValidateSourcePair(updated, _store.EyeModule!, _store.FaceModule!); else updated.Validate();
         var previous = _settings;
         var wasRunning = _running;
         updated.Save(_root); _settings = updated;
         try
         {
-            if (wasRunning) { await StopWorker(); await StartWorker(_store.Current!); }
+            if (wasRunning) { await StopWorker(); await StartSelectedSources(); }
         }
         catch (Exception failure)
         {
@@ -1051,7 +1061,7 @@ public partial class MainWindow : Window
             HostBox.Text = previous.OutputHost; PortBox.Text = previous.OutputPort.ToString(); ReceiveBox.Text = previous.ReceivePort.ToString();
             if (wasRunning && _store.Current is { } current)
             {
-                try { await StartWorker(current); }
+                try { await StartSelectedSources(); }
                 catch (Exception restoreFailure) { Log("Previous connection could not restart: " + restoreFailure.Message); }
             }
             throw new InvalidOperationException("The new connection could not start. Your previous connection settings were restored. " + failure.Message);
@@ -1062,7 +1072,26 @@ public partial class MainWindow : Window
         ShowNotice("Connection settings saved.");
     });
 
-    private void AutoStart_Changed(object sender, RoutedEventArgs e) { if (!_initialized) return; _settings.AutoStart = AutoStartBox.IsChecked == true; _settings.Save(_root); }
+    private async void AutoStart_Changed(object sender, RoutedEventArgs e)
+    {
+        if (!_initialized || _syncingStartupPreferences || _busy || _closing) return;
+        var previous = _settings.AutoStart;
+        var requested = AutoStartBox.IsChecked == true;
+        if (requested == previous) return;
+        await (_startupPreferenceTask = RunOperation(() =>
+        {
+            try { _settings.AutoStart = requested; _settings.Save(_root); }
+            catch
+            {
+                _settings.AutoStart = previous;
+                _syncingStartupPreferences = true;
+                try { AutoStartBox.IsChecked = previous; }
+                finally { _syncingStartupPreferences = false; }
+                throw;
+            }
+            return Task.CompletedTask;
+        }));
+    }
 
     private void SyncStartupPreferences()
     {

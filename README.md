@@ -10,15 +10,19 @@
 
 A Windows app that bridges eye and face tracking to VRChat through compatible **VRCFaceTracking SDK** modules. Download modules for Babble Headset Runtime, Baballonia, Virtual Desktop, Steam Link, SRanipal, Bigscreen Beyond, or EyeTrackVR. Works with Jerry’s templates and VRChat’s native face-tracking SDK beta; available tracking depends on your hardware and module.
 
+Local preview 5 (**1.5.0**) adds separate eye and face sources. This preview has not been published.
+
 ![Face Tracking Bridge running on Windows](docs/images/app-running.png)
 
 ## Get started
 
 1. Install the app and download a **VRCFaceTracking module** from Modules, or import a module DLL or ZIP.
-2. Select your module and start its **headset runtime or desktop tracking app**.
+2. In Modules, choose **Eyes & eyebrows** and **Face & mouth**, then click **Apply sources**. Start each source’s **headset runtime or desktop tracking app**.
 3. Enable **OSC** in VRChat and select a face-tracking avatar.
 
-Downloads come from the module authors; modules are never bundled. Your selected module is remembered, with its own connection settings. Remove imported modules with the trash button. Jerry’s templates are supported.
+Use the same module for both, or combine eyes from one module with the face from another. A shared module runs once; separate modules are isolated and feed one combined VRChat output. **Use module** assigns that module to both roles. Your source pair and each module’s settings are remembered.
+
+Downloads come from the module authors; modules are never bundled. The bridge can only send expressions your sources measure. Known overlapping input ports are rejected; give the modules and their tracking apps different input ports before combining them. Remove modules with the trash button. Removing either selected source stops the bridge and clears both roles; your other modules stay installed.
 
 Using Baballonia Expressions Alpha? Download **Baballonia** in Modules, or choose **Update for Expressions Alpha** on an older imported module.
 

@@ -2,6 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 using BabbleFrameBridge.App;
+using System.Reflection;
+using System.Text.RegularExpressions;
 
 var passed = 0;
 void Check(bool condition, string description)
@@ -85,5 +87,41 @@ for (var i = 0; i < 20; i++)
     Tick(first, 3); Tick(second, 3);
 }
 Check(voices.Count > 1, "Text vocalizations have no variation.");
+
+// This whitelist is the companion's product vocabulary: captions stay cat noises,
+// with no English thoughts, diagnostic text or filler punctuation.
+var catNoises = new HashSet<string>(StringComparer.Ordinal)
+{
+    "mew~", "meow?", "mrrrow~", "prrp!", "mrrip~", "brrp!",
+    "mraaa…", "mraaaw~", "haaam~", "prrr…", "purrr~", "brrrr…",
+    "mrr?!", "mraow!", "rrp!", "rrr…", "hff.", "mrrph.",
+    "mrr?", "mew?", "prrp?", "prrr~", "rrrp~", "mrr~",
+    "mrrp!", "mrow!", "mlem~", "prrp~", "hrrr…", "mrr…", "mrrp"
+};
+foreach (var kind in Enum.GetValues<KittyCaptionKind>())
+{
+    var variants = new HashSet<string>(StringComparer.Ordinal);
+    for (var seed = 0; seed < 32; seed++)
+    {
+        var caption = new KittyCaption(seed);
+        for (var sample = 0; sample < 8; sample++)
+        {
+            Check(caption.ShowFor(kind, urgent: true), "A generated vocal variant was rejected: " + kind);
+            Check(catNoises.Contains(caption.Text), $"A {kind} caption stopped being a cat noise: {caption.Text}");
+            variants.Add(caption.Text); caption.Clear();
+        }
+    }
+    Check(variants.Count >= 3, "The full generated vocal vocabulary was not exercised: " + kind);
+}
+foreach (var sourceName in new[] { "KittyOverlay.Source", "KittyWorld.Source" })
+{
+    using var source = Assembly.GetExecutingAssembly().GetManifestResourceStream(sourceName)
+        ?? throw new InvalidOperationException("Missing embedded caption call-site source: " + sourceName);
+    using var reader = new StreamReader(source);
+    foreach (Match call in Regex.Matches(reader.ReadToEnd(), @"ShowBubble\((?<args>[^;]*?)\);"))
+        foreach (Match literal in Regex.Matches(call.Groups["args"].Value, "\"(?<text>[^\"]+)\""))
+            Check(catNoises.Contains(literal.Groups["text"].Value),
+                "A direct kitty reaction is not a cat noise: " + literal.Groups["text"].Value);
+}
 
 Console.WriteLine($"PASS {passed} silent caption checks: vocal text, coalescing, finite fades, expiry, sanitization and deterministic variety.");

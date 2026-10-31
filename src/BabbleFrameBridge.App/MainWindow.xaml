@@ -62,7 +62,7 @@
       </Grid>
       <Border Tag="KittyPanel" Style="{StaticResource Card}" Margin="0,0,0,18">
        <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
-        <StackPanel Margin="0,0,16,0"><TextBlock Text="YOUR TRACKING MODULE" Style="{StaticResource Caption}" FontSize="10"/><TextBlock x:Name="ModuleLabel" Text="No module installed" FontWeight="SemiBold" FontSize="18"/><TextBlock x:Name="PackageDetail" Text="Add your own module ZIP to begin." Foreground="{DynamicResource Muted}" FontSize="11" Margin="0,6,0,0"/><TextBlock x:Name="HashLabel" Foreground="{DynamicResource FaintInk}" FontFamily="Consolas" FontSize="9" Margin="0,7,0,0"/></StackPanel>
+        <StackPanel Margin="0,0,16,0"><TextBlock Text="YOUR TRACKING MODULES" Style="{StaticResource Caption}" FontSize="10"/><TextBlock x:Name="ModuleLabel" Text="No module installed" FontWeight="SemiBold" FontSize="18" TextWrapping="Wrap"/><TextBlock x:Name="PackageDetail" Text="Add your own module ZIP to begin." Foreground="{DynamicResource Muted}" FontSize="11" Margin="0,6,0,0" TextWrapping="Wrap"/><TextBlock x:Name="HashLabel" Foreground="{DynamicResource FaintInk}" FontFamily="Consolas" FontSize="9" Margin="0,7,0,0"/></StackPanel>
         <StackPanel Grid.Column="1" VerticalAlignment="Center"><Button x:Name="ImportButton" Content="Add a module →" Click="ShowModules_Click"/><Button x:Name="RollbackButton" Style="{StaticResource LinkButton}" Content="Restore previous" Margin="0,12,0,0" FontSize="11" Click="Rollback_Click" IsEnabled="False"/></StackPanel>
        </Grid>
       </Border>
@@ -71,7 +71,16 @@
      <StackPanel x:Name="ModulesPage" Visibility="Collapsed">
       <Border Tag="KittyPanel" Style="{StaticResource Card}" Padding="26"><StackPanel>
        <TextBlock Text="Your module library." FontSize="26" FontWeight="Bold"/>
-       <TextBlock Text="One active module. Switch whenever your headset does." Foreground="{DynamicResource Muted}" Margin="0,8,0,23"/>
+       <TextBlock Text="Use one module for everything, or combine separate eye and face sources." Foreground="{DynamicResource Muted}" Margin="0,8,0,20" TextWrapping="Wrap"/>
+       <Border Tag="KittyPanel" Background="{DynamicResource SoftBackground}" CornerRadius="14" Padding="18" Margin="0,0,0,22"><StackPanel>
+        <TextBlock Text="Tracking sources" FontWeight="SemiBold" FontSize="17"/>
+        <TextBlock Text="Each module supplies its assigned channel. Selecting the same module for both runs it once." Foreground="{DynamicResource Muted}" FontSize="11" Margin="0,7,0,16" TextWrapping="Wrap"/>
+        <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="18"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+         <StackPanel><TextBlock Text="Eyes &amp; eyebrows" Foreground="{DynamicResource Muted}" FontSize="11" Margin="0,0,0,7"/><ComboBox x:Name="EyeModuleBox" DisplayMemberPath="Label" SelectedValuePath="Id" SelectionChanged="ModuleSource_Changed" AutomationProperties.Name="Eye tracking module"/></StackPanel>
+         <StackPanel Grid.Column="2"><TextBlock Text="Face &amp; mouth" Foreground="{DynamicResource Muted}" FontSize="11" Margin="0,0,0,7"/><ComboBox x:Name="FaceModuleBox" DisplayMemberPath="Label" SelectedValuePath="Id" SelectionChanged="ModuleSource_Changed" AutomationProperties.Name="Face tracking module"/></StackPanel>
+        </Grid>
+        <Button x:Name="ApplySourcesButton" Content="Apply sources" HorizontalAlignment="Left" Margin="0,16,0,0" Padding="17,10" Click="ApplySources_Click" IsEnabled="False"/>
+       </StackPanel></Border>
        <ItemsControl x:Name="ModuleLibrary">
         <ItemsControl.ItemTemplate><DataTemplate>
          <Border Tag="KittyPanel" Background="{DynamicResource InsetBackground}" BorderBrush="{DynamicResource InputBorder}" BorderThickness="1" CornerRadius="14" Padding="18" Margin="0,0,0,12">
@@ -107,7 +116,7 @@
         <TextBlock x:Name="DownloadChoicesEmptyText" Visibility="Collapsed" Text="All built-in modules are already in your library. You can still import another module below." Foreground="{DynamicResource Muted}" FontSize="12" Margin="0,0,0,14"/>
         <Border x:Name="DownloadProgressPanel" Visibility="Collapsed" Padding="2,8,2,12"><Grid><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions><StackPanel Margin="0,0,18,0"><TextBlock x:Name="DownloadStatus" FontSize="12" Margin="0,0,0,9"/><ProgressBar x:Name="DownloadProgressBar" Maximum="1" Height="5"/></StackPanel><Button x:Name="DownloadCancelButton" Grid.Column="1" Content="Cancel" Style="{StaticResource LinkButton}" Click="CancelDownload_Click" AutomationProperties.Name="Cancel module download"/></Grid></Border>
         <StackPanel Orientation="Horizontal" Margin="0,6,0,17"><Button Content="Headset runtime setup ↗" Style="{StaticResource LinkButton}" FontSize="11" Click="RuntimeSetup_Click"/><TextBlock Text="Runs separately on the headset." Foreground="{DynamicResource Muted}" FontSize="11" Margin="13,0,0,0" VerticalAlignment="Center"/></StackPanel>
-        <Button Content="Import DLL or ZIP ↑" IsEnabled="{Binding IsEnabled,ElementName=ImportButton}" Click="Import_Click" HorizontalAlignment="Left"/>
+        <Button x:Name="ModuleImportButton" Content="Import DLL or ZIP ↑" IsEnabled="False" Click="Import_Click" HorizontalAlignment="Left"/>
         <TextBlock Text="Other VRCFaceTracking SDK modules are welcome. Import a DLL, or a ZIP with its supporting files. A module.json file is optional." Foreground="{DynamicResource Muted}" FontSize="11" Margin="0,12,0,0"/>
         <TextBlock Text="Modules run code on your computer under their authors’ licenses. Only import modules you trust." Foreground="{DynamicResource Muted}" FontSize="10" Margin="0,13,0,0"/>
        </StackPanel></Border>

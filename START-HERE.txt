@@ -1,4 +1,4 @@
-FACE TRACKING BRIDGE 1.4.0 — WINDOWS x64 — LOCAL PREVIEW 4
+FACE TRACKING BRIDGE 1.5.0 — WINDOWS x64 — LOCAL PREVIEW 5
 
 PREREQUISITE
 Install the Microsoft Visual C++ v14 Redistributable (x64) from Microsoft:
@@ -13,7 +13,9 @@ GET STARTED
 2. Close the separate VRCFaceTracking app and open Face Tracking Bridge.
 3. Open Modules and click Download next to your provider, or import your own
    VRCFaceTracking module DLL or ZIP. Modules come from their original authors and
-   are never bundled. Choose Use module to start the selected profile.
+   are never bundled. Choose a module for Eyes & eyebrows and Face & mouth,
+   then click Apply sources. Choose the same module for both, or a different
+   module for each role. Use module assigns that profile to both roles.
    Each download adds only its requested profile: BFR uses module 4.0.0, while
    the dedicated Baballonia desktop download uses module 3.2.0.
 4. Start the matching headset runtime or desktop tracking app. Enable the
@@ -22,10 +24,21 @@ GET STARTED
    discovers a local VRChat instance and its avatar parameters automatically.
    Reselect the avatar if VRChat was already running and needs a refresh.
 
-The selected module and its connection settings are remembered. Switching
-modules restarts the tracking worker and applies the appropriate input.
-Only one module is active at a time. Avoid running another tracking app that
-uses the same input or VRChat output ports.
+Your eye/face source pair and each module's connection settings are remembered.
+A module selected for both roles runs once. Different sources run in isolated
+module hosts and feed one combined VRChat output. Applying sources restarts
+tracking with the selected pair. A source can only provide expressions its
+hardware and module actually measure; assigning an eye-only source to face
+does not create mouth tracking.
+
+Known overlapping tracking-input UDP ports are rejected before switching.
+Give each module a different listening port and configure its tracking app to
+send to that port. For Baballonia profiles, this is Port in BabbleConfig.json;
+EyeTrackVR uses PortNumber in ETVRModuleConfig.json. The BFR package also opens
+its Baballonia OSC listener, normally UDP 8888, in addition to BFR Link on 6767.
+Change one profile's OSC port before combining BFR with desktop Baballonia.
+Custom modules manage their own ports; follow their author's instructions.
+Avoid another tracking app using the same input or VRChat output ports.
 
 MODULE CONNECTIONS
 Babble Headset Runtime
@@ -100,10 +113,12 @@ avatar setup. The send count records transmitted OSC messages, rather than
 confirming that an avatar has visibly applied every value.
 
 MODULE UPDATES AND SWITCHING
-Import a new module ZIP to add or update a module. Select an installed module
-to switch to it; the current worker stops before the new worker starts. The app
-keeps installed releases available. A rejected package preserves the active
-module, and a failed activation attempts to restore the previous worker.
+Import a new module ZIP to add or update a module. Use module assigns a profile
+to both roles. To combine sources, set Eyes & eyebrows and Face & mouth and
+choose Apply sources. The current workers stop before the new selection starts.
+The app keeps installed releases available. Restore previous restores the
+previous eye/face pair. A rejected package preserves the active selection, and
+a failed activation attempts to restart the previous pair.
 
 Use ZIPs from publishers you trust. A module contains executable code and runs
 with your Windows account's permissions. Format/API checks do not authenticate
@@ -116,7 +131,7 @@ Settings, imported module versions and activity logs are stored in:
   %LOCALAPPDATA%\BabbleFrameBridge
 Existing VRCFaceTracking installations are not imported or modified. Logs stay
 on your PC; the bridge does not initialize a telemetry sender. Quitting the app
-stops its tracking worker. Do not post logs containing avatar IDs, usernames,
+stops its tracking workers. Do not post logs containing avatar IDs, usernames,
 network addresses or other private data without removing those details.
 
 STARTUP AND SYSTEM TRAY
@@ -134,7 +149,7 @@ fully exits too. Start minimized applies on the next launch, including SteamVR
 launches. Tracking starts even when the window opens directly in the tray.
 If the Windows tray is unavailable, the window stays accessible instead.
 Start the bridge when this app opens is also in Settings and controls whether
-the saved module starts tracking. Close when SteamVR exits fully quits the app.
+the saved source pair starts tracking. Close when SteamVR exits fully quits the app.
 Upgrades refresh an enabled SteamVR registration to the installed path.
 Uninstall removes this app's registration and clears that startup opt-in;
 other saved preferences and imported modules stay available for a reinstall.
@@ -200,7 +215,7 @@ module library. The first public 1.0.0 release also supports migration from the
 retired private release series. Future releases use normal version ordering.
 Uninstall through Windows Installed Apps. Normal uninstall removes app files
 and shortcuts while preserving the separate AppData profile for a reinstall.
-This 1.4.0 preview is a local build and has not been published as an app update.
+This 1.5.0 preview is a local build and has not been published as an app update.
 There is no configured online automatic-update service. App updates use setup
 files, while module updates use ZIP imports inside the app.
 
@@ -215,7 +230,8 @@ names do not imply sponsorship or endorsement by the named projects.
 MODULE DOWNLOADS AND REMOVAL
 Use the Modules page to download compiled ZIPs directly from their official
 authors. Downloading adds a module to your library without stopping the active
-bridge. Choose Use module to switch. You can still import a ZIP of your own.
+bridge. Choose Use module for both roles, or select separate sources and click
+Apply sources. You can still import a ZIP of your own.
 
 The Headset Runtime / BFR choice uses Baballonia module 4.0.0 with BFR support;
 the Baballonia desktop choice uses the separate Expressions Alpha-compatible
@@ -224,7 +240,8 @@ The headset runtime itself must be installed separately on the headset:
 https://github.com/Project-Babble/Babble-Frame-Runtime/releases/latest
 
 To remove an imported profile, click its red trash icon and confirm Remove.
-Removing the selected profile stops the bridge and clears its selection.
+Removing either selected profile stops the bridge and clears both source roles.
+The other source's module remains installed and can be selected again.
 Other modules, original downloaded ZIPs and VRChat connection settings stay.
 Virtual Desktop's GitHub Source code ZIP is not a compiled module package.
 

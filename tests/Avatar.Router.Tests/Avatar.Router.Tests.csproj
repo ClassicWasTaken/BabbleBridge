@@ -1,0 +1,10 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup><OutputType>Exe</OutputType><TargetFramework>net10.0</TargetFramework><ImplicitUsings>enable</ImplicitUsings><Nullable>enable</Nullable></PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../../vendor/VRCFaceTracking.Core/VRCFaceTracking.Core.csproj" />
+    <ProjectReference Include="../../src/BabbleFrameBridge.Shared/BabbleFrameBridge.Shared.csproj" />
+    <Compile Include="../../src/BabbleFrameBridge.Worker/AvatarRouter.cs" Link="AvatarRouter.cs" />
+    <Compile Include="../../src/BabbleFrameBridge.Worker/NativeFaceSender.cs" Link="NativeFaceSender.cs" />
+    <Compile Include="../../src/BabbleFrameBridge.Worker/AvatarOscReader.cs" Link="AvatarOscReader.cs" />
+  </ItemGroup>
+</Project>

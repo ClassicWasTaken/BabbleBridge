@@ -28,6 +28,40 @@
    <Style x:Key="QuietButton" TargetType="Button" BasedOn="{StaticResource {x:Type Button}}"><Setter Property="Background" Value="Transparent"/><Setter Property="Foreground" Value="{DynamicResource AccentInk}"/><Setter Property="BorderBrush" Value="{DynamicResource InputBorder}"/></Style>
    <Style x:Key="DangerButton" TargetType="Button" BasedOn="{StaticResource QuietButton}"><Setter Property="Background" Value="{DynamicResource ErrorBackground}"/><Setter Property="Foreground" Value="{DynamicResource DangerInk}"/><Setter Property="BorderBrush" Value="{DynamicResource ErrorBorder}"/></Style>
    <Style x:Key="LinkButton" TargetType="Button" BasedOn="{StaticResource {x:Type Button}}"><Setter Property="Background" Value="Transparent"/><Setter Property="Foreground" Value="{DynamicResource AccentInk}"/><Setter Property="BorderThickness" Value="0"/><Setter Property="Padding" Value="0"/></Style>
+   <Style TargetType="ComboBoxItem">
+    <Setter Property="Foreground" Value="{DynamicResource Ink}"/><Setter Property="Background" Value="Transparent"/><Setter Property="Padding" Value="11,9"/><Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+    <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="ComboBoxItem"><Border x:Name="ItemChrome" Background="{TemplateBinding Background}" CornerRadius="6" Padding="{TemplateBinding Padding}"><ContentPresenter HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}" VerticalAlignment="Center"/></Border>
+     <ControlTemplate.Triggers>
+      <Trigger Property="IsSelected" Value="True"><Setter TargetName="ItemChrome" Property="Background" Value="{DynamicResource NavSelected}"/><Setter Property="Foreground" Value="{DynamicResource HeroInk}"/></Trigger>
+      <Trigger Property="IsHighlighted" Value="True"><Setter TargetName="ItemChrome" Property="Background" Value="{DynamicResource NavHover}"/><Setter Property="Foreground" Value="{DynamicResource HeroInk}"/></Trigger>
+      <Trigger Property="IsEnabled" Value="False"><Setter TargetName="ItemChrome" Property="Opacity" Value="0.45"/></Trigger>
+     </ControlTemplate.Triggers>
+    </ControlTemplate></Setter.Value></Setter>
+   </Style>
+   <Style TargetType="ComboBox">
+    <Setter Property="Background" Value="{DynamicResource InputBackground}"/><Setter Property="Foreground" Value="{DynamicResource Ink}"/><Setter Property="BorderBrush" Value="{DynamicResource InputBorder}"/><Setter Property="BorderThickness" Value="1"/><Setter Property="Padding" Value="12,11"/><Setter Property="MinHeight" Value="44"/><Setter Property="MaxDropDownHeight" Value="300"/><Setter Property="HorizontalContentAlignment" Value="Stretch"/><Setter Property="VerticalContentAlignment" Value="Center"/><Setter Property="ScrollViewer.CanContentScroll" Value="True"/><Setter Property="FocusVisualStyle" Value="{x:Null}"/>
+    <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="ComboBox">
+     <Grid>
+      <Border x:Name="SelectChrome" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="10"/>
+      <ToggleButton Focusable="False" ClickMode="Press" IsChecked="{Binding IsDropDownOpen,RelativeSource={RelativeSource TemplatedParent},Mode=TwoWay}">
+       <ToggleButton.Template><ControlTemplate TargetType="ToggleButton"><Border Background="Transparent"/></ControlTemplate></ToggleButton.Template>
+      </ToggleButton>
+      <ContentPresenter Margin="12,10,36,10" IsHitTestVisible="False" HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}" VerticalAlignment="{TemplateBinding VerticalContentAlignment}" Content="{TemplateBinding SelectionBoxItem}" ContentTemplate="{TemplateBinding SelectionBoxItemTemplate}" ContentTemplateSelector="{TemplateBinding ItemTemplateSelector}" ContentStringFormat="{TemplateBinding SelectionBoxItemStringFormat}"/>
+      <Path Data="M0,0 L4,4 L8,0" Stroke="{TemplateBinding Foreground}" StrokeThickness="1.6" StrokeStartLineCap="Round" StrokeEndLineCap="Round" HorizontalAlignment="Right" VerticalAlignment="Center" Margin="0,0,15,0" IsHitTestVisible="False"/>
+      <Popup x:Name="PART_Popup" Placement="Bottom" AllowsTransparency="True" Focusable="False" IsOpen="{TemplateBinding IsDropDownOpen}" PopupAnimation="None">
+       <Border Background="{DynamicResource InputBackground}" BorderBrush="{DynamicResource InputBorder}" BorderThickness="1" CornerRadius="10" Padding="4" Margin="0,4,0,0" Width="{TemplateBinding ActualWidth}">
+        <ScrollViewer MaxHeight="{TemplateBinding MaxDropDownHeight}" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" CanContentScroll="True"><ItemsPresenter KeyboardNavigation.DirectionalNavigation="Contained"/></ScrollViewer>
+       </Border>
+      </Popup>
+     </Grid>
+     <ControlTemplate.Triggers>
+      <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="SelectChrome" Property="BorderBrush" Value="{DynamicResource Accent}"/></Trigger>
+      <Trigger Property="IsKeyboardFocusWithin" Value="True"><Setter TargetName="SelectChrome" Property="BorderBrush" Value="{DynamicResource Focus}"/></Trigger>
+      <Trigger Property="IsDropDownOpen" Value="True"><Setter TargetName="SelectChrome" Property="BorderBrush" Value="{DynamicResource Focus}"/></Trigger>
+      <Trigger Property="IsEnabled" Value="False"><Setter TargetName="SelectChrome" Property="Opacity" Value="0.45"/><Setter Property="Foreground" Value="{DynamicResource Muted}"/></Trigger>
+     </ControlTemplate.Triggers>
+    </ControlTemplate></Setter.Value></Setter>
+   </Style>
    <Style x:Key="Navigation" TargetType="RadioButton">
     <Setter Property="local:Motion.Hover" Value="True"/>
     <Setter Property="Foreground" Value="{DynamicResource SidebarInk}"/><Setter Property="Background" Value="Transparent"/><Setter Property="Padding" Value="14,13"/><Setter Property="Margin" Value="0,0,0,7"/><Setter Property="Cursor" Value="Hand"/>
