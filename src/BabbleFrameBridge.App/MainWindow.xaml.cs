@@ -353,7 +353,7 @@ public partial class MainWindow : Window
         RefreshButtons();
     }
 
-    private sealed record ModuleCard(ModuleRelease Release, string Name, string Detail, string Hint, string Action, bool CanSelect, bool CanRemove, Visibility UpdateVisibility, bool CanUpdate, Visibility ConfirmationVisibility, string RemovalMessage);
+    private sealed record ModuleCard(ModuleRelease Release, string Name, string Detail, string Hint, string Action, bool IsSelected, bool CanSelect, bool CanRemove, Visibility UpdateVisibility, bool CanUpdate, Visibility ConfirmationVisibility, string RemovalMessage);
     private void RefreshLibrary()
     {
         ModuleLibrary.ItemsSource = _store.Installed.OrderBy(release => release.Kind switch {
@@ -361,9 +361,10 @@ public partial class MainWindow : Window
             ModuleKind.VirtualDesktop => 3, ModuleKind.SRanipal => 4, ModuleKind.Beyond => 5, ModuleKind.EyeTrackVR => 6, _ => 7
         }).Select(release => new ModuleCard(release,
             NameFor(release), release.IsAvailable ? $"Version {release.Version} · {ConnectionFor(release)}" : "Module files missing",
-            release.IsAvailable ? InstructionsFor(release) + SourceAssignmentHint(release) + (IsOlderBaballoniaModule(release) ? "\nExpressions Alpha needs module 3.2.0 or newer for eye tracking." : "") : "Restore or re-import this module, or remove its profile. Your other modules are available.",
-            !release.IsAvailable ? "Unavailable" : IsSelectedForBoth(release) ? "Selected ✓" : "Use module",
-            !_busy && _initialized && release.IsAvailable && !IsSelectedForBoth(release),
+            (release.IsAvailable ? InstructionsFor(release) + (IsOlderBaballoniaModule(release) ? "\nExpressions Alpha needs module 3.2.0 or newer for eye tracking." : "") : "Restore or re-import this module, or remove its profile. Your other modules are available.") + SourceAssignmentHint(release),
+            SourceSelectionLabel(release),
+            _store.Selection.IsSelected(release.Id),
+            !_busy && _initialized && release.IsAvailable && !_store.Selection.IsSelected(release.Id),
             !_busy && _initialized,
             release.IsAvailable && IsOlderBaballoniaModule(release) ? Visibility.Visible : Visibility.Collapsed,
             !_busy && _initialized && release.IsAvailable && IsOlderBaballoniaModule(release),
@@ -547,7 +548,7 @@ public partial class MainWindow : Window
 
     private async void SelectModule_Click(object sender, RoutedEventArgs e)
     {
-        if (sender is Button { Tag: ModuleRelease release })
+        if (sender is Button { Tag: ModuleRelease release } && !_store.Selection.IsSelected(release.Id))
             await RunOperation(() => SwitchModule(release));
     }
 
@@ -896,7 +897,7 @@ public partial class MainWindow : Window
                     SetSourceWaitingState();
                     break;
                 case "ready":
-                    _awaitingTrackingSource = false;
+                    _awaitingTrackingSource = ActiveSources.Modules.Count > 1 && !Bool(item, "eye") && !Bool(item, "face");
                     _ready?.TrySetResult(true);
                     Log(ProviderName + " loaded. " + ProviderInstructions);
                     if (_running) SetListeningState();
@@ -917,6 +918,8 @@ public partial class MainWindow : Window
 
     private void UpdateStatus(JsonElement item)
     {
+        if (ActiveSources.Modules.Count > 1)
+            _awaitingTrackingSource = !Bool(item, "eyeAvailable") && !Bool(item, "faceAvailable");
         var linked = Bool(item, "linked") || Bool(item, "connected") || Bool(item, "bfrConnected");
         var sourceConnected = Provider.Kind == ModuleKind.BabbleHeadsetRuntime ? linked : Bool(item, "receivingKnown") && Bool(item, "receiving");
         HeadsetState.Text = ProviderName + (sourceConnected ? " · connected" : " · ready");

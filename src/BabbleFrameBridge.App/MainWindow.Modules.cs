@@ -20,15 +20,21 @@ public partial class MainWindow
     private bool SelectedSourcesAvailable => _store.Selection.IsComplete && _store.Selection.Modules.All(module => module.IsAvailable);
 
     private bool IsSelectedForBoth(ModuleRelease release) => _store.EyeModule?.Id == release.Id && _store.FaceModule?.Id == release.Id;
+    private string SourceSelectionLabel(ModuleRelease release)
+    {
+        if (!_store.Selection.IsSelected(release.Id)) return release.IsAvailable ? "Use module" : "Unavailable";
+        var label = IsSelectedForBoth(release) ? "Selected" : _store.EyeModule?.Id == release.Id ? "Selected · Eyes" : "Selected · Face";
+        return label + (release.IsAvailable ? " ✓" : " · Missing");
+    }
     private string SourceAssignmentHint(ModuleRelease release) => !_store.Selection.IsSelected(release.Id) ? ""
         : IsSelectedForBoth(release) ? "\nSelected for eyes and face."
-        : _store.EyeModule?.Id == release.Id ? "\nAssigned to eyes and eyebrows." : "\nAssigned to face and mouth.";
+        : _store.EyeModule?.Id == release.Id ? "\nSelected for eyes and eyebrows." : "\nSelected for face and mouth.";
 
     private void RefreshSourceChoices()
     {
         if (EyeModuleBox is null || FaceModuleBox is null || _store is null) return;
-        var available = _store.Installed.Where(module => module.IsAvailable).ToArray();
-        var libraryKey = string.Join("|", available.Select(module => module.Id + ":" + module.Version));
+        var installed = _store.Installed.ToArray();
+        var libraryKey = string.Join("|", installed.Select(module => module.Id + ":" + module.Version + ":" + module.IsAvailable));
         var selectionKey = _store.EyeModule?.Id + ":" + _store.FaceModule?.Id;
         if (libraryKey != _sourceLibraryKey || selectionKey != _sourceSelectionKey)
         {
@@ -38,7 +44,8 @@ public partial class MainWindow
             _syncingSources = true;
             try
             {
-                var choices = available.Select(module => new ModuleSourceChoice(module.Id, NameFor(module) + " / " + module.Version)).ToArray();
+                var choices = installed.Select(module => new ModuleSourceChoice(module.Id,
+                    NameFor(module) + " / " + module.Version + (module.IsAvailable ? "" : " (unavailable)"))).ToArray();
                 EyeModuleBox.ItemsSource = choices; FaceModuleBox.ItemsSource = choices;
                 EyeModuleBox.SelectedValue = choices.Any(choice => choice.Id == eye) ? eye : choices.FirstOrDefault()?.Id;
                 FaceModuleBox.SelectedValue = choices.Any(choice => choice.Id == face) ? face : choices.FirstOrDefault()?.Id;
@@ -46,7 +53,7 @@ public partial class MainWindow
             }
             finally { _syncingSources = false; }
         }
-        EyeModuleBox.IsEnabled = FaceModuleBox.IsEnabled = !_busy && _initialized && available.Length > 0 && !_closing;
+        EyeModuleBox.IsEnabled = FaceModuleBox.IsEnabled = !_busy && _initialized && installed.Length > 0 && !_closing;
         UpdateApplySourcesButton();
     }
 
@@ -54,7 +61,8 @@ public partial class MainWindow
     {
         if (ApplySourcesButton is null) return;
         ApplySourcesButton.IsEnabled = !_busy && _initialized && !_closing
-            && EyeModuleBox.SelectedValue is string && FaceModuleBox.SelectedValue is string;
+            && _store.Installed.Any(module => module.Id == EyeModuleBox.SelectedValue as string && module.IsAvailable)
+            && _store.Installed.Any(module => module.Id == FaceModuleBox.SelectedValue as string && module.IsAvailable);
     }
 
     private void ModuleSource_Changed(object sender, SelectionChangedEventArgs e)
@@ -100,7 +108,7 @@ public partial class MainWindow
             else _store.SelectChannels(eye, face);
             RefreshModule();
             var message = _awaitingTrackingSource ? ProviderName + " selected. Waiting for your headset connection."
-                : eye.Id != face.Id ? "Eye and face modules are active together."
+                : eye.Id != face.Id ? "Eye and face sources selected. Each source connects independently."
                 : previous.PrimaryModule is null ? $"Module {eye.Version} is active. Your tracking source is ready."
                 : $"Module {eye.Version} is active. Your previous module is saved.";
             Log(message); ShowNotice(message);

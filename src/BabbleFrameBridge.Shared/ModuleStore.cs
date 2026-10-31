@@ -569,7 +569,9 @@ public sealed class ModuleStore
             if (ModuleCatalog.Identify(release.ModuleId, release.DllFileName).Kind != ModuleKind.Custom
                 || ModuleCatalog.All.Any(x => x.AssemblyName == release.AssemblyName))
                 throw new InvalidDataException("The saved custom module conflicts with a known module identity.");
-            if (release.IsAvailable) ValidateAssembly(Path.Combine(directory, release.DllFileName), release.AssemblyName!);
+            // Library recovery must not depend on an intact payload. A corrupt
+            // imported DLL remains visible/removable, just like a missing one;
+            // activation and role selection validate its binary before commit.
         }
         return release;
     }

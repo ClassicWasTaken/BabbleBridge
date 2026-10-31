@@ -26,6 +26,16 @@
     <Style.Triggers><Trigger Property="IsPressed" Value="True"><Setter Property="local:Motion.Pressed" Value="True"/></Trigger></Style.Triggers>
    </Style>
    <Style x:Key="QuietButton" TargetType="Button" BasedOn="{StaticResource {x:Type Button}}"><Setter Property="Background" Value="Transparent"/><Setter Property="Foreground" Value="{DynamicResource AccentInk}"/><Setter Property="BorderBrush" Value="{DynamicResource InputBorder}"/></Style>
+   <ControlTemplate x:Key="ModuleStatusTemplate" TargetType="Button">
+    <Border x:Name="Chrome" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="12" Padding="{TemplateBinding Padding}">
+     <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" RecognizesAccessKey="True"/>
+    </Border>
+   </ControlTemplate>
+   <Style x:Key="ModuleSelectionButton" TargetType="Button" BasedOn="{StaticResource QuietButton}">
+    <Style.Triggers><DataTrigger Binding="{Binding IsSelected}" Value="True">
+     <Setter Property="Template" Value="{StaticResource ModuleStatusTemplate}"/><Setter Property="Background" Value="{DynamicResource SoftBackground}"/><Setter Property="Foreground" Value="{DynamicResource AccentInk}"/><Setter Property="local:Motion.Hover" Value="False"/><Setter Property="Cursor" Value="Arrow"/><Setter Property="Focusable" Value="False"/>
+    </DataTrigger></Style.Triggers>
+   </Style>
    <Style x:Key="DangerButton" TargetType="Button" BasedOn="{StaticResource QuietButton}"><Setter Property="Background" Value="{DynamicResource ErrorBackground}"/><Setter Property="Foreground" Value="{DynamicResource DangerInk}"/><Setter Property="BorderBrush" Value="{DynamicResource ErrorBorder}"/></Style>
    <Style x:Key="LinkButton" TargetType="Button" BasedOn="{StaticResource {x:Type Button}}"><Setter Property="Background" Value="Transparent"/><Setter Property="Foreground" Value="{DynamicResource AccentInk}"/><Setter Property="BorderThickness" Value="0"/><Setter Property="Padding" Value="0"/></Style>
    <Style TargetType="ComboBoxItem">

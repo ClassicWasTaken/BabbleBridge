@@ -10,8 +10,6 @@
 
 A Windows app that bridges eye and face tracking to VRChat through compatible **VRCFaceTracking SDK** modules. Download modules for Babble Headset Runtime, Baballonia, Virtual Desktop, Steam Link, SRanipal, Bigscreen Beyond, or EyeTrackVR. Works with Jerry’s templates and VRChat’s native face-tracking SDK beta; available tracking depends on your hardware and module.
 
-Local preview 5 (**1.5.0**) adds separate eye and face sources. This preview has not been published.
-
 ![Face Tracking Bridge running on Windows](docs/images/app-running.png)
 
 ## Get started
@@ -20,7 +18,7 @@ Local preview 5 (**1.5.0**) adds separate eye and face sources. This preview has
 2. In Modules, choose **Eyes & eyebrows** and **Face & mouth**, then click **Apply sources**. Start each source’s **headset runtime or desktop tracking app**.
 3. Enable **OSC** in VRChat and select a face-tracking avatar.
 
-Use the same module for both, or combine eyes from one module with the face from another. A shared module runs once; separate modules are isolated and feed one combined VRChat output. **Use module** assigns that module to both roles. Your source pair and each module’s settings are remembered.
+Use the same module for both, or combine eyes from one module with the face from another. **Selected badges** show each module’s eye/face assignment. A shared module runs once; separate modules feed one combined VRChat output. **Use module** assigns that module to both roles. Your source pair and each module’s settings are remembered.
 
 Downloads come from the module authors; modules are never bundled. The bridge can only send expressions your sources measure. Known overlapping input ports are rejected; give the modules and their tracking apps different input ports before combining them. Remove modules with the trash button. Removing either selected source stops the bridge and clears both roles; your other modules stay installed.
 

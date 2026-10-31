@@ -49,6 +49,18 @@ await Test("a waiting eye source cannot suppress live mouth tracking or claim un
     await probe.Stop();
 });
 
+await Test("two offline sources remain selectable without claiming channels or sending neutral tracking", async () =>
+{
+    using var output = new OscCapture(); var profile = Profile("both-offline", output.Port);
+    using var probe = Start(profile, Fixture(profile, "eye", new()), Fixture(profile, "face", new()), "Beyond", "Beyond");
+    await probe.WaitReady();
+    await Until(() => probe.Status(status => !status.GetProperty("eyeAvailable").GetBoolean() && !status.GetProperty("faceAvailable").GetBoolean()
+        && status.GetProperty("eyeSourceState").GetString() == "Waiting" && status.GetProperty("faceSourceState").GetString() == "Waiting"),
+        "The offline pair did not retain independent hardware-wait states.");
+    Check(output.SourcePorts.Count == 0, "An offline pair sent neutral avatar tracking before a source became available.");
+    await probe.Stop();
+});
+
 await Test("stale inputs go neutral while the other source stays live and a crashed child recovers independently", async () =>
 {
     using var output = new OscCapture(); var profile = Profile("recovery", output.Port);
@@ -104,6 +116,19 @@ await Test("two invalid SDK modules fail before ready and cannot leave orphan wo
     await probe.WaitExit();
     foreach (var file in Directory.GetFiles(profile, "fixture-initialized.txt", SearchOption.AllDirectories))
         Check(!Alive(int.Parse(File.ReadAllText(file))), "A failed source remained alive after coordinator startup failed.");
+});
+
+await Test("inputs that fail before their first valid frame cannot commit a combined startup", async () =>
+{
+    using var output = new OscCapture(); var profile = Profile("bad-first-frame", output.Port);
+    var eye = Fixture(profile, "eye", new()); var face = Fixture(profile, "face", new());
+    File.WriteAllText(Path.Combine(Path.GetDirectoryName(eye)!, "fixture-mode.txt"), "malformed-snapshot");
+    File.WriteAllText(Path.Combine(Path.GetDirectoryName(face)!, "fixture-mode.txt"), "malformed-snapshot");
+    using var probe = Start(profile, eye, face);
+    await Until(() => probe.Messages.Any(message => Type(message) == "fatal"), "Inputs with no valid frames did not fail startup.");
+    Check(!probe.Messages.Any(message => Type(message) == "ready") && output.SourcePorts.Count == 0,
+        "A pair announced ready before either module completed a valid first frame.");
+    await probe.WaitExit();
 });
 
 await Test("Babble's overlapping desktop listeners are rejected before either module starts", async () =>

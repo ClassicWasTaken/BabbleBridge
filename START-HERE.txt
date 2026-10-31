@@ -1,4 +1,4 @@
-FACE TRACKING BRIDGE 1.5.0 — WINDOWS x64 — LOCAL PREVIEW 5
+FACE TRACKING BRIDGE 1.5.0 — WINDOWS x64
 
 PREREQUISITE
 Install the Microsoft Visual C++ v14 Redistributable (x64) from Microsoft:
@@ -25,6 +25,8 @@ GET STARTED
    Reselect the avatar if VRChat was already running and needs a refresh.
 
 Your eye/face source pair and each module's connection settings are remembered.
+Selected badges show the saved eye and face assignments, including both
+selected modules when you combine different sources.
 A module selected for both roles runs once. Different sources run in isolated
 module hosts and feed one combined VRChat output. Applying sources restarts
 tracking with the selected pair. A source can only provide expressions its
@@ -187,7 +189,7 @@ panel edges it can use.
 Relay is completely silent. Meows, chirps, yawns and purring appear only as small
 text bubbles that fade away and do not intercept clicks. Audio playback and the
 old sound option have been removed, including for profiles that enabled sound
-in an earlier preview. Text reactions also work with reduced motion enabled.
+in an earlier build. Text reactions also work with reduced motion enabled.
 The 35 behaviors are organized into interruptible hunting, settling, recovery,
 grooming, exploration and play routines. New gestures include cautious peeking,
 backing away, a pre-pounce wiggle, paw licking, face washing, ear flicks,
@@ -215,7 +217,6 @@ module library. The first public 1.0.0 release also supports migration from the
 retired private release series. Future releases use normal version ordering.
 Uninstall through Windows Installed Apps. Normal uninstall removes app files
 and shortcuts while preserving the separate AppData profile for a reinstall.
-This 1.5.0 preview is a local build and has not been published as an app update.
 There is no configured online automatic-update service. App updates use setup
 files, while module updates use ZIP imports inside the app.
 

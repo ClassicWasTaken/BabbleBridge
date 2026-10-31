@@ -232,7 +232,10 @@ internal sealed class InputWorker(ModuleInputSelection selection, string role, s
         ? Stopwatch.GetElapsedTime(sample.Received).TotalSeconds > SplitModuleCoordinator.FreshnessSeconds ? "Stale"
             : sample.Snapshot.ReceivingKnown && !sample.Snapshot.Receiving ? "Waiting" : state : state;
     public string Error => error;
-    public bool Settled => state is "Ready" or "Waiting";
+    // Initialize can succeed while the first Update still requires an
+    // unsupported SDK API. Validate one complete frame before committing a
+    // ready source; a genuine hardware wait remains immediately selectable.
+    public bool Settled => state == "Waiting" || state == "Ready" && Current is not null;
     public bool Exhausted => Volatile.Read(ref exhausted) != 0;
     public int ProcessId { get { try { return process is { HasExited: false } child ? child.Id : 0; } catch (InvalidOperationException) { return 0; } } }
     public int InputPort => Volatile.Read(ref inputPort);

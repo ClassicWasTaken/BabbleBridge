@@ -1,28 +1,30 @@
-FACE TRACKING BRIDGE 1.5.0 — LOCAL PREVIEW 5
+FACE TRACKING BRIDGE 1.5.0 — RELEASE VALIDATION
 Validated on Windows x64, 31 October 2026.
 
-- 59 interface regressions passed, including Start/Stop navigation opacity,
-  source selectors in both themes, persisted pairs, rollback, source removal,
-  failed settings saves, read-only logs, and existing kitty/module/tray behavior.
-- 11 simultaneous-module runtime checks passed. Separate child processes feed
-  one nominal 90 Hz sender. Checks cover channel ownership, stale neutralization,
-  partial availability, malformed snapshots, recovery, conflicting input ports,
-  same-module deduplication, normal teardown, and abrupt-parent orphan prevention.
-- Real separately downloaded EyeTrackVR + Baballonia modules accepted synthetic
-  loopback input and produced combined avatar OSC. The Beyond module accepted
-  synthetic shared memory, including invalid/stopped timestamp transitions.
-- The three existing official module runtime checks also passed after the refactor.
-- Persistent selection tests passed 16 scenarios / 155 assertions; the existing
-  shared/module-store suite passed 50 regressions.
+- 60 interface regressions passed. Selected eye/face cards retain their roles,
+  render at full opacity with readable contrast, and cannot accidentally replace
+  the combined pair. Missing selected sources remain visible in the selectors.
+  Checks also cover Start/Stop navigation, themes, pair persistence/rollback,
+  removal, failed saves, read-only logs, kitty behavior, modules and system tray.
+- 13 simultaneous-module runtime checks passed. Separate inputs feed one nominal
+  90 Hz sender. Checks cover channel ownership, stale neutralization, partial and
+  completely offline sources, malformed snapshots, recovery, port conflicts,
+  same-module deduplication, first-frame startup validation, normal teardown,
+  and abrupt-parent orphan prevention.
+- Official EyeTrackVR + Baballonia modules accepted synthetic loopback input and
+  produced combined avatar OSC. The official Beyond module accepted synthetic
+  shared memory, including invalid/stopped timestamp transitions.
+- Persistent selection tests passed 19 scenarios / 192 assertions, including
+  corrupt custom-DLL recovery without weakening activation or metadata checks.
+- The existing shared/module-store suite passed 50 regressions.
 - Native avatar routing passed 10 checks, including temporary discovery failure,
   explicit capability changes, and avatar changes.
+- Public 1.0.4 to 1.5.0 installer testing passed 27 checks. Details are preserved
+  in installer/TESTED-INSTALLER.txt and the local isolated smoke report.
 - Distribution license/copyright, external-module exclusion and private-path
   checks passed. Modules remain separate author downloads.
 
 Tests used isolated profiles, loopback output, and synthetic input. They did not
 change Windows appearance, the installed app, personal modules, or live VRChat.
 Physical headset tracking, calibration, and complete avatar behavior still need
-verification with the relevant hardware. No update was published.
-
-Installer install/upgrade/uninstall results are recorded separately in
-installer/TESTED-INSTALLER.txt and the local isolated smoke report.
+verification with the relevant hardware.

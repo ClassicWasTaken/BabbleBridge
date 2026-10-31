@@ -22,6 +22,8 @@ symbols. build.ps1 removes stale PDBs from reused publish folders.
 Run tests:
   dotnet run --project tests/BabbleFrameBridge.Tests -c Release -- 'C:\Path\Baballonia-module.zip'
   dotnet run --project tests/BabbleFrameBridge.ChannelSelection.Tests -c Release
+  dotnet run --project tests/BabbleBridge.MultiSource.Tests -c Release -- --worker dist/BabbleFrameBridge/runtime/BabbleFrameBridge.Worker.exe
+  dotnet run --project tests/Avatar.Router.Tests -c Release
   dotnet run --project tests/EyeData.Tests -c Release
   dotnet run --project tests/BabbleFrameBridge.NativeFace.Tests -c Release
   dotnet run --project tests/BabbleFrameBridge.Appearance.Tests -c Release -- --module-zip 'C:\Path\Baballonia-module.zip' --publish-dir dist/BabbleFrameBridge
@@ -49,6 +51,7 @@ Baballonia ZIPs are used by the real-module integration commands above; other
 hardware/module combinations need their own checks. Installed modules can be
 assigned to the saved eye and face roles, with a separate input profile for
 each connection. A repeated module ID represents one instance, not two.
+The Modules page marks each saved assignment with a selected eye/face badge.
 New ZIPs can update module payloads without recompiling the bridge when their
 module API remains compatible.
 The worker is a separate process for reliable unload/restart; it is not an OS

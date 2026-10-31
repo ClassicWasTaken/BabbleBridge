@@ -1809,6 +1809,7 @@ internal static class Program
                             Check((string?)Named<ComboBox>(window!, "EyeModuleBox").SelectedValue == eyeSource.Id
                                 && (string?)Named<ComboBox>(window!, "FaceModuleBox").SelectedValue == faceSource.Id,
                                 "The source selectors lost their saved role assignments.");
+                        CheckSelectedModuleCards(eyeSource, faceSource);
                     }
                     try
                     {
@@ -1858,7 +1859,25 @@ internal static class Program
                             && WorkerArgument("--face-module") == Path.Combine(face.DirectoryPath, face.DllFileName)
                             && Field<Process>(window, "_worker").StartInfo.ArgumentList.Count(argument => argument == "--face-module") == 1,
                             "Split role selection did not create one output worker with exactly two module inputs.");
+                        foreach (var dark in new[] { false, true })
+                        {
+                            themes.ApplyTheme(dark); Pump(); CheckSelectedModuleCards(eye, face); CheckLibraryLayout();
+                            SavePreview(window, renderDirectory, dark ? "module-pair-selected-dark.png" : "module-pair-selected-light.png");
+                        }
+                        themes.ApplyTheme(priorTheme);
                         var savedPairState = File.ReadAllText(Path.Combine(profile, "modules", "module-state.json"));
+                        foreach (var source in new[] { eye, face })
+                        {
+                            var selected = CardButton(source, source.Id == eye.Id ? "Selected · Eyes ✓" : "Selected · Face ✓");
+                            // A stale queued click can still be raised programmatically on a
+                            // disabled WPF button. The handler must preserve the role pair too.
+                            DispatchInput(() => selected.RaiseEvent(new RoutedEventArgs(Button.ClickEvent)));
+                            PumpUntil(() => !Field<bool>(window, "_busy"), "selected role card ignored a queued activation");
+                            Check(new ModuleStore(profile).EyeModule == eye && new ModuleStore(profile).FaceModule == face
+                                && Field<Process>(window, "_worker").Id == pairPid
+                                && File.ReadAllText(Path.Combine(profile, "modules", "module-state.json")) == savedPairState,
+                                "Clicking an already selected role card collapsed the pair or restarted tracking.");
+                        }
                         Apply(eye, collision); CheckPair(eye, face, checkDraft: false);
                         Check(Field<bool>(window, "_running") && Field<Process>(window, "_worker").Id == pairPid
                             && File.ReadAllText(Path.Combine(profile, "modules", "module-state.json")) == savedPairState,
@@ -2017,6 +2036,53 @@ internal static class Program
 
             if (suppliedZip is not null)
             {
+                Test("a missing selected face module retains its card role and selector without choosing a replacement", () =>
+                {
+                    var profile = Path.Combine(root, "missing-selected-face-role");
+                    new AppSettings { AutoStart = true }.Save(profile);
+                    var store = new ModuleStore(profile);
+                    var eye = store.Prepare(suppliedZip, ModuleKind.BaballoniaDesktop); store.Register(eye);
+                    var face = store.Prepare(suppliedZip, ModuleKind.BaballoniaDesktop); store.Register(face);
+                    var alternate = store.Prepare(suppliedZip, ModuleKind.BaballoniaDesktop); store.Register(alternate);
+                    store.SelectChannels(eye, face);
+                    var originalHash = HashFile(suppliedZip);
+                    // Delete only this isolated staged copy, leaving the source and
+                    // the other role/alternative intact for recovery.
+                    File.Delete(Path.Combine(face.DirectoryPath, face.DllFileName));
+                    var savedState = File.ReadAllText(Path.Combine(profile, "modules", "module-state.json"));
+                    try
+                    {
+                        window = CreateWindow(profile); window.Show();
+                        PumpUntil(() => Field<bool>(window, "_initialized") && !Field<bool>(window, "_busy"), "missing face-role profile initialized");
+                        Check(Field<object?>(window, "_worker") is null && !Named<Button>(window, "StartButton").IsEnabled,
+                            "A missing selected face DLL started partial tracking or offered a broken start action.");
+                        CheckSelectedModuleCards(eye, face);
+                        var eyeBox = Named<ComboBox>(window, "EyeModuleBox"); var faceBox = Named<ComboBox>(window, "FaceModuleBox");
+                        Check((string?)eyeBox.SelectedValue == eye.Id && (string?)faceBox.SelectedValue == face.Id,
+                            "An unavailable saved role was silently replaced with the first available module.");
+                        var label = faceBox.SelectedItem?.GetType().GetProperty("Label")?.GetValue(faceBox.SelectedItem) as string;
+                        Check(label?.Contains("(unavailable)", StringComparison.Ordinal) == true
+                            && !Named<Button>(window, "ApplySourcesButton").IsEnabled,
+                            "The missing saved face choice lacks its unavailable marker or can still be applied.");
+                        faceBox.SelectedValue = alternate.Id;
+                        Check(Named<Button>(window, "ApplySourcesButton").IsEnabled,
+                            "Choosing an available replacement did not enable recovery.");
+                        Check(File.ReadAllText(Path.Combine(profile, "modules", "module-state.json")) == savedState,
+                            "Changing a recovery draft implicitly reassigned the selected tracking role.");
+                        faceBox.SelectedValue = face.Id;
+                        Check(!Named<Button>(window, "ApplySourcesButton").IsEnabled,
+                            "Restoring an unavailable draft left Apply enabled.");
+                        CloseWindow(); window = CreateWindow(profile); window.Show();
+                        PumpUntil(() => Field<bool>(window, "_initialized") && !Field<bool>(window, "_busy"), "missing face-role profile reopened");
+                        CheckSelectedModuleCards(eye, face);
+                        Check((string?)Named<ComboBox>(window, "FaceModuleBox").SelectedValue == face.Id
+                            && new ModuleStore(profile).FaceModule == face
+                            && HashFile(suppliedZip) == originalHash,
+                            "Reopening lost the unavailable role identity or changed the original package.");
+                    }
+                    finally { CloseWindow(); }
+                });
+
                 Test("red module trash buttons ask inline and cancel without changing the library in either theme", () =>
                 {
                     var profile = Path.Combine(root, "module-removal-confirm-profile");
@@ -2934,7 +3000,7 @@ internal static class Program
                             .Contains("missing", StringComparison.OrdinalIgnoreCase), "The selected missing DLL has no visible recovery explanation.");
                         CheckAvailableDownloads(DownloadOrder);
                         Named<RadioButton>(window, "ModulesNav").IsChecked = true; Pump();
-                        Check(!CardButton(custom, "Unavailable").IsEnabled, "A missing selected custom DLL was offered for use.");
+                        Check(!CardButton(custom, "Selected · Missing").IsEnabled, "A missing selected custom DLL was offered for use or lost its selected state.");
                         SavePreview(window, renderDirectory, "missing-current-custom-module.png");
                         InvokeCardButton(custom, "Remove module"); InvokeCardButton(custom, "Confirm remove module");
                         Check(new ModuleStore(profile).Current is null && new ModuleStore(profile).Installed.Count == 0
@@ -3173,6 +3239,45 @@ internal static class Program
     private static IEnumerable<Button> CardButtons(ModuleRelease release) =>
         Descendants(Named<ItemsControl>(window!, "ModuleLibrary")).OfType<Button>()
             .Where(candidate => candidate.Tag is ModuleRelease module && module.Id == release.Id);
+
+    private static void CheckSelectedModuleCards(ModuleRelease eye, ModuleRelease face)
+    {
+        Named<RadioButton>(window!, "ModulesNav").IsChecked = true;
+        Pump(); window!.UpdateLayout();
+        PumpUntil(() => Named<StackPanel>(window, "ModulesPage").Opacity >= .999,
+            "selected module status settled before checking its appearance");
+        foreach (var module in Field<ModuleStore>(window, "_store").Installed)
+        {
+            var actions = CardButtons(module).Where(button => button.Content is string action
+                && (action == "Use module" || action == "Unavailable" || action.StartsWith("Selected", StringComparison.Ordinal))).ToArray();
+            Check(actions.Length == 1, "A module card has ambiguous selection actions: " + module.Id);
+            var selected = module.Id == eye.Id || module.Id == face.Id;
+            if (!selected)
+            {
+                Check((string)actions[0].Content == (module.IsAvailable ? "Use module" : "Unavailable")
+                    && actions[0].IsEnabled == module.IsAvailable,
+                    "An unselected module lost its ordinary use/recovery action.");
+                continue;
+            }
+            var both = eye.Id == face.Id;
+            var label = both ? "Selected" : module.Id == eye.Id ? "Selected · Eyes" : "Selected · Face";
+            label += module.IsAvailable ? " ✓" : " · Missing";
+            Check((string)actions[0].Content == label && !actions[0].IsEnabled
+                && !CardButtons(module).Any(button => button.Content is string action && action == "Use module"),
+                "An assigned module still offers Use module or does not clearly show its selected role.");
+            actions[0].ApplyTemplate();
+            var statusChrome = (Border)actions[0].Template.FindName("Chrome", actions[0]);
+            Check(statusChrome.Opacity >= .999 && actions[0].Opacity >= .999
+                && Motion.GetFeedbackOpacity(statusChrome) >= .999
+                && Contrast(ColorOf(actions[0].Foreground), ColorOf(statusChrome.Background)) >= 4.5,
+                "A selected module status was faded like a disabled action or has unreadable text contrast.");
+            var hint = both ? "Selected for eyes and face." : module.Id == eye.Id
+                ? "Selected for eyes and eyebrows." : "Selected for face and mouth.";
+            var text = string.Join("\n", Descendants(Named<ItemsControl>(window, "ModuleLibrary")).OfType<TextBlock>()
+                .Where(block => ReferenceEquals(block.DataContext, actions[0].DataContext)).Select(block => block.Text));
+            Check(text.Contains(hint, StringComparison.Ordinal), "A selected module card is missing its explicit role explanation.");
+        }
+    }
 
     private static Button CardButton(ModuleRelease release, string action)
     {

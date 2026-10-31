@@ -223,6 +223,54 @@ try
         Check(repaired.Installed.Count == 3, "Recovery lost other registered modules.");
     });
 
+    Test("a corrupt inactive custom DLL remains removable without blocking healthy sources", () =>
+    {
+        var (profile, store, eye, face, other) = Library("corrupt-inactive");
+        store.SelectChannels(eye, face);
+        File.WriteAllBytes(Path.Combine(other.DirectoryPath, other.DllFileName), [1, 2, 3]);
+        store = new ModuleStore(profile);
+        CheckPair(store, eye, face);
+        Check(store.Installed.Any(module => module.Id == other.Id), "The damaged inactive module disappeared from recovery.");
+        AssertRejectedUnchanged(store, profile, () => store.Activate(other));
+        AssertRejectedUnchanged(store, profile, () => store.SelectChannels(eye, other));
+        store.Remove(other);
+        CheckPair(new ModuleStore(profile), eye, face);
+        Check(!store.Installed.Any(module => module.Id == other.Id), "The corrupt inactive module could not be removed.");
+    });
+
+    Test("a corrupt selected custom DLL opens for recovery but cannot be activated or restored", () =>
+    {
+        var (profile, store, eye, face, healthy) = Library("corrupt-selected");
+        store.Activate(healthy);
+        store.SelectChannels(eye, face);
+        File.WriteAllBytes(Path.Combine(face.DirectoryPath, face.DllFileName), [1, 2, 3]);
+        store = new ModuleStore(profile);
+        CheckPair(store, eye, face);
+        AssertRejectedUnchanged(store, profile, () => store.Activate(face));
+        AssertRejectedUnchanged(store, profile, () => store.SelectChannels(eye, face));
+        store.RestorePreviousChannels();
+        CheckPair(store, healthy, healthy);
+        AssertRejectedUnchanged(store, profile, () => store.RestorePreviousChannels());
+        store.Remove(face);
+        CheckPair(new ModuleStore(profile), healthy, healthy);
+        Check(!store.PreviousSelection.IsComplete, "Removing the damaged rollback source retained a partial previous pair.");
+    });
+
+    Test("corrupt payload recovery retains strict custom metadata identity and path checks", () =>
+    {
+        var (profile, store, eye, face, other) = Library("corrupt-metadata");
+        store.SelectChannels(eye, face);
+        File.WriteAllBytes(Path.Combine(other.DirectoryPath, other.DllFileName), [1, 2, 3]);
+        var metadataPath = Path.Combine(profile, "modules", "releases", other.Id, "release.json");
+        var metadata = File.ReadAllText(metadataPath);
+        File.WriteAllText(metadataPath, JsonSerializer.Serialize(other with { DirectoryPath = root }));
+        ExpectFailure(() => new ModuleStore(profile));
+        File.WriteAllText(metadataPath, JsonSerializer.Serialize(other with { AssemblyName = "VRCFaceTracking.Baballonia" }));
+        ExpectFailure(() => new ModuleStore(profile));
+        File.WriteAllText(metadataPath, metadata);
+        CheckPair(new ModuleStore(profile), eye, face);
+    });
+
     Test("single-module Install and rollback remain compatible", () =>
     {
         var profile = Path.Combine(root, "legacy-install");
