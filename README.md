@@ -22,6 +22,8 @@ Downloads come from the module authors; modules are never bundled. Your selected
 
 Using Baballonia Expressions Alpha? Download **Baballonia** in Modules, or choose **Update for Expressions Alpha** on an older imported module.
 
+In **Connection → Startup & window**, you can start and close with SteamVR or start minimized in the Windows taskbar. Tracking continues while minimized.
+
 Other compatible VRCFaceTracking SDK modules work too. `module.json` is optional; use a ZIP if a module needs supporting files.
 
 Only import modules from publishers you trust: they run code on your PC under their own licenses.

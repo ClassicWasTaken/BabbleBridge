@@ -437,6 +437,192 @@ internal static class Program
             });
 
             CloseWindow();
+            Test("startup preferences register SteamVR once and survive connection saves and relaunch", () =>
+            {
+                var profile = Path.Combine(root, "startup-preferences");
+                new AppSettings { AutoStart = false, OutputPort = 19100, ReceivePort = 19101 }.Save(profile);
+                var registrations = new List<bool>();
+                Task Configure(bool enabled) { registrations.Add(enabled); return Task.CompletedTask; }
+                try
+                {
+                    window = CreateWindow(profile, configureSteamVrAutoLaunch: Configure);
+                    themes.AttachWindow(window);
+                    window.Show();
+                    PumpUntil(() => Field<bool>(window, "_initialized") && !Field<bool>(window, "_busy"), "startup preferences loaded");
+                    var changes = 0;
+                    window.StartupPreferencesChanged += (_, _) => changes++;
+                    Check(!window.StartWithSteamVr && !window.CloseWithSteamVr && !window.StartMinimized
+                        && registrations.Count == 0, "A fresh profile enabled a startup preference or touched SteamVR.");
+                    Named<CheckBox>(window, "StartWithSteamVrBox").IsChecked = true;
+                    PumpUntil(() => !Field<bool>(window, "_busy"), "SteamVR automatic startup enabled");
+                    Named<CheckBox>(window, "CloseWithSteamVrBox").IsChecked = true;
+                    Named<CheckBox>(window, "StartMinimizedBox").IsChecked = true;
+                    PumpUntil(() => !Field<bool>(window, "_busy"), "window startup preferences saved");
+                    Check(window.WindowState == WindowState.Normal, "Changing next-launch minimization hid the current window.");
+                    Check(changes == 3 && registrations.SequenceEqual(new[] { true }),
+                        "Window preferences registered SteamVR unnecessarily or failed to notify the session monitor.");
+                    var saved = AppSettings.Load(profile);
+                    Check(saved.StartWithSteamVr && saved.CloseWithSteamVr && saved.StartMinimized && !saved.AutoStart,
+                        "Startup preferences were not saved independently of bridge startup.");
+                    Named<TextBox>(window, "PortBox").Text = "19200";
+                    Named<TextBox>(window, "ReceiveBox").Text = "19201";
+                    InvokeSaveConnection();
+                    saved = AppSettings.Load(profile);
+                    Check(saved.StartWithSteamVr && saved.CloseWithSteamVr && saved.StartMinimized
+                        && saved.OutputPort == 19200 && saved.ReceivePort == 19201 && !saved.AutoStart,
+                        "Saving a connection reset the startup preferences.");
+                    Named<RadioButton>(window, "SettingsNav").IsChecked = true;
+                    PumpUntil(() => Named<StackPanel>(window, "SettingsPage").Opacity >= .999, "startup settings entrance completed");
+                    themes.ApplyTheme(false); Pump(); SavePreview(window, renderDirectory, "startup-light.png");
+                    themes.ApplyTheme(true); Pump(); SavePreview(window, renderDirectory, "startup-dark.png");
+                    CloseWindow();
+                    window = CreateWindow(profile, configureSteamVrAutoLaunch: Configure);
+                    themes.AttachWindow(window);
+                    window.Show();
+                    PumpUntil(() => Field<bool>(window, "_initialized") && !Field<bool>(window, "_busy"), "startup preferences reopened");
+                    Check(window.StartWithSteamVr && window.CloseWithSteamVr && window.StartMinimized
+                        && Named<CheckBox>(window, "StartWithSteamVrBox").IsChecked == true
+                        && Named<CheckBox>(window, "CloseWithSteamVrBox").IsChecked == true
+                        && Named<CheckBox>(window, "StartMinimizedBox").IsChecked == true
+                        && registrations.Count == 1, "Reopening lost saved startup choices or registered SteamVR again.");
+                    Named<CheckBox>(window, "StartWithSteamVrBox").IsChecked = false;
+                    PumpUntil(() => !Field<bool>(window, "_busy"), "SteamVR automatic startup disabled");
+                    Check(registrations.SequenceEqual(new[] { true, false }) && !AppSettings.Load(profile).StartWithSteamVr,
+                        "Turning off SteamVR startup did not unregister and save the preference.");
+                }
+                finally { CloseWindow(); }
+            });
+
+            Test("a SteamVR registration failure restores the checkbox and preserves the saved profile", () =>
+            {
+                var profile = Path.Combine(root, "startup-registration-failure");
+                new AppSettings { AutoStart = false, OutputPort = 19300, ReceivePort = 19301 }.Save(profile);
+                var calls = 0;
+                try
+                {
+                    window = CreateWindow(profile, configureSteamVrAutoLaunch: _ =>
+                    {
+                        calls++;
+                        return Task.FromException(new InvalidOperationException("SteamVR is not installed. Install SteamVR and try again."));
+                    });
+                    window.Show();
+                    PumpUntil(() => Field<bool>(window, "_initialized") && !Field<bool>(window, "_busy"), "registration failure profile loaded");
+                    var changes = 0;
+                    window.StartupPreferencesChanged += (_, _) => changes++;
+                    Named<CheckBox>(window, "StartWithSteamVrBox").IsChecked = true;
+                    PumpUntil(() => !Field<bool>(window, "_busy"), "registration failure handled");
+                    var saved = AppSettings.Load(profile);
+                    Check(calls == 1 && changes == 0 && !window.StartWithSteamVr
+                        && Named<CheckBox>(window, "StartWithSteamVrBox").IsChecked == false && !saved.StartWithSteamVr,
+                        "A failed SteamVR registration left startup enabled or notified the session monitor.");
+                    Check(!saved.AutoStart && saved.OutputPort == 19300 && saved.ReceivePort == 19301,
+                        "A failed registration changed existing connection preferences.");
+                    Check(Named<Border>(window, "GlobalNotice").Visibility == Visibility.Visible
+                        && Named<TextBlock>(window, "GlobalNoticeText").Text.Contains("Install SteamVR and try again"),
+                        "A failed registration did not retain its actionable error.");
+                    Check(Named<CheckBox>(window, "StartWithSteamVrBox").IsEnabled,
+                        "A failed registration prevented another attempt.");
+                }
+                finally { CloseWindow(); }
+            });
+
+            Test("a settings write failure restores SteamVR registration and the visible preference", () =>
+            {
+                var profile = Path.Combine(root, "startup-save-failure");
+                new AppSettings { AutoStart = false }.Save(profile);
+                var registrations = new List<bool>();
+                try
+                {
+                    window = CreateWindow(profile, configureSteamVrAutoLaunch: enabled =>
+                    {
+                        registrations.Add(enabled);
+                        return Task.CompletedTask;
+                    });
+                    window.Show();
+                    PumpUntil(() => Field<bool>(window, "_initialized") && !Field<bool>(window, "_busy"), "startup save failure profile loaded");
+                    using (var locked = new FileStream(Path.Combine(profile, "settings.json"), FileMode.Open, FileAccess.Read, FileShare.Read))
+                    {
+                        Named<CheckBox>(window, "StartWithSteamVrBox").IsChecked = true;
+                        PumpUntil(() => !Field<bool>(window, "_busy"), "startup save failure rolled back");
+                    }
+                    Check(registrations.SequenceEqual(new[] { true, false }) && !window.StartWithSteamVr
+                        && Named<CheckBox>(window, "StartWithSteamVrBox").IsChecked == false
+                        && !AppSettings.Load(profile).StartWithSteamVr,
+                        "A failed settings write left SteamVR registered or the preference enabled.");
+                    Check(Named<TextBlock>(window, "GlobalNoticeText").Text.Contains("could not be saved"),
+                        "The settings write error was not explained.");
+                }
+                finally { CloseWindow(); }
+            });
+
+            Test("closing waits for an in-flight SteamVR registration to finish saving", () =>
+            {
+                var profile = Path.Combine(root, "startup-closing");
+                new AppSettings { AutoStart = false }.Save(profile);
+                var registration = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+                try
+                {
+                    window = CreateWindow(profile, configureSteamVrAutoLaunch: _ => registration.Task);
+                    window.Show();
+                    PumpUntil(() => Field<bool>(window, "_initialized") && !Field<bool>(window, "_busy"), "startup closing profile loaded");
+                    window.Dispatcher.BeginInvoke(new Action(() => Named<CheckBox>(window, "StartWithSteamVrBox").IsChecked = true));
+                    PumpUntil(() => Field<bool>(window, "_busy"), "asynchronous registration began on the UI dispatcher");
+                    Check(Field<bool>(window, "_busy") && !Named<CheckBox>(window, "StartWithSteamVrBox").IsEnabled,
+                        "The UI allowed another preference change during registration.");
+                    var closing = window;
+                    closing.Dispatcher.BeginInvoke(new Action(closing.Close));
+                    PumpUntil(() => Field<bool>(closing, "_closing"), "close requested during registration");
+                    Check(closing.IsVisible && Field<bool>(closing, "_closing"), "Closing abandoned the in-flight startup change.");
+                    registration.SetResult();
+                    PumpUntil(() => !closing.IsVisible, "window closed after startup registration settled");
+                    Check(AppSettings.Load(profile).StartWithSteamVr, "Closing lost the completed startup registration preference.");
+                }
+                finally { registration.TrySetResult(); CloseWindow(); }
+            });
+
+            if (published is not null)
+            {
+                Test("the published app starts minimized in the taskbar and restores without exiting", () =>
+                {
+                    var profile = Path.Combine(root, "published-minimized-startup");
+                    new AppSettings { AutoStart = false, StartMinimized = true }.Save(profile);
+                    var start = new ProcessStartInfo(Path.Combine(published, "BabbleFrameBridge.exe")) { UseShellExecute = false };
+                    start.ArgumentList.Add("--data");
+                    start.ArgumentList.Add(profile);
+                    using var process = Process.Start(start) ?? throw new InvalidOperationException("The published app did not start.");
+                    try
+                    {
+                        IntPtr handle = IntPtr.Zero;
+                        PumpUntil(() =>
+                        {
+                            process.Refresh();
+                            handle = process.MainWindowHandle;
+                            return process.HasExited || handle != IntPtr.Zero;
+                        }, "published minimized window created", TimeSpan.FromSeconds(15));
+                        Check(!process.HasExited && handle != IntPtr.Zero, "The minimized app exited or did not create a window.");
+                        PumpUntil(() => IsIconic(handle), "published app entered its saved minimized state");
+                        Check(IsWindowVisible(handle) && GetWindow(handle, 4) == IntPtr.Zero,
+                            "The minimized app was hidden or owned instead of remaining available in the taskbar.");
+                        SendMessage(handle, 0x0112, (IntPtr)0xF120, IntPtr.Zero); // SC_RESTORE
+                        PumpUntil(() => !IsIconic(handle) && IsWindowVisible(handle), "published app restored from taskbar");
+                        SendMessage(handle, 0x0112, (IntPtr)0xF020, IntPtr.Zero); // SC_MINIMIZE
+                        PumpUntil(() => IsIconic(handle), "published app minimized again");
+                        process.Refresh();
+                        Check(!process.HasExited && IsWindowVisible(handle), "Minimizing closed or hid the running app.");
+                        Check(process.CloseMainWindow() && process.WaitForExit(5000) && process.ExitCode == 0,
+                            "The minimized app did not close normally.");
+                    }
+                    finally
+                    {
+                        if (!process.HasExited)
+                        {
+                            process.CloseMainWindow();
+                            if (!process.WaitForExit(5000)) process.Kill(entireProcessTree: true);
+                        }
+                    }
+                });
+            }
+
             if (suppliedZip is not null)
             {
                 Test("an explicitly imported module survives restart and enables Start without running it", () =>
@@ -1041,7 +1227,9 @@ internal static class Program
                         }
                         var empty = new ModuleStore(profile);
                         Check(empty.Installed.Count == 0 && empty.Current is null && empty.Previous is null,
-                            "Removing the final entry left an installed selection or rollback reference.");
+                            "Removing the final entry left an installed selection or rollback reference. Remaining: "
+                            + string.Join(", ", empty.Installed.Select(item => item.Id)) + "; notice: "
+                            + Named<TextBlock>(window, "GlobalNoticeText").Text);
                         Check(!Named<Button>(window, "StartButton").IsEnabled && !Named<Button>(window, "RollbackButton").IsEnabled,
                             "Start or Restore remains enabled after the final entry was removed.");
                         Check(HashFile(firstZip) == fixtureZipHash && HashFile(suppliedZip) == originalZipHash && File.Exists(updateZip),
@@ -1721,9 +1909,10 @@ internal static class Program
         return failed == 0 ? 0 : 1;
     }
 
-    private static MainWindow CreateWindow(string profile, string? workerExecutable = null, ModuleDownloader? moduleDownloader = null)
+    private static MainWindow CreateWindow(string profile, string? workerExecutable = null, ModuleDownloader? moduleDownloader = null, Func<bool, Task>? configureSteamVrAutoLaunch = null)
     {
-        var result = new MainWindow(profile, useDiscovery: false, workerExecutable: workerExecutable, moduleDownloader: moduleDownloader)
+        var result = new MainWindow(profile, useDiscovery: false, workerExecutable: workerExecutable,
+            moduleDownloader: moduleDownloader, configureSteamVrAutoLaunch: configureSteamVrAutoLaunch)
         {
             ShowActivated = false, ShowInTaskbar = false,
             WindowStartupLocation = WindowStartupLocation.Manual, Left = -20000, Top = -20000
@@ -2241,4 +2430,12 @@ internal static class Program
 
     [DllImport("user32.dll", SetLastError = true)]
     private static extern IntPtr SendMessage(IntPtr window, int message, IntPtr wParam, IntPtr lParam);
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool IsIconic(IntPtr window);
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool IsWindowVisible(IntPtr window);
+    [DllImport("user32.dll")]
+    private static extern IntPtr GetWindow(IntPtr window, uint command);
 }

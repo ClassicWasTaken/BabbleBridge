@@ -40,6 +40,13 @@ $foreignTarget = Join-Path $runRoot 'unrelated-tool.exe'
 $foreignShortcutHash = $null
 $registryKey = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\${testId}_is1"
 $userDataPath = Join-Path $env:LOCALAPPDATA 'BabbleFrameBridge'
+$python = (Get-Command python.exe -CommandType Application | Select-Object -First 1).Source
+$steamVrHelper = Join-Path $runRoot 'fake-steamvr-maintenance.py'
+$steamVrProfile = Join-Path $runRoot 'steamvr-profile'
+$steamVrSettings = Join-Path $steamVrProfile 'settings.json'
+$steamVrEvents = Join-Path $steamVrProfile 'maintenance-events.jsonl'
+$steamVrManifest = Join-Path $steamVrProfile 'steamvr/FaceTrackingBridge.vrmanifest'
+$steamVrFailure = Join-Path $steamVrProfile 'fail-command.txt'
 $checks = [Collections.Generic.List[string]]::new()
 $failure = $null
 $initialDisplayName = if ($previousPayload) {
@@ -75,6 +82,41 @@ function Assert-OwnedPath([string]$Path) {
 function Add-Check([string]$Message) {
     $checks.Add($Message)
     Write-Output "PASS $Message"
+}
+function Read-SteamVrEvents {
+    if (Test-Path -LiteralPath $steamVrEvents) {
+        foreach ($line in Get-Content -LiteralPath $steamVrEvents) {
+            if ($line) { $line | ConvertFrom-Json }
+        }
+    }
+}
+function Set-SteamVrOptIn([bool]$Enabled) {
+    Assert-OwnedPath $steamVrSettings
+    $settings = Get-Content -LiteralPath $steamVrSettings -Raw | ConvertFrom-Json
+    $settings.StartWithSteamVr = $Enabled
+    [IO.File]::WriteAllText($steamVrSettings, ($settings | ConvertTo-Json -Depth 6))
+}
+function Assert-SteamVrPreferences([bool]$ExpectedOptIn) {
+    $settings = Get-Content -LiteralPath $steamVrSettings -Raw | ConvertFrom-Json
+    Assert-True ($settings.StartWithSteamVr -eq $ExpectedOptIn) 'SteamVR opt-in was not preserved or cleared as expected.'
+    Assert-True ($settings.StartMinimized -and $settings.CloseWithSteamVr) 'Installer changed unrelated launch preferences.'
+    Assert-True ($settings.ImportedModule -eq 'preserve-user-module') 'Installer changed the isolated imported-module fixture.'
+}
+function Assert-SteamVrRefresh([string]$ExpectedPayload) {
+    $events = @(Read-SteamVrEvents)
+    Assert-True ($events.Count -gt 0) 'Installer did not invoke its SteamVR maintenance hook.'
+    $last = $events[-1]
+    Assert-True ($last.command -eq '--refresh-steamvr-registration') 'Installer invoked the wrong SteamVR maintenance command.'
+    Assert-True ($last.installed_executable_exists -and $last.installed_executable -eq (Join-Path $installPath 'BabbleFrameBridge.exe')) 'SteamVR refresh ran before the installed executable was available.'
+    $expectedHash = (Get-FileHash -LiteralPath (Join-Path $ExpectedPayload 'BabbleFrameBridge.dll') -Algorithm SHA256).Hash
+    Assert-True ($last.payload_sha256 -eq $expectedHash) 'SteamVR refresh did not run against the newly installed payload.'
+}
+function Assert-SteamVrUnregistered {
+    $events = @(Read-SteamVrEvents)
+    Assert-True ($events.Count -gt 0 -and $events[-1].command -eq '--unregister-steamvr') 'Uninstaller did not invoke the SteamVR cleanup command.'
+    Assert-True $events[-1].installed_executable_exists 'SteamVR cleanup ran after the app executable was deleted.'
+    Assert-True (!(Test-Path -LiteralPath $steamVrManifest)) 'Uninstall retained the isolated owned SteamVR manifest.'
+    Assert-SteamVrPreferences $false
 }
 function New-TestShortcut([string]$Path, [string]$Target) {
     Assert-OwnedPath $Path
@@ -173,6 +215,10 @@ function Compile-TestInstaller([string]$Version, [string]$DisplayName = 'Face Tr
         "--define=IconGroupDir=$groupIconDirectory",
         "--define=LegacyGroupParent=$legacyGroupParent",
         '--define=MigrateLegacyShortcuts=1',
+        '--define=ManageSteamVrRegistration=1',
+        "--define=SteamVrCommandExecutable=$python",
+        "--define=SteamVrTestHelperScript=$steamVrHelper",
+        "--define=SteamVrDataRoot=$steamVrProfile",
         "--define=AppMutexName=$testMutex",
         "--output-dir=$compiledPath",
         "--output-filename=FrameBridgeTest-$Version",
@@ -268,6 +314,59 @@ $before = Get-UserDataSnapshot
 [IO.File]::WriteAllText((Join-Path $runRoot 'user-data-before.json'), $before)
 try {
     Assert-True (!(Test-Path -LiteralPath $registryKey)) 'The generated test AppId unexpectedly exists.'
+    # This test helper never imports OpenVR or contacts SteamVR. Both the fake
+    # profile and executable are explicit compiler overrides for the nonce AppId.
+    # Even cleanup after a failed test cannot unregister a real user's app.
+    Assert-OwnedPath $steamVrHelper
+    Assert-OwnedPath $steamVrProfile
+    $null = New-Item -ItemType Directory -Path $steamVrProfile
+    [IO.File]::WriteAllText($steamVrSettings, (@{
+        StartWithSteamVr = $false; StartMinimized = $true; CloseWithSteamVr = $true
+        ImportedModule = 'preserve-user-module'
+    } | ConvertTo-Json))
+    $fakeMaintenanceSource = @'
+import argparse
+import hashlib
+import json
+from pathlib import Path
+import sys
+
+parser = argparse.ArgumentParser()
+parser.add_argument("--installed-executable", required=True)
+parser.add_argument("--data", required=True)
+commands = parser.add_mutually_exclusive_group(required=True)
+commands.add_argument("--refresh-steamvr-registration", action="store_true")
+commands.add_argument("--unregister-steamvr", action="store_true")
+args = parser.parse_args()
+root = Path(args.data).resolve(strict=True)
+executable = Path(args.installed_executable).resolve()
+# This fixture refuses to act outside its isolated sibling install directory.
+if executable != root.parent / "install" / "BabbleFrameBridge.exe":
+    raise SystemExit("Unexpected installed executable")
+settings_path = root / "settings.json"
+manifest = root / "steamvr" / "FaceTrackingBridge.vrmanifest"
+command = "--refresh-steamvr-registration" if args.refresh_steamvr_registration else "--unregister-steamvr"
+payload = executable.with_suffix(".dll")
+event = {"command": command, "installed_executable": str(executable),
+         "installed_executable_exists": executable.is_file(),
+         "payload_sha256": hashlib.sha256(payload.read_bytes()).hexdigest() if payload.is_file() else None}
+with (root / "maintenance-events.jsonl").open("a", encoding="utf-8") as log:
+    log.write(json.dumps(event) + "\n")
+settings = json.loads(settings_path.read_text(encoding="utf-8-sig"))
+if args.unregister_steamvr:
+    settings["StartWithSteamVr"] = False
+    settings_path.write_text(json.dumps(settings), encoding="utf-8")
+    manifest.unlink(missing_ok=True)
+elif settings["StartWithSteamVr"]:
+    manifest.parent.mkdir(exist_ok=True)
+    manifest.write_text(json.dumps({"app_key": "isolated.fake.facetrackingbridge", "binary_path_windows": str(executable)}), encoding="utf-8")
+# Simulate native registration failure after local cleanup. Setup must log the
+# failure and continue; no SteamVR process or production app key is ever used.
+failure = root / "fail-command.txt"
+if failure.is_file() and failure.read_text(encoding="utf-8") == command:
+    raise SystemExit(23)
+'@
+    [IO.File]::WriteAllText($steamVrHelper, $fakeMaintenanceSource)
     Assert-OwnedPath $payload
     Assert-OwnedPath $installPath
     $firstPayloadSource = if ($previousPayload) { $previousPayload } else { $payloadSource }
@@ -301,6 +400,10 @@ try {
     Assert-True ($registration.DisplayVersion -eq $initialVersion) 'First install version is incorrect.'
     Assert-True ((Get-Content -LiteralPath (Join-Path $installPath 'installer-smoke-marker.txt') -Raw) -eq 'first-release') 'Initial payload marker was not installed.'
     Assert-InstalledPayload $payload
+    Assert-SteamVrRefresh $payload
+    Assert-SteamVrPreferences $false
+    Assert-True (!(Test-Path -LiteralPath $steamVrManifest)) 'Fresh installation opted into SteamVR launch without a user choice.'
+    Add-Check 'Fresh installation runs hidden SteamVR maintenance after files exist and leaves automatic launch disabled.'
     $initialAppHash = (Get-FileHash -LiteralPath (Join-Path $installPath 'BabbleFrameBridge.dll') -Algorithm SHA256).Hash
     Assert-OwnedStartShortcuts
     Assert-ForeignShortcutUnchanged
@@ -318,12 +421,18 @@ try {
     }
     Add-Check 'First install created one test uninstall entry and extracted the complete verified app payload.'
 
+    Set-SteamVrOptIn $true
     $exitCode = Invoke-TestSetup $firstSetup 'reinstall' $false $true
     Assert-True ($exitCode -eq 0) "Same-version reinstall failed with $exitCode."
     $registration = Read-TestRegistration
     Assert-True ($registration.DisplayVersion -eq $initialVersion) 'Reinstall changed the registered version unexpectedly.'
     Assert-ForeignShortcutUnchanged
     Assert-OwnedStartShortcuts
+    Assert-SteamVrRefresh $payload
+    Assert-SteamVrPreferences $true
+    $fakeRegistration = Get-Content -LiteralPath $steamVrManifest -Raw | ConvertFrom-Json
+    Assert-True ($fakeRegistration.binary_path_windows -eq (Join-Path $installPath 'BabbleFrameBridge.exe')) 'Reinstall registered the wrong SteamVR executable path.'
+    Add-Check 'An existing SteamVR automatic-launch choice is refreshed against the installed executable without changing other preferences.'
     Add-Check 'Same-version reinstall reused the installation directory and uninstall entry.'
     Add-Check 'An unrelated same-name desktop shortcut survived unchecked installation and explicitly selected reinstallation.'
 
@@ -353,11 +462,13 @@ try {
     $upgradeSetup = Join-Path $compiledPath "FrameBridgeTest-$upgradeVersion.exe"
     $heldMutex = [Threading.Mutex]::new($false, $testMutex)
     try {
+        $steamVrCallsBeforeBlockedSetup = @(Read-SteamVrEvents).Count
         $exitCode = Invoke-TestSetup $upgradeSetup 'upgrade-blocked-by-running-app'
         Assert-True ($exitCode -ne 0) 'Setup ignored the running application mutex.'
         $registration = Read-TestRegistration
         Assert-True ($registration.DisplayVersion -eq $initialVersion) 'A blocked update changed the installed version.'
         Assert-True ((Get-Content -LiteralPath (Join-Path $installPath 'installer-smoke-marker.txt') -Raw) -eq 'first-release') 'A blocked update changed installed files.'
+        Assert-True (@(Read-SteamVrEvents).Count -eq $steamVrCallsBeforeBlockedSetup) 'A blocked update changed SteamVR registration.'
     }
     finally { $heldMutex.Dispose() }
     Add-Check 'Setup rejected an update while the isolated application mutex existed, before changing version or files.'
@@ -373,6 +484,10 @@ try {
     Assert-True ((Get-FileHash -LiteralPath (Join-Path $installPath 'Assets/Brand/FaceTrackingBridge-headset-v2.ico') -Algorithm SHA256).Hash -eq
         (Get-FileHash -LiteralPath (Join-Path $payloadSource 'Assets/Brand/FaceTrackingBridge-headset-v2.ico') -Algorithm SHA256).Hash) 'Upgrade did not install the new cyan shortcut icon.'
     Assert-InstalledPayload $payloadSource
+    Assert-SteamVrRefresh $payloadSource
+    Assert-SteamVrPreferences $true
+    Assert-True ((Get-Content -LiteralPath $steamVrManifest -Raw | ConvertFrom-Json).app_key -eq 'isolated.fake.facetrackingbridge') 'Upgrade changed the stable fake SteamVR application key.'
+    Add-Check 'Upgrade refreshes the same owned SteamVR registration after replacing app files and preserves the automatic-launch choice.'
     if ($previousPayload) {
         Assert-True ((Get-FileHash -LiteralPath (Join-Path $installPath 'BabbleFrameBridge.dll') -Algorithm SHA256).Hash -ne $initialAppHash) 'The real app upgrade left the old application binary in place.'
         Add-Check "Real app binaries upgraded from $initialVersion to $upgradeVersion; installed app and worker hashes match the new payload."
@@ -458,7 +573,6 @@ try {
         Add-Check 'An older installer was rejected before changing installed version or files.'
     }
 
-    $python = (Get-Command python.exe -CommandType Application | Select-Object -First 1).Source
     # Use the existing diagnostic mapping mode so a real local VRChat OSCQuery
     # service cannot replace this test's parameter map. The real module, wire
     # protocol, VRCFT mapper and worker-restart assertions are still exercised.
@@ -496,16 +610,24 @@ print(json.dumps(result, indent=2))
     Add-Check 'The installed worker passed real-module BFR discovery, exact diagnostic OSC mapping, and mode-change restart checks.'
 
     Uninstall-TestProduct
+    Assert-SteamVrUnregistered
     Assert-ForeignShortcutUnchanged
     Add-Check 'The isolated uninstaller removed installed app files and its test registration.'
     Add-Check 'Uninstall removed this installation''s Start menu and guide shortcuts and preserved the unrelated desktop shortcut.'
+    Add-Check 'Uninstall invokes SteamVR cleanup before deleting the app, clears its automatic-launch choice, and preserves other settings and module fixtures.'
 
     # The collision fixture is ours and was verified unchanged above. A fresh
     # lifecycle exercises the normal desktop shortcut creation and removal too.
     Assert-OwnedPath $desktopShortcut
     Remove-Item -LiteralPath $desktopShortcut -Force
+    [IO.File]::WriteAllText($steamVrFailure, '--refresh-steamvr-registration')
     $exitCode = Invoke-TestSetup $upgradeSetup 'desktop-shortcut-install' $true $false
     Assert-True ($exitCode -eq 0) 'Installation preserving an existing owned desktop shortcut failed.'
+    Assert-True ((Get-Content -LiteralPath (Join-Path $runRoot 'desktop-shortcut-install-inno.log') -Raw) -match 'Warning: SteamVR registration maintenance returned 23') 'Installer did not log the simulated SteamVR registration failure.'
+    Assert-SteamVrPreferences $false
+    Assert-True (!(Test-Path -LiteralPath $steamVrManifest)) 'Reinstall after uninstall silently restored the SteamVR launch opt-in.'
+    Remove-Item -LiteralPath $steamVrFailure -Force
+    Add-Check 'SteamVR registration failure is logged without blocking installation; reinstall after uninstall requires a new automatic-launch choice.'
     Assert-OwnedStartShortcuts
     Assert-True ((Get-TestShortcutTarget $desktopShortcut) -eq (Join-Path $installPath 'BabbleFrameBridge.exe')) 'Requested desktop shortcut target is incorrect.'
     foreach ($legacyName in @('Frame Bridge', 'Babble Bridge', 'FaceTracking Bridge')) {
@@ -522,6 +644,7 @@ print(json.dumps(result, indent=2))
     Add-Check 'An unrelated FaceTracking Bridge desktop shortcut survives the spacing-name migration.'
     $heldMutex = [Threading.Mutex]::new($false, $testMutex)
     try {
+        $steamVrCallsBeforeBlockedUninstall = @(Read-SteamVrEvents).Count
         $exitCode = Invoke-TestUninstaller 'uninstall-blocked-by-running-app'
         Assert-True ($exitCode -ne 0) 'Uninstall ignored the running application mutex.'
         $registration = Read-TestRegistration
@@ -529,10 +652,16 @@ print(json.dumps(result, indent=2))
         Assert-InstalledPayload $payloadSource
         Assert-OwnedStartShortcuts
         Assert-True ((Get-TestShortcutTarget $desktopShortcut) -eq (Join-Path $installPath 'BabbleFrameBridge.exe')) 'A blocked uninstall removed the desktop shortcut.'
+        Assert-True (@(Read-SteamVrEvents).Count -eq $steamVrCallsBeforeBlockedUninstall) 'A blocked uninstall changed SteamVR registration.'
     }
     finally { $heldMutex.Dispose() }
     Add-Check 'Uninstall rejected removal while the isolated application mutex existed, preserving files, registration and shortcuts.'
+    Set-SteamVrOptIn $true
+    [IO.File]::WriteAllText($steamVrFailure, '--unregister-steamvr')
     Uninstall-TestProduct
+    Assert-SteamVrUnregistered
+    Assert-True ((Get-Content -LiteralPath (Join-Path $runRoot 'uninstall-inno.log') -Raw) -match 'Warning: SteamVR registration maintenance returned 23') 'Uninstaller did not log the simulated SteamVR cleanup failure.'
+    Add-Check 'A simulated SteamVR cleanup failure is logged without blocking uninstall or discarding unrelated launch preferences.'
     Assert-True (!(Test-Path -LiteralPath $desktopShortcut)) 'This installation''s desktop shortcut remains after uninstall.'
     Add-Check 'The migrated desktop shortcut was created and was removed by normal uninstall.'
 }
@@ -557,12 +686,13 @@ finally {
         DevelopmentMigrationTarget = $migrationTargetVersion
         ShortcutDirectories = @($desktopIconDirectory, $groupIconDirectory)
         AvatarDiscovery = 'Not tested; existing --all-parameters diagnostic mode avoids any running VRChat client.'
+        SteamVrMaintenance = 'Isolated fake helper only; real SteamVR registration and native APIs are never called.'
         Checks = $checks.ToArray(); Failure = $failure
     }
     $json = ConvertTo-Json $report -Depth 6
     [IO.File]::WriteAllText((Join-Path $runRoot 'report.json'), $json)
     $upgradeDescription = if ($previousPayload) { "Real application payloads tested: $initialVersion to $upgradeVersion." } else { 'The synthetic newer installer tested upgrade behavior without changing production version.' }
-    $summary = @('FACE TRACKING BRIDGE INSTALLER VALIDATION', '', "Result: $result", '', 'Isolated per-user install, reinstall, upgrade, downgrade rejection and uninstall.', 'The test used a separate random application identity and workspace install and shortcut folders.', $upgradeDescription, 'Shortcut collision protection and running-application install/uninstall guards were exercised.', 'Installed-worker mapping used the existing --all-parameters diagnostic mode.', 'VRChat avatar discovery was excluded to avoid interference with a running local game.', '')
+    $summary = @('FACE TRACKING BRIDGE INSTALLER VALIDATION', '', "Result: $result", '', 'Isolated per-user install, reinstall, upgrade, downgrade rejection and uninstall.', 'The test used a separate random application identity and workspace install and shortcut folders.', $upgradeDescription, 'Shortcut collision protection and running-application install/uninstall guards were exercised.', 'SteamVR hooks used an isolated fake helper; real SteamVR registration and native APIs were excluded.', 'Installed-worker mapping used the existing --all-parameters diagnostic mode.', 'VRChat avatar discovery was excluded to avoid interference with a running local game.', '')
     $summary += $checks | ForEach-Object { '- ' + $_ }
     if ($failure) { $summary += @('', 'Failure: ' + $failure) }
     $summaryText = $summary -join [Environment]::NewLine

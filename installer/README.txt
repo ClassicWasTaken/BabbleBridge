@@ -70,12 +70,26 @@ after their new replacement exists. Foreign shortcuts with those names remain.
 Setup and Uninstall refuse to proceed while this application's presence mutex
 exists; close the application before updating or removing it.
 
+STEAMVR LAUNCH REGISTRATION
+Automatic SteamVR launch is optional and starts disabled. When it is enabled
+inside the app, upgrades refresh this app's existing SteamVR registration after
+the new executable has been installed. The app key stays stable across versions,
+and the registration points to the actual installation directory.
+Before uninstall removes the executable, it asks the app to disable automatic
+SteamVR launch, unregister its own app key, and remove its owned manifest. Other
+SteamVR applications and settings are left alone. Reinstalling requires opting
+in again. These hidden maintenance commands use OpenVR's utility interface and
+do not start a VR session. OpenVR may briefly start its background settings
+service to save registration. If maintenance fails, Setup logs a warning and
+continues so an unavailable runtime cannot prevent removal.
+
 Settings, logs and imported module releases live separately in:
   %LOCALAPPDATA%\BabbleFrameBridge
-The installer does not overwrite that folder. Updates preserve it, and normal
-uninstall leaves it available for a later reinstall. A module ZIP update and an
-app installer update are separate actions: module ZIPs still use Import module
-ZIP inside the app.
+Updates preserve that data, and normal uninstall leaves it available for a later
+reinstall. Uninstall clears only the automatic SteamVR launch preference and its
+owned registration; other preferences and imported modules are preserved. A
+module ZIP update and an app installer update are separate actions: module ZIPs
+still use Import module ZIP inside the app.
 
 UPDATES AND SIGNING
 Future app updates are delivered as newer setup files. No hosted automatic
@@ -94,3 +108,8 @@ copyright/license file with each distribution. The setup does not include the
 tracking module, official Babble logo assets, or a System32 copy of the Visual
 C++ runtime. Install Microsoft's official x64 Redistributable separately when
 required by the native OSC library. See the main notices for attribution.
+
+The installer smoke test uses a random AppId, isolated paths and an explicitly
+injected fake maintenance helper. It never registers or unregisters an app in
+the user's SteamVR installation. Nonproduction AppIds disable these hooks by
+default unless a test explicitly overrides them.

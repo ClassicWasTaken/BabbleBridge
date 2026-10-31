@@ -7,7 +7,7 @@
   #define AppPayload "..\dist\BabbleFrameBridge"
 #endif
 #ifndef AppVersion
-  #define AppVersion "1.0.3"
+  #define AppVersion "1.0.4"
 #endif
 #ifndef BuildIdentity
   #define BuildIdentity "FrameBridge.Desktop.8E250247-8BA9-42B7-A698-94D2A52E880A"
@@ -39,6 +39,24 @@
 #endif
 #ifndef HeadsetIconPath
   #define HeadsetIconPath "Assets\Brand\FaceTrackingBridge-headset-v2.ico"
+#endif
+#ifndef ManageSteamVrRegistration
+  #if BuildIdentity == "FrameBridge.Desktop.8E250247-8BA9-42B7-A698-94D2A52E880A"
+    #define ManageSteamVrRegistration 1
+  #else
+    #define ManageSteamVrRegistration 0
+  #endif
+#endif
+; Test identities cannot touch SteamVR unless an isolated fake helper is
+; explicitly supplied by the installer smoke test.
+#ifndef SteamVrCommandExecutable
+  #define SteamVrCommandExecutable "{app}\BabbleFrameBridge.exe"
+#endif
+#ifndef SteamVrTestHelperScript
+  #define SteamVrTestHelperScript ""
+#endif
+#ifndef SteamVrDataRoot
+  #define SteamVrDataRoot ""
 #endif
 
 [Setup]
@@ -209,6 +227,46 @@ begin
     SHChangeNotify($00002000, $00001005, Filename, 0);
 end;
 
+procedure ManageSteamVr(const Command: String);
+var
+  Executable, Arguments, DataRoot, TestHelperScript: String;
+  ExitCode: Integer;
+begin
+  if {#ManageSteamVrRegistration} <> 1 then Exit;
+  Executable := ExpandConstant('{#SteamVrCommandExecutable}');
+  Arguments := Command;
+  TestHelperScript := ExpandConstant('{#SteamVrTestHelperScript}');
+  if TestHelperScript <> '' then
+    Arguments := AddQuotes(TestHelperScript) + ' --installed-executable ' +
+      AddQuotes(ExpandConstant('{app}\BabbleFrameBridge.exe')) + ' ' + Arguments;
+  DataRoot := ExpandConstant('{#SteamVrDataRoot}');
+  if DataRoot <> '' then Arguments := Arguments + ' --data ' + AddQuotes(DataRoot);
+  { These maintenance commands use the OpenVR utility API without starting
+    a VR session or an app window. Missing runtimes must not prevent removal. }
+  if not FileExists(Executable) then begin
+    Log('Warning: SteamVR registration maintenance helper was not found: ' + Executable);
+    Exit;
+  end;
+  Log('Running SteamVR registration maintenance: ' + Arguments);
+  if not Exec(Executable, Arguments, ExpandConstant('{app}'), SW_HIDE,
+    ewWaitUntilTerminated, ExitCode) then
+    Log('Warning: Could not run SteamVR registration maintenance (' + Command +
+      '): ' + SysErrorMessage(ExitCode))
+  else if ExitCode <> 0 then
+    Log('Warning: SteamVR registration maintenance returned ' + IntToStr(ExitCode) +
+      ' (' + Command + '). Setup will continue.')
+  else
+    Log('SteamVR registration maintenance completed: ' + Command);
+end;
+
+procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
+begin
+  if CurUninstallStep = usUninstall then
+    { Run while the owned executable and native dependencies still exist.
+      This clears only the SteamVR launch opt-in and owned registration. }
+    ManageSteamVr('--unregister-steamvr');
+end;
+
 procedure CurStepChanged(CurStep: TSetupStep);
 var
   OldGroup, OldName: String;
@@ -253,6 +311,9 @@ begin
     RefreshShellItem(ExpandConstant('{app}\BabbleFrameBridge.exe'));
     RefreshShellItem(ExpandConstant('{#IconGroupDir}\{#ProductName}.lnk'));
     RefreshShellItem(ExpandConstant('{#IconDesktopDir}\{#ProductName}.lnk'));
+    { The app refreshes its registration only when the existing user setting
+      is enabled, preserving opt-in through upgrades and moved installs. }
+    ManageSteamVr('--refresh-steamvr-registration');
   end;
 end;
 

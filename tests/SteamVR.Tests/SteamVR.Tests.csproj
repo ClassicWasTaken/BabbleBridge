@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+  <ItemGroup>
+    <!-- Isolated lifecycle tests never build/launch the app or load the installed OpenVR runtime. -->
+    <Compile Include="../../src/BabbleFrameBridge.App/SteamVrIntegration.cs" Link="SteamVrIntegration.cs" />
+  </ItemGroup>
+</Project>

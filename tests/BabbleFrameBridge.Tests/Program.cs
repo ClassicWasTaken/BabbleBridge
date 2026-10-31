@@ -6,6 +6,7 @@ using System.Diagnostics;
 using System.Text;
 using System.Text.Json;
 using BabbleFrameBridge.Shared;
+using BabbleFrameBridge.App;
 
 var settingsOnly = args.Contains("--settings-only", StringComparer.Ordinal);
 var suppliedZip = args.FirstOrDefault(argument => !argument.StartsWith("--", StringComparison.Ordinal)) ?? "";
@@ -533,9 +534,14 @@ try
         settings.OutputHost = "192.168.1.20";
         settings.OutputPort = 19000;
         settings.AutoStart = true;
+        settings.StartWithSteamVr = true;
+        settings.CloseWithSteamVr = true;
+        settings.StartMinimized = true;
         settings.Save(dataRoot);
         var reloaded = AppSettings.Load(dataRoot);
         Check(reloaded.OutputHost == settings.OutputHost && reloaded.OutputPort == 19000 && reloaded.AutoStart, "Settings did not persist.");
+        Check(reloaded.StartWithSteamVr && reloaded.CloseWithSteamVr && reloaded.StartMinimized,
+            "SteamVR startup, shutdown or minimized preferences did not persist.");
         foreach (var invalidPort in new[] { 0, 65536, settings.ReceivePort })
         {
             settings.OutputPort = invalidPort;
@@ -546,6 +552,52 @@ try
         settings.OutputHost = "not-an-ip";
         ExpectFailure(settings.Validate, "invalid-address");
     });
+    Test("installer SteamVR maintenance respects opt-in and preserves profile contents", () =>
+    {
+        var dataRoot = Path.Combine(root, "steamvr-maintenance");
+        var refreshed = 0; var removed = 0;
+        void Refresh() => refreshed++;
+        void Remove() => removed++;
+        Check(!SteamVrMaintenance.TryRun([], dataRoot, Refresh, Remove), "Normal startup was handled as maintenance.");
+        Check(SteamVrMaintenance.TryRun(["--refresh-steamvr-registration"], dataRoot, Refresh, Remove), "Refresh command was ignored.");
+        Check(refreshed == 0 && !Directory.Exists(dataRoot), "Fresh installation opted into SteamVR or created unnecessary settings.");
+        var settings = new AppSettings { StartWithSteamVr = true, CloseWithSteamVr = true, StartMinimized = true, OutputPort = 19200 };
+        settings.Save(dataRoot);
+        var module = Path.Combine(dataRoot, "module-sentinel.dll");
+        File.WriteAllText(module, "preserve me");
+        SteamVrMaintenance.TryRun(["--refresh-steamvr-registration"], dataRoot, Refresh, Remove);
+        Check(refreshed == 1 && removed == 0 && AppSettings.Load(dataRoot).StartWithSteamVr, "Upgrade changed the startup opt-in.");
+        SteamVrMaintenance.TryRun(["--unregister-steamvr"], dataRoot, Refresh, Remove);
+        var saved = AppSettings.Load(dataRoot);
+        Check(removed == 1 && !saved.StartWithSteamVr && saved.CloseWithSteamVr && saved.StartMinimized && saved.OutputPort == 19200,
+            "Uninstall did not clear only the startup registration preference.");
+        Check(File.ReadAllText(module) == "preserve me", "Unregister deleted module data.");
+        ExpectFailure(() => SteamVrMaintenance.TryRun(["--refresh-steamvr-registration", "--unregister-steamvr"], dataRoot, Refresh, Remove), "conflicting-maintenance");
+        Check(refreshed == 1 && removed == 1, "Conflicting flags changed SteamVR.");
+    });
+    Test("failed SteamVR unregister still clears the saved opt-in and reports failure", () =>
+    {
+        var dataRoot = Path.Combine(root, "steamvr-maintenance-failure");
+        new AppSettings { StartWithSteamVr = true, StartMinimized = true }.Save(dataRoot);
+        ExpectFailure(() => SteamVrMaintenance.TryRun(["--unregister-steamvr"], dataRoot, () => { },
+            () => throw new IOException("Injected unavailable settings service")), "unregister-failure");
+        var saved = AppSettings.Load(dataRoot);
+        Check(!saved.StartWithSteamVr && saved.StartMinimized, "Unregister failure left the profile opted in or reset unrelated preferences.");
+        saved.StartWithSteamVr = true; saved.Save(dataRoot);
+        ExpectFailure(() => SteamVrMaintenance.TryRun(["--refresh-steamvr-registration"], dataRoot,
+            () => throw new IOException("Injected registration failure"), () => { }), "refresh-failure");
+        Check(AppSettings.Load(dataRoot).StartWithSteamVr, "A failed upgrade refresh cleared an existing startup opt-in.");
+    });
+    Test("damaged settings do not prevent SteamVR unregister", () =>
+    {
+        var dataRoot = Path.Combine(root, "steamvr-corrupt-settings");
+        Directory.CreateDirectory(dataRoot);
+        var path = Path.Combine(dataRoot, "settings.json");
+        File.WriteAllText(path, "{broken");
+        var removed = false;
+        ExpectFailure(() => SteamVrMaintenance.TryRun(["--unregister-steamvr"], dataRoot, () => { }, () => removed = true), "damaged-maintenance-settings");
+        Check(removed && File.ReadAllText(path) == "{broken", "Invalid settings blocked registration removal or were overwritten.");
+    });
     Test("tracking source is explicit, persists, and defaults safely for existing settings", () =>
     {
         var dataRoot = Path.Combine(root, "tracking-source");
@@ -553,6 +605,8 @@ try
         File.WriteAllText(Path.Combine(dataRoot, "settings.json"), "{}");
         var settings = AppSettings.Load(dataRoot);
         Check(settings.InputSource == TrackingInputSource.HeadsetRuntime, "Existing settings changed their source.");
+        Check(!settings.StartWithSteamVr && !settings.CloseWithSteamVr && !settings.StartMinimized,
+            "Existing profiles unexpectedly enabled new launch or shutdown behavior.");
         settings.InputSource = TrackingInputSource.BaballoniaDesktop;
         settings.Save(dataRoot);
         Check(AppSettings.Load(dataRoot).InputSource == TrackingInputSource.BaballoniaDesktop, "Desktop source did not persist.");

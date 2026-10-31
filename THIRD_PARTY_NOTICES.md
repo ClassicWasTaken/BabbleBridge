@@ -38,6 +38,12 @@ from [Microsoft's official distribution](https://learn.microsoft.com/cpp/windows
 and follow its applicable terms. Build tools and the installer compiler are
 not included in the app package.
 
+Optional SteamVR startup uses independently written interop declarations for
+Valve's [OpenVR API](https://github.com/ValveSoftware/openvr/blob/master/headers/openvr_capi.h).
+It loads the user's separately installed SteamVR runtime; this project does not
+bundle OpenVR SDK source or SteamVR binaries. SteamVR remains subject to Valve's
+own terms and copyrights.
+
 Baballonia, [Virtual Desktop](https://github.com/guygodin/VirtualDesktop.VRCFaceTracking)
 and [Ykeara LinkFT](https://github.com/ykeara/LinkFT) module packages, the headset
 runtime, VRChat, and headset/streaming software are not distributed here. They

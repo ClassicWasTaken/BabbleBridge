@@ -6,6 +6,7 @@
     <Nullable>enable</Nullable>
   </PropertyGroup>
   <ItemGroup>
+    <Compile Include="../../src/BabbleFrameBridge.App/SteamVrMaintenance.cs" Link="SteamVrMaintenance.cs" />
     <ProjectReference Include="../../src/BabbleFrameBridge.Shared/BabbleFrameBridge.Shared.csproj" />
     <ProjectReference Include="../Fixtures/BabbleBridge.CustomModule.Fixture/BabbleBridge.CustomModule.Fixture.csproj" ReferenceOutputAssembly="false" />
     <Content Include="../Fixtures/BabbleBridge.CustomModule.Fixture/bin/$(Configuration)/net10.0/BabbleBridge.CustomModule.Fixture.dll" Link="Fixtures/BabbleBridge.CustomModule.Fixture.dll" CopyToOutputDirectory="PreserveNewest" />

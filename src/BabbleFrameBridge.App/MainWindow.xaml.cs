@@ -27,8 +27,11 @@ public partial class MainWindow : Window
     private readonly string _workerExecutable;
     private readonly ModuleDownloader _moduleDownloader;
     private readonly bool _ownsModuleDownloader;
+    private readonly Func<bool, Task>? _configureSteamVrAutoLaunch;
     private CancellationTokenSource? _downloadCancellation;
     private Task? _downloadTask;
+    private Task? _startupPreferenceTask;
+    private bool _syncingStartupPreferences;
     private AppSettings _settings;
     private Process? _worker;
     private Task? _stopTask;
@@ -50,7 +53,12 @@ public partial class MainWindow : Window
     private static readonly byte[][] AlphaEyeAddresses = new[] { "/leftEyeX", "/leftEyeY", "/rightEyeX", "/rightEyeY", "/leftEyeLid", "/rightEyeLid" }
         .Select(Encoding.Unicode.GetBytes).ToArray();
 
-    public MainWindow(string root, bool useDiscovery = true, string? workerExecutable = null, ModuleDownloader? moduleDownloader = null)
+    public event EventHandler? StartupPreferencesChanged;
+    public bool StartWithSteamVr => _settings.StartWithSteamVr;
+    public bool CloseWithSteamVr => _settings.CloseWithSteamVr;
+    public bool StartMinimized => _settings.StartMinimized;
+
+    public MainWindow(string root, bool useDiscovery = true, string? workerExecutable = null, ModuleDownloader? moduleDownloader = null, Func<bool, Task>? configureSteamVrAutoLaunch = null)
     {
         InitializeComponent();
         _noticeTimer = new DispatcherTimer(DispatcherPriority.Background, Dispatcher);
@@ -62,6 +70,7 @@ public partial class MainWindow : Window
         _workerExecutable = workerExecutable ?? Path.Combine(AppContext.BaseDirectory, "runtime", "BabbleFrameBridge.Worker.exe");
         _ownsModuleDownloader = moduleDownloader is null;
         _moduleDownloader = moduleDownloader ?? new ModuleDownloader();
+        _configureSteamVrAutoLaunch = configureSteamVrAutoLaunch;
         Directory.CreateDirectory(root);
         Directory.CreateDirectory(Path.Combine(root, "logs"));
         _logPath = Path.Combine(root, "logs", $"bridge-{DateTime.Now:yyyy-MM-dd}.log");
@@ -75,6 +84,7 @@ public partial class MainWindow : Window
         _store.MigrateLegacyProfiles(_settings.InputSource);
         UpdateSourceLabels();
         AutoStartBox.IsChecked = _settings.AutoStart;
+        SyncStartupPreferences();
         ApplyMotionPreference();
         SystemParameters.StaticPropertyChanged += MotionPreference_Changed;
         Closed += (_, _) => { SystemParameters.StaticPropertyChanged -= MotionPreference_Changed; _noticeTimer.Stop(); if (_ownsModuleDownloader) _moduleDownloader.Dispose(); };
@@ -115,6 +125,9 @@ public partial class MainWindow : Window
         RollbackButton.IsEnabled = !_busy && _store.Previous is { IsAvailable: true };
         SaveButton.IsEnabled = !_busy && _initialized;
         AutoStartBox.IsEnabled = !_busy && _initialized;
+        StartWithSteamVrBox.IsEnabled = !_busy && _initialized && _configureSteamVrAutoLaunch is not null;
+        CloseWithSteamVrBox.IsEnabled = !_busy && _initialized;
+        StartMinimizedBox.IsEnabled = !_busy && _initialized;
         StartButton.Content = _running ? "Stop bridge" : "Start bridge";
         RefreshLibrary();
         RefreshDownloadChoices();
@@ -811,6 +824,9 @@ public partial class MainWindow : Window
         var updated = new AppSettings { OutputHost = HostBox.Text.Trim(), OutputPort = port, ReceivePort = receive,
             LinkPort = _settings.LinkPort, EyeEnabled = _settings.EyeEnabled, FaceEnabled = _settings.FaceEnabled,
             InputSource = _settings.InputSource,
+            StartWithSteamVr = _settings.StartWithSteamVr,
+            CloseWithSteamVr = _settings.CloseWithSteamVr,
+            StartMinimized = _settings.StartMinimized,
             AutoStart = AutoStartBox.IsChecked == true };
         ValidateConnection(updated, _store.Current);
         var previous = _settings;
@@ -839,6 +855,82 @@ public partial class MainWindow : Window
     });
 
     private void AutoStart_Changed(object sender, RoutedEventArgs e) { if (!_initialized) return; _settings.AutoStart = AutoStartBox.IsChecked == true; _settings.Save(_root); }
+
+    private void SyncStartupPreferences()
+    {
+        _syncingStartupPreferences = true;
+        try
+        {
+            StartWithSteamVrBox.IsChecked = _settings.StartWithSteamVr;
+            CloseWithSteamVrBox.IsChecked = _settings.CloseWithSteamVr;
+            StartMinimizedBox.IsChecked = _settings.StartMinimized;
+        }
+        finally { _syncingStartupPreferences = false; }
+    }
+
+    private async void SteamVrAutoStart_Changed(object sender, RoutedEventArgs e)
+    {
+        if (!_initialized || _syncingStartupPreferences || _busy || _closing) return;
+        var requested = StartWithSteamVrBox.IsChecked == true;
+        var previous = _settings.StartWithSteamVr;
+        if (requested == previous) return;
+        await (_startupPreferenceTask = RunOperation(async () =>
+        {
+            var applied = false;
+            try
+            {
+                if (_configureSteamVrAutoLaunch is null)
+                    throw new InvalidOperationException("SteamVR startup is unavailable in this app session.");
+                await _configureSteamVrAutoLaunch(requested);
+                applied = true;
+                _settings.StartWithSteamVr = requested;
+                _settings.Save(_root);
+            }
+            catch (Exception failure)
+            {
+                _settings.StartWithSteamVr = previous;
+                SyncStartupPreferences();
+                var message = "The SteamVR startup preference could not be saved. " + failure.Message;
+                if (applied && _configureSteamVrAutoLaunch is not null)
+                {
+                    try { await _configureSteamVrAutoLaunch(previous); }
+                    catch (Exception rollbackFailure)
+                    {
+                        message += " SteamVR registration could not be restored. " + rollbackFailure.Message;
+                    }
+                }
+                throw new InvalidOperationException(message, failure);
+            }
+            StartupPreferencesChanged?.Invoke(this, EventArgs.Empty);
+            ShowNotice(requested ? "The app will start with SteamVR." : "SteamVR automatic startup is off.");
+        }));
+    }
+
+    private async void StartupWindowSetting_Changed(object sender, RoutedEventArgs e)
+    {
+        if (!_initialized || _syncingStartupPreferences || _busy || _closing) return;
+        var previousClose = _settings.CloseWithSteamVr;
+        var previousMinimized = _settings.StartMinimized;
+        await (_startupPreferenceTask = RunOperation(() =>
+        {
+            try
+            {
+                _settings.CloseWithSteamVr = CloseWithSteamVrBox.IsChecked == true;
+                _settings.StartMinimized = StartMinimizedBox.IsChecked == true;
+                _settings.Save(_root);
+            }
+            catch
+            {
+                _settings.CloseWithSteamVr = previousClose;
+                _settings.StartMinimized = previousMinimized;
+                SyncStartupPreferences();
+                throw;
+            }
+            StartupPreferencesChanged?.Invoke(this, EventArgs.Empty);
+            ShowNotice("Startup and window preferences saved.");
+            return Task.CompletedTask;
+        }));
+    }
     private void MotionPreference_Changed(object? sender, PropertyChangedEventArgs e) {
         if (e.PropertyName == nameof(SystemParameters.ClientAreaAnimation)) Dispatcher.BeginInvoke(new Action(ApplyMotionPreference));
     }
@@ -909,6 +1001,7 @@ public partial class MainWindow : Window
         try
         {
             if (_downloadTask is { IsCompleted: false } download) await download;
+            if (_startupPreferenceTask is { IsCompleted: false } startupPreference) await startupPreference;
             await StopWorker();
         }
         catch (Exception failure)

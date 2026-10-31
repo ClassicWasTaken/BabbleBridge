@@ -4,17 +4,21 @@ Result: PASS
 
 Isolated per-user install, reinstall, upgrade, downgrade rejection and uninstall.
 The test used a separate random application identity and workspace install and shortcut folders.
-Real application payloads tested: 1.0.2 to 1.0.3.
+Real application payloads tested: 1.0.3 to 1.0.4.
 Shortcut collision protection and running-application install/uninstall guards were exercised.
+SteamVR hooks used an isolated fake helper; real SteamVR registration and native APIs were excluded.
 Installed-worker mapping used the existing --all-parameters diagnostic mode.
 VRChat avatar discovery was excluded to avoid interference with a running local game.
 
+- Fresh installation runs hidden SteamVR maintenance after files exist and leaves automatic launch disabled.
 - Owned former Start menu shortcuts migrated only after replacement; desktop collisions and unrelated group content were preserved.
 - First install created one test uninstall entry and extracted the complete verified app payload.
+- An existing SteamVR automatic-launch choice is refreshed against the installed executable without changing other preferences.
 - Same-version reinstall reused the installation directory and uninstall entry.
 - An unrelated same-name desktop shortcut survived unchecked installation and explicitly selected reinstallation.
 - Setup rejected an update while the isolated application mutex existed, before changing version or files.
-- Real app binaries upgraded from 1.0.2 to 1.0.3; installed app and worker hashes match the new payload.
+- Upgrade refreshes the same owned SteamVR registration after replacing app files and preserves the automatic-launch choice.
+- Real app binaries upgraded from 1.0.3 to 1.0.4; installed app and worker hashes match the new payload.
 - Upgrade registers the Face Tracking Bridge name with the same application identity and installation directory.
 - The real upgrade migrates owned FaceTracking Bridge Start menu shortcuts after their new replacements exist.
 - Exact generation-2 Babble Bridge 1.0.1/1.0.2 and FaceTracking Bridge 1.0.3 migrate to 1.0.0; existing 1.0.0 reinstalls normally.
@@ -25,8 +29,11 @@ VRChat avatar discovery was excluded to avoid interference with a running local 
 - The installed worker passed real-module BFR discovery, exact diagnostic OSC mapping, and mode-change restart checks.
 - The isolated uninstaller removed installed app files and its test registration.
 - Uninstall removed this installation's Start menu and guide shortcuts and preserved the unrelated desktop shortcut.
+- Uninstall invokes SteamVR cleanup before deleting the app, clears its automatic-launch choice, and preserves other settings and module fixtures.
+- SteamVR registration failure is logged without blocking installation; reinstall after uninstall requires a new automatic-launch choice.
 - Existing owned desktop shortcuts migrate without requiring the optional task; unrelated legacy-name shortcuts remain unchanged.
 - An unrelated FaceTracking Bridge desktop shortcut survives the spacing-name migration.
 - Uninstall rejected removal while the isolated application mutex existed, preserving files, registration and shortcuts.
+- A simulated SteamVR cleanup failure is logged without blocking uninstall or discarding unrelated launch preferences.
 - The migrated desktop shortcut was created and was removed by normal uninstall.
 - Real user settings, imported modules, and module state remained byte-for-byte unchanged.

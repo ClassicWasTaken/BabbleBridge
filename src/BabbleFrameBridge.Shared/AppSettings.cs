@@ -57,6 +57,9 @@ public sealed class AppSettings
     public bool FaceEnabled { get; set; } = true;
     public int LinkPort { get; set; } = 6767;
     public bool AutoStart { get; set; }
+    public bool StartWithSteamVr { get; set; }
+    public bool CloseWithSteamVr { get; set; }
+    public bool StartMinimized { get; set; }
 
     public static AppSettings Load(string root)
     {

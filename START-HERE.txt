@@ -1,4 +1,4 @@
-FACE TRACKING BRIDGE 1.0.3 — WINDOWS x64
+FACE TRACKING BRIDGE 1.0.4 — WINDOWS x64
 
 PREREQUISITE
 Install the Microsoft Visual C++ v14 Redistributable (x64) from Microsoft:
@@ -101,6 +101,22 @@ on your PC; the bridge does not initialize a telemetry sender. Closing the app
 stops its tracking worker. Do not post logs containing avatar IDs, usernames,
 network addresses or other private data without removing those details.
 
+STARTUP AND TASKBAR
+Open Connection > Startup & window to enable Start with SteamVR, Close when
+SteamVR exits, or Start minimized in the taskbar. Each option is off initially
+and saves immediately. SteamVR startup needs an installed SteamVR runtime.
+Changing its setting may briefly open SteamVR's background settings service;
+it does not start a VR session. Auto-close waits until a SteamVR session has
+actually been observed, then closes the app cleanly when that session ends.
+Opening the bridge manually without SteamVR running leaves it open.
+Minimize with the normal title-bar button; tracking continues in the taskbar.
+Restore the app by clicking its taskbar icon. Start minimized applies on the
+next launch, including SteamVR launches. The existing Start the bridge when
+this app opens option controls whether the saved module starts tracking.
+Upgrades refresh an enabled SteamVR registration to the installed path.
+Uninstall removes this app's registration and clears that startup opt-in;
+other saved preferences and imported modules stay available for a reinstall.
+
 APPEARANCE
 Light and dark modes automatically follow the Windows app color preference.
 The original headset artwork and particle animation are included. Motion
@@ -131,7 +147,8 @@ authors. Downloading adds a module to your library without stopping the active
 bridge. Choose Use module to switch. You can still import a ZIP of your own.
 
 The Headset Runtime / BFR choice uses Baballonia module 4.0.0 with BFR support;
-the Baballonia desktop choice uses the same package with a separate profile.
+the Baballonia desktop choice uses the separate Expressions Alpha-compatible
+3.2.0 module package.
 The headset runtime itself must be installed separately on the headset:
 https://github.com/Project-Babble/Babble-Frame-Runtime/releases/latest
 
