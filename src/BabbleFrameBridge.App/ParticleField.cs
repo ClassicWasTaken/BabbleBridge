@@ -10,7 +10,7 @@ using System.Windows.Media.Imaging;
 namespace BabbleFrameBridge.App;
 
 /// <summary>
-/// Original FaceTracking Bridge particle artwork: points travel around a slowly changing
+/// Original Face Tracking Bridge particle artwork: points travel around a slowly changing
 /// closed Catmull-Rom loop. Standard spline interpolation and damped cursor forces
 /// are implemented here independently; no website animation code or parameters are used.
 /// </summary>

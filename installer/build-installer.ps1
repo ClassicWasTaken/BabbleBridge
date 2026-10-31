@@ -114,7 +114,7 @@ $compilerArguments = @(
     $scriptPath
 )
 
-Write-Output "Building FaceTracking Bridge $appVersion installer..."
+Write-Output "Building Face Tracking Bridge $appVersion installer..."
 & $compilerPath @compilerArguments
 if ($LASTEXITCODE -ne 0) { throw "Inno Setup compilation failed with exit code $LASTEXITCODE." }
 
