@@ -8,6 +8,7 @@ using System.Text.Json.Nodes;
 using System.IO;
 using System.Security.Cryptography;
 using System.Reflection.PortableExecutable;
+using System.Runtime.CompilerServices;
 using System.Text;
 using System.Windows;
 using System.Windows.Controls;
@@ -39,6 +40,12 @@ public partial class MainWindow : Window
     private WindowState _restoreWindowState = WindowState.Normal;
     private bool _syncingStartupPreferences;
     private bool? _particlesLive;
+    private bool _kittyEnabled;
+    private bool _kittySurfaceRefreshQueued;
+    private int _nextKittySurfaceId;
+    private readonly ConditionalWeakTable<Border, KittyPanelIdentity> _kittyPanelIds = new();
+    private IReadOnlyList<KittySurface> _kittySurfaceSnapshot = Array.Empty<KittySurface>();
+    private sealed record KittyPanelIdentity(string Id);
     private AppSettings _settings;
     private Process? _worker;
     private Task? _stopTask;
@@ -54,7 +61,7 @@ public partial class MainWindow : Window
     private bool _motionEnabled;
     private readonly DispatcherTimer _noticeTimer;
     private bool _noticeFading;
-    private bool _awaitingVirtualDesktop;
+    private bool _awaitingTrackingSource;
     private sealed record BaballoniaMetadataCache(long Length, DateTime Modified, bool AlphaCompatible);
     private static readonly Dictionary<string, BaballoniaMetadataCache> BaballoniaMetadata = new(StringComparer.OrdinalIgnoreCase);
     private static readonly byte[][] AlphaEyeAddresses = new[] { "/leftEyeX", "/leftEyeY", "/rightEyeX", "/rightEyeY", "/leftEyeLid", "/rightEyeLid" }
@@ -64,6 +71,7 @@ public partial class MainWindow : Window
     public bool StartWithSteamVr => _settings.StartWithSteamVr;
     public bool CloseWithSteamVr => _settings.CloseWithSteamVr;
     public bool StartMinimized => _settings.StartMinimized;
+    public bool KittyEnabled => _kittyEnabled;
 
     public MainWindow(string root, bool useDiscovery = true, string? workerExecutable = null, ModuleDownloader? moduleDownloader = null, Func<bool, Task>? configureSteamVrAutoLaunch = null)
     {
@@ -84,6 +92,9 @@ public partial class MainWindow : Window
         _store = new ModuleStore(root);
         // A new profile defaults to Headset Runtime; existing profiles retain their saved source.
         _settings = AppSettings.Load(root);
+        // The companion is opt-in for this process. Ignore previews that saved
+        // the old enabled flag; starting the bridge must never wake the kitty.
+        _settings.KittyEnabled = false;
         if (!File.Exists(Path.Combine(root, "settings.json"))) { _settings.AutoStart = true; _settings.Save(root); }
         HostBox.Text = _settings.OutputHost;
         PortBox.Text = _settings.OutputPort.ToString();
@@ -94,6 +105,7 @@ public partial class MainWindow : Window
         SyncStartupPreferences();
         KittyFace.Source = HologramKittyVisual.CreateHeadIcon();
         KittyOverlay.Attach(this);
+        KittyOverlay.GetSurfaces = GetKittySurfaces;
         KittyOverlay.CanSmackAt = point => FindKittyTarget(point) is not null;
         KittyOverlay.ImpactRequested = (point, strength) => { if (FindKittyTarget(point) is { } target) Motion.PetWobble(target, strength); };
         KittyOverlay.AnimationSuspended += (_, _) => Motion.ResetPetWobbles();
@@ -102,7 +114,7 @@ public partial class MainWindow : Window
         ApplyMotionPreference();
         SystemParameters.StaticPropertyChanged += MotionPreference_Changed;
         Closed += (_, _) => { KittyOverlay.Dispose(); Motion.ResetPetWobbles(); SystemParameters.StaticPropertyChanged -= MotionPreference_Changed; _noticeTimer.Stop(); if (_ownsModuleDownloader) _moduleDownloader.Dispose(); };
-        Loaded += async (_, _) => await InitializeBridgeAsync();
+        Loaded += async (_, _) => { QueueKittySurfaceRefresh(); await InitializeBridgeAsync(); };
         StateChanged += (_, _) => { if (WindowState != WindowState.Minimized) _restoreWindowState = WindowState; };
         Closing += ClosingAsync;
     }
@@ -157,33 +169,24 @@ public partial class MainWindow : Window
     private void KittyToggle_Click(object sender, RoutedEventArgs e)
     {
         if (_closing) return;
-        var previous = _settings.KittyEnabled;
-        try
-        {
-            _settings.KittyEnabled = !previous;
-            _settings.Save(_root);
-        }
-        catch (Exception error)
-        {
-            _settings.KittyEnabled = previous;
-            ShowNotice("The kitty preference could not be saved. " + error.Message, true);
-        }
+        _kittyEnabled = !_kittyEnabled;
         ApplyKittyPreference();
     }
 
     private void ApplyKittyPreference()
     {
-        KittyOverlay.SetActive(_settings.KittyEnabled);
-        if (!_settings.KittyEnabled) Motion.ResetPetWobbles();
+        KittyOverlay.SetActive(_kittyEnabled);
+        if (!_kittyEnabled) Motion.ResetPetWobbles();
+        else QueueKittySurfaceRefresh();
         UpdateKittyButton();
     }
 
     private void UpdateKittyButton()
     {
-        KittyActiveDot.Visibility = _settings.KittyEnabled ? Visibility.Visible : Visibility.Collapsed;
-        KittyToggle.ToolTip = _settings.KittyEnabled ? "Relay · " + KittyOverlay.Status + " · click to hide kitty" : "Wake Relay, your holographic kitty";
-        AutomationProperties.SetName(KittyToggle, _settings.KittyEnabled ? "Hide holographic kitty" : "Wake holographic kitty");
-        KittyToggle.SetResourceReference(Control.BackgroundProperty, _settings.KittyEnabled ? "NavSelected" : "SidebarBackground");
+        KittyActiveDot.Visibility = _kittyEnabled ? Visibility.Visible : Visibility.Collapsed;
+        KittyToggle.ToolTip = _kittyEnabled ? "Relay · " + KittyOverlay.Status + " · click to hide kitty" : "Wake Relay, your holographic kitty";
+        AutomationProperties.SetName(KittyToggle, _kittyEnabled ? "Hide holographic kitty" : "Wake holographic kitty");
+        KittyToggle.SetResourceReference(Control.BackgroundProperty, _kittyEnabled ? "NavSelected" : "SidebarBackground");
         KittyToggle.SetResourceReference(Control.ForegroundProperty, "SidebarInk");
     }
 
@@ -202,6 +205,100 @@ public partial class MainWindow : Window
                 && border.ActualWidth >= 150 && border.ActualHeight >= 55) panel = border;
         }
         return panel;
+    }
+
+    // Panels opt in explicitly so control templates, headers, the sidebar and
+    // decorative rounded shapes never become imaginary shelves for the kitty.
+    private IReadOnlyList<KittySurface> GetKittySurfaces()
+    {
+        if (ContentScroll is null || RootSurface is null || _currentPage is not { IsVisible: true }
+            || !ContentScroll.IsVisible || RootSurface.ActualWidth <= 0 || RootSurface.ActualHeight <= 0)
+            return Array.Empty<KittySurface>();
+
+        var viewport = new Rect(0, 0, RootSurface.ActualWidth, RootSurface.ActualHeight);
+        var presenter = DescendantVisuals(ContentScroll).OfType<ScrollContentPresenter>()
+            .FirstOrDefault(item => ReferenceEquals(item.TemplatedParent, ContentScroll));
+        var scrollBounds = BoundsInRoot(presenter ?? (FrameworkElement)ContentScroll);
+        viewport.Intersect(scrollBounds);
+        if (viewport.IsEmpty) return Array.Empty<KittySurface>();
+
+        var surfaces = new List<KittySurface>();
+        foreach (var border in DescendantVisuals(_currentPage).OfType<Border>())
+        {
+            if (border.Tag is not "KittyPanel" || !border.IsVisible || border.CornerRadius.TopLeft < 10
+                || border.ActualWidth < KittyPanelWorld.MinimumPanelWidth || border.ActualHeight < 24) continue;
+
+            var bounds = BoundsInRoot(border);
+            if (bounds.IsEmpty) continue;
+            var visible = Rect.Intersect(bounds, viewport);
+            // Clip against every explicit ancestor clip as well as the scroll
+            // viewport. Keep the original top: a cropped panel is not a ledge.
+            for (DependencyObject? ancestor = border; ancestor is not null && !visible.IsEmpty;
+                 ancestor = VisualTreeHelper.GetParent(ancestor))
+            {
+                if (ancestor is FrameworkElement element)
+                {
+                    if (element.ClipToBounds) visible.Intersect(BoundsInRoot(element));
+                    if (element.Clip is { } clip) visible.Intersect(BoundsInRoot(element, clip.Bounds));
+                }
+                if (ReferenceEquals(ancestor, RootSurface)) break;
+            }
+            if (visible.IsEmpty || visible.Top > bounds.Top + .5 || visible.Width < KittyPanelWorld.MinimumPanelWidth
+                || visible.Height < 24) continue;
+
+            var identity = _kittyPanelIds.GetValue(border, _ => new KittyPanelIdentity("kitty-panel-" + ++_nextKittySurfaceId));
+            surfaces.Add(new KittySurface(identity.Id, visible.Left, bounds.Top, visible.Width, visible.Height));
+        }
+        return surfaces;
+    }
+
+    private Rect BoundsInRoot(FrameworkElement element, Rect? localBounds = null)
+    {
+        try
+        {
+            var bounds = element.TransformToAncestor(RootSurface)
+                .TransformBounds(localBounds ?? new Rect(new Point(), element.RenderSize));
+            return double.IsFinite(bounds.X) && double.IsFinite(bounds.Y) && double.IsFinite(bounds.Width)
+                && double.IsFinite(bounds.Height) ? bounds : Rect.Empty;
+        }
+        catch (InvalidOperationException) { return Rect.Empty; }
+        catch (ArgumentException) { return Rect.Empty; }
+    }
+
+    private static IEnumerable<DependencyObject> DescendantVisuals(DependencyObject parent)
+    {
+        for (var index = 0; index < VisualTreeHelper.GetChildrenCount(parent); index++)
+        {
+            var child = VisualTreeHelper.GetChild(parent, index);
+            if (child is UIElement { IsVisible: false }) continue;
+            yield return child;
+            foreach (var descendant in DescendantVisuals(child)) yield return descendant;
+        }
+    }
+
+    private void ContentScroll_Changed(object sender, ScrollChangedEventArgs e)
+    {
+        // Nested text boxes have their own scroll viewers; only the main page
+        // viewport changes the panels' position in overlay coordinates.
+        if (ReferenceEquals(e.OriginalSource, ContentScroll)) QueueKittySurfaceRefresh();
+    }
+
+    private void KittySurface_SizeChanged(object sender, SizeChangedEventArgs e) => QueueKittySurfaceRefresh();
+    private void KittySurface_LayoutUpdated(object? sender, EventArgs e) => QueueKittySurfaceRefresh();
+
+    private void QueueKittySurfaceRefresh()
+    {
+        if (!_kittyEnabled || _closing || KittyOverlay is null || _kittySurfaceRefreshQueued) return;
+        _kittySurfaceRefreshQueued = true;
+        _ = Dispatcher.BeginInvoke(DispatcherPriority.Loaded, new Action(() =>
+        {
+            _kittySurfaceRefreshQueued = false;
+            if (!_kittyEnabled || _closing) return;
+            var surfaces = GetKittySurfaces();
+            if (_kittySurfaceSnapshot.SequenceEqual(surfaces)) return;
+            _kittySurfaceSnapshot = surfaces;
+            KittyOverlay.RefreshSurfaces();
+        }));
     }
 
     private async Task RunOperation(Func<Task> action)
@@ -250,7 +347,8 @@ public partial class MainWindow : Window
     private void RefreshLibrary()
     {
         ModuleLibrary.ItemsSource = _store.Installed.OrderBy(release => release.Kind switch {
-            ModuleKind.BabbleHeadsetRuntime => 0, ModuleKind.BaballoniaDesktop => 1, ModuleKind.SteamLink => 2, _ => 3
+            ModuleKind.BabbleHeadsetRuntime => 0, ModuleKind.BaballoniaDesktop => 1, ModuleKind.SteamLink => 2,
+            ModuleKind.VirtualDesktop => 3, ModuleKind.SRanipal => 4, ModuleKind.Beyond => 5, ModuleKind.EyeTrackVR => 6, _ => 7
         }).Select(release => new ModuleCard(release,
             NameFor(release), release.IsAvailable ? $"Version {release.Version} · {ConnectionFor(release)}" : "Module files missing",
             release.IsAvailable ? InstructionsFor(release) + (IsOlderBaballoniaModule(release) ? "\nExpressions Alpha needs module 3.2.0 or newer for eye tracking." : "") : "Restore or re-import this module, or remove its profile. Your other modules are available.",
@@ -275,7 +373,10 @@ public partial class MainWindow : Window
             new DownloadCard(ModuleKind.BabbleHeadsetRuntime, "Headset Runtime / BFR", "Baballonia module 4.0.0 · headset input", "https://github.com/Project-Babble/Baballonia/releases/tag/vrcft-module-4.0.0", available),
             new DownloadCard(ModuleKind.BaballoniaDesktop, "Baballonia", "Expressions Alpha-compatible · module 3.2.0", "https://github.com/Project-Babble/Baballonia/releases/tag/vrcft-module-3.2.0", available),
             new DownloadCard(ModuleKind.SteamLink, "Steam Link", "LinkFT module 1.0.6", "https://github.com/ykeara/LinkFT/releases/tag/1.0.6", available),
-            new DownloadCard(ModuleKind.VirtualDesktop, "Virtual Desktop", "Official compiled module ZIP", "https://download.vrdesktop.net/files/VirtualDesktop.VRCFaceTracking.zip", available)
+            new DownloadCard(ModuleKind.VirtualDesktop, "Virtual Desktop", "Official compiled module ZIP", "https://download.vrdesktop.net/files/VirtualDesktop.VRCFaceTracking.zip", available),
+            new DownloadCard(ModuleKind.SRanipal, "SRanipalTrackingModule", "VRCFT Team · module 1.5 · requires SRanipal", "https://github.com/VRCFaceTracking/SRanipalTrackingModule/releases/tag/1.5", available),
+            new DownloadCard(ModuleKind.Beyond, "BeyondTrackingModule", "BigscreenVR · module 1.1.0 · Beyond 2e eyes", "https://github.com/BigscreenVR/VRCFT-Beyond/releases/tag/v1.1.0", available),
+            new DownloadCard(ModuleKind.EyeTrackVR, "ETVR Tracking Module", "Lorow / EyeTrackVR Team · module 0.0.5 · eyes", "https://github.com/EyeTrackVR/ETVRTrackingModule/releases/tag/0.0.5", available)
         }.Where(choice => choice.Kind == ModuleKind.BaballoniaDesktop
             ? !_store.Installed.Any(release => release.IsAvailable && !release.SupportsHeadset && IsAlphaCompatibleBaballoniaModule(release))
             : !installedKinds.Contains(choice.Kind)).ToArray();
@@ -521,7 +622,8 @@ public partial class MainWindow : Window
                 throw new InvalidOperationException($"{NameFor(release)} uses input port {port}. Choose different VRChat ports in Connection.");
     }
     private string ConnectionFor(ModuleRelease release) => release.Kind == ModuleKind.Custom ? "Module-managed input"
-        : InputPortFor(release) is var port && port > 0 ? $"UDP {port}" : "Shared memory · Virtual Desktop Streamer";
+        : InputPortFor(release) is var port && port > 0 ? $"UDP {port}"
+        : release.Kind == ModuleKind.VirtualDesktop ? "Shared memory · Virtual Desktop Streamer" : ModuleCatalog.Get(release.Kind).Connection;
     private string InstructionsFor(ModuleRelease release) => release.Kind == ModuleKind.BaballoniaDesktop
         ? $"Enable Baballonia’s VRCFaceTracking output to 127.0.0.1:{InputPortFor(release)}."
             + (release.SupportsHeadset ? " This profile uses the BFR package. The dedicated Baballonia desktop download uses module 3.2.0." : "")
@@ -563,23 +665,26 @@ public partial class MainWindow : Window
 
     private void SetListeningState()
     {
-        if (Provider.Kind == ModuleKind.VirtualDesktop)
+        if (_awaitingTrackingSource || Provider.Kind == ModuleKind.VirtualDesktop)
         {
-            SetVirtualDesktopWaitingState();
+            SetSourceWaitingState();
             return;
         }
         SetState(ProviderName, ProviderInstructions, true);
     }
 
-    private void SetVirtualDesktopWaitingState()
+    private void SetSourceWaitingState()
     {
-        SetState(_awaitingVirtualDesktop ? "Waiting for Virtual Desktop" : "Waiting for tracking data",
-            "Open Virtual Desktop Streamer, connect your headset through Virtual Desktop, and enable Forward tracking data to PC. The bridge will connect automatically.", false);
-        HeadsetState.Text = "Virtual Desktop · waiting";
-        if (_awaitingVirtualDesktop)
+        var source = Provider.Kind switch { ModuleKind.Beyond => "Beyond Eyetracking", ModuleKind.SRanipal => "SRanipal", _ => ProviderName };
+        var instructions = Provider.Kind == ModuleKind.VirtualDesktop
+            ? "Open Virtual Desktop Streamer, connect your headset through Virtual Desktop, and enable Forward tracking data to PC. The bridge will connect automatically."
+            : ProviderInstructions + " The bridge will connect automatically.";
+        SetState(_awaitingTrackingSource ? "Waiting for " + source : "Waiting for tracking data", instructions, false);
+        HeadsetState.Text = source + " · waiting";
+        if (_awaitingTrackingSource)
         {
             SenderCadence.Text = "Waiting for tracking source";
-            TrackingRoute.Text = "Waiting for Virtual Desktop tracking data";
+            TrackingRoute.Text = "Waiting for " + source + " tracking data";
         }
     }
 
@@ -635,7 +740,7 @@ public partial class MainWindow : Window
         if (!release.IsAvailable) throw new InvalidOperationException("This module’s DLL is missing. Restore or re-import it, or select another installed module.");
         if (_worker is not null) await StopWorker();
         _sessionRelease = release;
-        _awaitingVirtualDesktop = false;
+        _awaitingTrackingSource = false;
         var inputPort = InputPortFor(release);
         ValidateConnection(_settings, release);
         var executable = _workerExecutable;
@@ -664,7 +769,7 @@ public partial class MainWindow : Window
         process.Exited += (_, _) => Dispatcher.BeginInvoke(new Action(() => {
             if (_worker != process) return;
             _running = false;
-            _awaitingVirtualDesktop = false;
+            _awaitingTrackingSource = false;
             _ready?.TrySetException(new InvalidOperationException("The tracking runtime exited. Check the activity log for details."));
             SetState("Runtime stopped", "Check the activity log, then start the bridge again.", false, true);
             ShowNotice("The runtime stopped. Check the activity log, then start the bridge again.", true);
@@ -697,7 +802,7 @@ public partial class MainWindow : Window
         var process = _worker;
         var wasRunning = _running;
         var session = _sessionRelease;
-        var wasAwaiting = _awaitingVirtualDesktop;
+        var wasAwaiting = _awaitingTrackingSource;
         _worker = null; _running = false;
         UpdateBridgeParticles();
         if (_closing) _ready?.TrySetCanceled();
@@ -721,7 +826,7 @@ public partial class MainWindow : Window
                 {
                     // Keep ownership if Windows could not confirm shutdown. Changing or
                     // deleting a module must not strand a worker that still holds its ports.
-                    _worker = process; _running = wasRunning; _sessionRelease = session; _awaitingVirtualDesktop = wasAwaiting;
+                    _worker = process; _running = wasRunning; _sessionRelease = session; _awaitingTrackingSource = wasAwaiting;
                     UpdateBridgeParticles();
                     throw new InvalidOperationException("The tracking runtime could not stop. Try stopping the bridge again before changing modules.", failure);
                 }
@@ -729,7 +834,7 @@ public partial class MainWindow : Window
             finally { if (_worker != process) process.Dispose(); }
         }
         _sessionRelease = null;
-        _awaitingVirtualDesktop = false;
+        _awaitingTrackingSource = false;
         OutputRate.Text = "0 msgs/s"; SenderCadence.Text = "Bridge idle";
         UpdateSourceLabels();
         TrackingRoute.Text = "Bridge stopped";
@@ -752,14 +857,15 @@ public partial class MainWindow : Window
             if (item.ValueKind != JsonValueKind.Object) { Log(line); return; }
             switch (Str(item, "type")) {
                 case "waiting":
-                    if (Provider.Kind != ModuleKind.VirtualDesktop || Str(item, "source") != "VirtualDesktop") break;
-                    _awaitingVirtualDesktop = true;
+                    if (Provider.Kind is not (ModuleKind.VirtualDesktop or ModuleKind.Beyond or ModuleKind.SRanipal)
+                        || Str(item, "source") != Provider.Kind.ToString()) break;
+                    _awaitingTrackingSource = true;
                     _ready?.TrySetResult(true);
-                    Log(Str(item, "message", "Waiting for Virtual Desktop tracking data."));
-                    SetVirtualDesktopWaitingState();
+                    Log(Str(item, "message", "Waiting for " + ProviderName + " tracking data."));
+                    SetSourceWaitingState();
                     break;
                 case "ready":
-                    _awaitingVirtualDesktop = false;
+                    _awaitingTrackingSource = false;
                     _ready?.TrySetResult(true);
                     Log(ProviderName + " loaded. " + ProviderInstructions);
                     if (_running) SetListeningState();
@@ -800,7 +906,7 @@ public partial class MainWindow : Window
                     receiving ? "Receiving expressions from the headset runtime." : linked ? "Connected. Waiting for expression data from the headset." : ProviderInstructions, true);
             else if (Provider.Kind == ModuleKind.VirtualDesktop)
             {
-                if (_awaitingVirtualDesktop || !receiving) SetVirtualDesktopWaitingState();
+                if (_awaitingTrackingSource || !receiving) SetSourceWaitingState();
                 else SetState("Virtual Desktop connected", "Receiving tracking data from Virtual Desktop.", true);
             }
             else SetState(ProviderName, Bool(item, "receivingKnown") && receiving ? "Receiving tracking data. Your expressions are connected." : ProviderInstructions, true);
@@ -897,7 +1003,7 @@ public partial class MainWindow : Window
             await StartWorker(release);
             _store.Activate(release);
             RefreshModule();
-            var activated = _awaitingVirtualDesktop ? "Virtual Desktop selected. Waiting for your headset connection."
+            var activated = _awaitingTrackingSource ? ProviderName + " selected. Waiting for your headset connection."
                 : old is null ? $"Module {release.Version} is active. Your tracking source is ready."
                 : $"Module {release.Version} is active. Your previous module is saved.";
             Log(activated);
@@ -927,7 +1033,7 @@ public partial class MainWindow : Window
             StartWithSteamVr = _settings.StartWithSteamVr,
             CloseWithSteamVr = _settings.CloseWithSteamVr,
             StartMinimized = _settings.StartMinimized,
-            KittyEnabled = _settings.KittyEnabled,
+            KittyEnabled = false,
             AutoStart = AutoStartBox.IsChecked == true };
         ValidateConnection(updated, _store.Current);
         var previous = _settings;
@@ -940,7 +1046,7 @@ public partial class MainWindow : Window
         catch (Exception failure)
         {
             await StopWorker();
-            previous.KittyEnabled = _settings.KittyEnabled;
+            previous.KittyEnabled = false;
             previous.Save(_root); _settings = previous;
             HostBox.Text = previous.OutputHost; PortBox.Text = previous.OutputPort.ToString(); ReceiveBox.Text = previous.ReceivePort.ToString();
             if (wasRunning && _store.Current is { } current)
@@ -1063,8 +1169,8 @@ public partial class MainWindow : Window
         HeroParticles.BeginAnimation(OpacityProperty, null);
         HeroParticles.Opacity = opacity;
         if (_motionEnabled && HeroParticles.IsLoaded)
-            HeroParticles.BeginAnimation(OpacityProperty, new DoubleAnimation(displayed, opacity, TimeSpan.FromMilliseconds(200))
-                { EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut }, FillBehavior = FillBehavior.Stop });
+            HeroParticles.BeginAnimation(OpacityProperty, new DoubleAnimation(displayed, opacity, TimeSpan.FromMilliseconds(650))
+                { EasingFunction = new CubicEase { EasingMode = EasingMode.EaseInOut }, FillBehavior = FillBehavior.Stop });
     }
 
     private void Hero_SizeChanged(object sender, SizeChangedEventArgs e) {
@@ -1107,6 +1213,7 @@ public partial class MainWindow : Window
             "activity" => ("Activity log", "A clear view of your tracking session."),
             _ => ("Face Tracking Bridge", "Your expressions, connected.")
         };
+        QueueKittySurfaceRefresh();
     }
 
     private void ShowModules_Click(object sender, RoutedEventArgs e) { ModulesNav.IsChecked = true; }

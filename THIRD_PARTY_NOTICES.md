@@ -48,7 +48,10 @@ bundle OpenVR SDK source or SteamVR binaries. SteamVR remains subject to Valve's
 own terms and copyrights.
 
 Baballonia, [Virtual Desktop](https://github.com/guygodin/VirtualDesktop.VRCFaceTracking)
-and [Ykeara LinkFT](https://github.com/ykeara/LinkFT) module packages, the headset
+and [Ykeara LinkFT](https://github.com/ykeara/LinkFT),
+[SRanipalTrackingModule](https://github.com/VRCFaceTracking/SRanipalTrackingModule),
+[Bigscreen Beyond](https://github.com/BigscreenVR/VRCFT-Beyond), and
+[EyeTrackVR](https://github.com/EyeTrackVR/ETVRTrackingModule) module packages, the headset
 runtime, VRChat, and headset/streaming software are not distributed here. They
 remain governed by their own licenses. The app's Apache license does not
 relicense those separately obtained modules or their dependencies. Official

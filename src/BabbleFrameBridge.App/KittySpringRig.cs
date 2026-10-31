@@ -8,6 +8,22 @@ public readonly record struct KittyRigSnapshot(KittyJoint Hip, KittyJoint Belly,
     KittyJoint Head, double LeftEarAngle, double RightEarAngle, double StretchX,
     double StretchY, KittyJoint TailTip, double MotionEnergy, double FacingScale);
 
+/// <summary>Physical interaction layers, separate from the learned behavior vocabulary.</summary>
+public enum KittyInteractionPose { None, Climbing, Perched, Carried, Landing }
+
+/// <summary>Interruptible physical poses share the same continuous clock as the body rig.</summary>
+public sealed class KittyInteractionBlend
+{
+    private readonly KittyPoseBlend _blend = new(5);
+    public double this[KittyInteractionPose pose] => _blend[(int)pose];
+    public double OverrideAmount => 1 - this[KittyInteractionPose.None];
+    public double TransitionEnergy => _blend.TransitionEnergy;
+    public void Reset(KittyInteractionPose pose = KittyInteractionPose.None) => _blend.Reset((int)Valid(pose));
+    public void Step(double deltaSeconds, KittyInteractionPose pose) => _blend.Step(deltaSeconds, (int)Valid(pose));
+    private static KittyInteractionPose Valid(KittyInteractionPose pose) =>
+        pose is >= KittyInteractionPose.None and <= KittyInteractionPose.Landing ? pose : KittyInteractionPose.None;
+}
+
 /// <summary>Continuous, critically damped pose weights. Interrupting a pose preserves its momentum.</summary>
 public sealed class KittyPoseBlend
 {

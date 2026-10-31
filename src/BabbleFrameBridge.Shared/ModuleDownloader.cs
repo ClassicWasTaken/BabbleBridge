@@ -4,13 +4,15 @@
 using System.IO.Compression;
 using System.Net;
 using System.Diagnostics;
+using System.Reflection.Metadata;
+using System.Reflection.PortableExecutable;
 
 namespace BabbleFrameBridge.Shared;
 
 public sealed record ModuleDownloadSource(Uri DownloadUri, string FileName);
 public sealed record ModuleDownloadProgress(long ReceivedBytes, long? TotalBytes);
 
-/// <summary>Downloads fixed official compiled ZIPs. Installation and module validation remain explicit caller actions.</summary>
+/// <summary>Downloads fixed official compiled packages. Installation and module loading remain explicit caller actions.</summary>
 public sealed class ModuleDownloader : IDisposable
 {
     private const long MaxArchiveBytes = 256L * 1024 * 1024;
@@ -46,6 +48,12 @@ public sealed class ModuleDownloader : IDisposable
             "VirtualDesktop.VRCFaceTracking.zip"),
         ModuleKind.SteamLink => new(
             new Uri("https://github.com/ykeara/LinkFT/releases/download/1.0.6/LinkFTModule.zip"), "LinkFTModule.zip"),
+        ModuleKind.SRanipal => new(
+            new Uri("https://github.com/VRCFaceTracking/SRanipalTrackingModule/releases/download/1.5/SRanipalTrackingModule.zip"), "SRanipalTrackingModule.zip"),
+        ModuleKind.Beyond => new(
+            new Uri("https://github.com/BigscreenVR/VRCFT-Beyond/releases/download/v1.1.0/Build.zip"), "BeyondTrackingModule.zip"),
+        ModuleKind.EyeTrackVR => new(
+            new Uri("https://github.com/EyeTrackVR/ETVRTrackingModule/releases/download/0.0.5/ETVRTrackingModule.dll"), "ETVRTrackingModule.dll"),
         _ => throw new ArgumentOutOfRangeException(nameof(kind), "Choose a supported module.")
     };
 
@@ -77,7 +85,7 @@ public sealed class ModuleDownloader : IDisposable
             if (total is <= 0 or > MaxArchiveBytes)
                 throw new InvalidDataException("The module download must be between 1 byte and 256 MB.");
             if (response.Content.Headers.ContentType?.MediaType?.StartsWith("text/html", StringComparison.OrdinalIgnoreCase) == true)
-                throw new InvalidDataException("The official download returned a web page instead of a compiled module ZIP.");
+                throw new InvalidDataException("The official download returned a web page instead of a compiled module file.");
             progress?.Report(new(0, total));
             await using (var input = await response.Content.ReadAsStreamAsync(token))
             await using (var output = new FileStream(partialPath, FileMode.CreateNew, FileAccess.Write,
@@ -104,7 +112,8 @@ public sealed class ModuleDownloader : IDisposable
                 await output.FlushAsync(token);
                 progress?.Report(new(received, total));
             }
-            ValidateZip(partialPath, token);
+            if (source.FileName.EndsWith(".dll", StringComparison.OrdinalIgnoreCase)) ValidateDll(partialPath, kind);
+            else ValidateZip(partialPath, token);
             token.ThrowIfCancellationRequested();
             EnsureNoReparseAncestors(folder);
             File.Move(partialPath, finalPath);
@@ -176,6 +185,28 @@ public sealed class ModuleDownloader : IDisposable
                 // Check local ZIP headers without extracting or running package contents.
             }
         }
+    }
+
+    private static void ValidateDll(string path, ModuleKind kind)
+    {
+        try
+        {
+            using var stream = File.OpenRead(path);
+            using var pe = new PEReader(stream);
+            if (!pe.HasMetadata) throw new InvalidDataException("The downloaded module DLL is not a managed .NET assembly.");
+            var metadata = pe.GetMetadataReader();
+            if (!metadata.IsAssembly || metadata.GetString(metadata.GetAssemblyDefinition().Name) != ModuleCatalog.Get(kind).AssemblyName)
+                throw new InvalidDataException("The downloaded module DLL does not match the selected module.");
+            var tracking = metadata.TypeDefinitions.Any(handle =>
+            {
+                var type = metadata.GetTypeDefinition(handle);
+                if ((type.Attributes & System.Reflection.TypeAttributes.Abstract) != 0 || type.BaseType.Kind != HandleKind.TypeReference) return false;
+                var reference = metadata.GetTypeReference((TypeReferenceHandle)type.BaseType);
+                return metadata.GetString(reference.Name) == "ExtTrackingModule" && metadata.GetString(reference.Namespace) == "VRCFaceTracking";
+            });
+            if (!tracking) throw new InvalidDataException("The downloaded DLL does not contain a VRCFaceTracking module.");
+        }
+        catch (BadImageFormatException error) { throw new InvalidDataException("The downloaded module DLL is not a valid .NET assembly.", error); }
     }
 
     private static void EnsureNoReparseAncestors(string path)

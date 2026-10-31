@@ -35,10 +35,10 @@
     <Border Grid.Column="1" CornerRadius="16" Background="{DynamicResource SoftBackground}" Padding="12,7" VerticalAlignment="Center"><StackPanel Orientation="Horizontal"><Ellipse Width="6" Height="6" Fill="{DynamicResource Accent}" Margin="0,0,7,0"/><TextBlock x:Name="ProviderTag" MaxWidth="240" TextWrapping="NoWrap" TextTrimming="CharacterEllipsis" Text="MODULES" Foreground="{DynamicResource AccentInk}" FontWeight="SemiBold" FontSize="10"/></StackPanel></Border>
    </Grid>
    <Border x:Name="GlobalNotice" Grid.Row="1" Visibility="Collapsed" Background="{DynamicResource ErrorBackground}" BorderBrush="{DynamicResource ErrorBorder}" BorderThickness="1" CornerRadius="12" Padding="14,9" Margin="0,0,0,14"><Grid><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions><TextBlock x:Name="GlobalNoticeText" FontSize="12" Foreground="{DynamicResource ErrorInk}" VerticalAlignment="Center" TextWrapping="Wrap"/><Button x:Name="GlobalNoticeDismiss" Grid.Column="1" Content="×" Style="{StaticResource LinkButton}" Foreground="{Binding Foreground,ElementName=GlobalNoticeText}" FontSize="20" Padding="6,0" Margin="10,0,0,0" ToolTip="Dismiss notification" AutomationProperties.Name="Dismiss notification" Click="DismissNotice_Click"/></Grid></Border>
-   <ScrollViewer Grid.Row="2" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" Padding="0,0,5,0">
+   <ScrollViewer x:Name="ContentScroll" Grid.Row="2" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" Padding="0,0,5,0" ScrollChanged="ContentScroll_Changed" SizeChanged="KittySurface_SizeChanged" LayoutUpdated="KittySurface_LayoutUpdated">
     <Grid>
      <StackPanel x:Name="OverviewPage">
-      <Border CornerRadius="18" Padding="0" Margin="0,0,0,18" BorderBrush="{DynamicResource CardBorder}" BorderThickness="1" ClipToBounds="True">
+      <Border Tag="KittyPanel" CornerRadius="18" Padding="0" Margin="0,0,0,18" BorderBrush="{DynamicResource CardBorder}" BorderThickness="1" ClipToBounds="True">
        <Border.Background><DynamicResource ResourceKey="HeroBackground"/></Border.Background>
        <Grid x:Name="HeroSurface" SizeChanged="Hero_SizeChanged">
         <local:ParticleField x:Name="HeroParticles" IsHitTestVisible="False"/>
@@ -54,13 +54,13 @@
        </Grid></Grid>
       </Border>
       <Grid Margin="0,0,0,18">
-       <Border Style="{StaticResource Card}"><StackPanel>
+       <Border Tag="KittyPanel" Style="{StaticResource Card}"><StackPanel>
         <StackPanel Orientation="Horizontal" Margin="0,0,0,17"><Border Background="{DynamicResource SoftBackground}" CornerRadius="8" Padding="8" Margin="0,0,10,0"><Path Style="{StaticResource OutlineIcon}" Data="M3,12H7L10,5 14,19 17,12H21"/></Border><TextBlock Text="VRChat output" FontSize="17" FontWeight="SemiBold" VerticalAlignment="Center"/></StackPanel>
         <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions><StackPanel><TextBlock x:Name="OutputRate" Text="0 msgs/s" FontSize="29" FontWeight="Bold"/><TextBlock Text="OSC messages sent" Foreground="{DynamicResource Muted}" FontSize="10" Margin="0,2,0,0"/><TextBlock x:Name="SenderCadence" Text="Bridge idle" Foreground="{DynamicResource AccentInk}" FontSize="10" Margin="0,7,0,0"/></StackPanel><StackPanel Grid.Column="1" VerticalAlignment="Center"><TextBlock Text="DESTINATION" Style="{StaticResource Caption}" FontSize="9"/><TextBlock x:Name="TargetLabel" Text="127.0.0.1 : 9000" FontSize="12" FontWeight="Medium"/></StackPanel></Grid>
         <Border BorderBrush="{DynamicResource Divider}" BorderThickness="0,1,0,0" Margin="0,17,0,0" Padding="0,12,0,0"><StackPanel><TextBlock x:Name="AvatarLabel" Text="Avatar · waiting for VRChat" Foreground="{DynamicResource Muted}" FontSize="11" TextTrimming="CharacterEllipsis" TextWrapping="NoWrap"/><TextBlock x:Name="TrackingRoute" Text="Waiting for avatar tracking support" Foreground="{DynamicResource AccentInk}" FontSize="11" Margin="0,9,0,0" TextWrapping="Wrap"/></StackPanel></Border>
        </StackPanel></Border>
       </Grid>
-      <Border Style="{StaticResource Card}" Margin="0,0,0,18">
+      <Border Tag="KittyPanel" Style="{StaticResource Card}" Margin="0,0,0,18">
        <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
         <StackPanel Margin="0,0,16,0"><TextBlock Text="YOUR TRACKING MODULE" Style="{StaticResource Caption}" FontSize="10"/><TextBlock x:Name="ModuleLabel" Text="No module installed" FontWeight="SemiBold" FontSize="18"/><TextBlock x:Name="PackageDetail" Text="Add your own module ZIP to begin." Foreground="{DynamicResource Muted}" FontSize="11" Margin="0,6,0,0"/><TextBlock x:Name="HashLabel" Foreground="{DynamicResource FaintInk}" FontFamily="Consolas" FontSize="9" Margin="0,7,0,0"/></StackPanel>
         <StackPanel Grid.Column="1" VerticalAlignment="Center"><Button x:Name="ImportButton" Content="Add a module →" Click="ShowModules_Click"/><Button x:Name="RollbackButton" Style="{StaticResource LinkButton}" Content="Restore previous" Margin="0,12,0,0" FontSize="11" Click="Rollback_Click" IsEnabled="False"/></StackPanel>
@@ -69,12 +69,12 @@
       <Border Background="{DynamicResource SoftBackground}" CornerRadius="12" Padding="16,12"><Grid><Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions><Ellipse Width="6" Height="6" Fill="{DynamicResource Accent}" VerticalAlignment="Center" Margin="0,0,10,0"/><TextBlock x:Name="LatestActivity" Grid.Column="1" Text="Everything is ready for your next session." FontSize="11" Foreground="{DynamicResource SubtleInk}" TextTrimming="CharacterEllipsis" TextWrapping="NoWrap" VerticalAlignment="Center" Margin="0,0,12,0"/><Button Grid.Column="2" Content="View activity  →" Style="{StaticResource LinkButton}" FontSize="10" Click="ShowActivity_Click"/></Grid></Border>
      </StackPanel>
      <StackPanel x:Name="ModulesPage" Visibility="Collapsed">
-      <Border Style="{StaticResource Card}" Padding="26"><StackPanel>
+      <Border Tag="KittyPanel" Style="{StaticResource Card}" Padding="26"><StackPanel>
        <TextBlock Text="Your module library." FontSize="26" FontWeight="Bold"/>
        <TextBlock Text="One active module. Switch whenever your headset does." Foreground="{DynamicResource Muted}" Margin="0,8,0,23"/>
        <ItemsControl x:Name="ModuleLibrary">
         <ItemsControl.ItemTemplate><DataTemplate>
-         <Border Background="{DynamicResource InsetBackground}" BorderBrush="{DynamicResource InputBorder}" BorderThickness="1" CornerRadius="14" Padding="18" Margin="0,0,0,12">
+         <Border Tag="KittyPanel" Background="{DynamicResource InsetBackground}" BorderBrush="{DynamicResource InputBorder}" BorderThickness="1" CornerRadius="14" Padding="18" Margin="0,0,0,12">
           <Grid><Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
            <StackPanel Margin="0,0,16,0"><TextBlock Text="{Binding Name}" FontSize="17" FontWeight="SemiBold"/><TextBlock Text="{Binding Detail}" Foreground="{DynamicResource Muted}" FontSize="12" Margin="0,6,0,0"/><TextBlock Text="{Binding Hint}" Foreground="{DynamicResource Muted}" FontSize="11" Margin="0,8,0,0" TextWrapping="Wrap"/></StackPanel>
            <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
@@ -94,11 +94,11 @@
          </Border>
         </DataTemplate></ItemsControl.ItemTemplate>
        </ItemsControl>
-       <Border Background="{DynamicResource SoftBackground}" CornerRadius="14" Padding="24" Margin="0,12,0,0"><StackPanel>
+       <Border Tag="KittyPanel" Background="{DynamicResource SoftBackground}" CornerRadius="14" Padding="24" Margin="0,12,0,0"><StackPanel>
         <TextBlock Text="Add a module." FontSize="20" FontWeight="Bold"/>
         <TextBlock Text="Download an official module here. Your active bridge keeps running until you choose Use module." Foreground="{DynamicResource Muted}" FontSize="12" Margin="0,9,0,17" TextWrapping="Wrap"/>
         <ItemsControl x:Name="DownloadChoices"><ItemsControl.ItemTemplate><DataTemplate>
-         <Border Background="{DynamicResource InsetBackground}" CornerRadius="12" Padding="15" Margin="0,0,0,10"><Grid><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+         <Border Tag="KittyPanel" Background="{DynamicResource InsetBackground}" CornerRadius="12" Padding="15" Margin="0,0,0,10"><Grid><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
           <StackPanel Margin="0,0,12,0" VerticalAlignment="Center"><TextBlock Text="{Binding Name}" FontWeight="SemiBold" FontSize="14"/><TextBlock Text="{Binding Detail}" Foreground="{DynamicResource Muted}" FontSize="11" Margin="0,5,0,0"/></StackPanel>
           <Button Grid.Column="1" Content="Official link ↗" Tag="{Binding OfficialUrl}" Style="{StaticResource LinkButton}" FontSize="11" Margin="0,0,16,0" VerticalAlignment="Center" Click="ModuleSource_Click" AutomationProperties.Name="Official module source" AutomationProperties.HelpText="{Binding Name}"/>
           <Button Grid.Column="2" Content="Download ↓" Tag="{Binding Kind}" IsEnabled="{Binding CanDownload}" Style="{StaticResource QuietButton}" Padding="15,10" VerticalAlignment="Center" Click="DownloadModule_Click" AutomationProperties.Name="{Binding DownloadLabel}" ToolTip="Download the module ZIP and add it to your library"/>
@@ -114,7 +114,7 @@
       </StackPanel></Border>
      </StackPanel>
      <StackPanel x:Name="SettingsPage" Visibility="Collapsed">
-      <Border Style="{StaticResource Card}" Padding="28"><StackPanel>
+      <Border Tag="KittyPanel" Style="{StaticResource Card}" Padding="28"><StackPanel>
        <TextBlock Text="Your connection to VRChat." FontSize="23" FontWeight="Bold"/>
        <TextBlock Text="The defaults work for VRChat on this computer. Change them if your setup needs a different destination." Foreground="{DynamicResource Muted}" FontSize="12" Margin="0,8,0,28"/>
        <TextBlock Text="VRChat IP address" Style="{StaticResource Caption}"/><TextBox x:Name="HostBox" AutomationProperties.Name="VRChat IP address" Width="450" HorizontalAlignment="Left" Margin="0,0,0,22"/>
@@ -123,7 +123,7 @@
       </StackPanel></Border>
      </StackPanel>
      <StackPanel x:Name="PreferencesPage" Visibility="Collapsed">
-      <Border x:Name="StartupWindowCard" Style="{StaticResource Card}" Padding="28"><StackPanel>
+      <Border x:Name="StartupWindowCard" Tag="KittyPanel" Style="{StaticResource Card}" Padding="28"><StackPanel>
        <TextBlock Text="Startup &amp; system tray." FontSize="23" FontWeight="Bold"/>
        <TextBlock Text="Choose how the app opens and follows your VR session." Foreground="{DynamicResource Muted}" FontSize="12" Margin="0,8,0,23"/>
        <CheckBox x:Name="AutoStartBox" Foreground="{DynamicResource AccentInk}" Content="Start the bridge when this app opens" FontSize="13" Margin="0,0,0,19" Checked="AutoStart_Changed" Unchecked="AutoStart_Changed"/>
@@ -134,7 +134,7 @@
        <Button Content="Quit app" Style="{StaticResource QuietButton}" HorizontalAlignment="Left" Margin="0,24,0,0" Click="Quit_Click" AutomationProperties.Name="Quit Face Tracking Bridge"/>
       </StackPanel></Border>
      </StackPanel>
-     <Grid x:Name="ActivityPage" Visibility="Collapsed"><Border Style="{StaticResource Card}" Padding="24"><StackPanel><Grid Margin="0,0,0,18"><TextBlock Text="What’s happening behind the scenes." FontSize="20" FontWeight="Bold"/><Button Content="Open log folder  ↗" Style="{StaticResource LinkButton}" HorizontalAlignment="Right" VerticalAlignment="Bottom" Margin="0,40,0,0" Click="Logs_Click"/></Grid><TextBox x:Name="LogBox" MinHeight="400" MaxHeight="520" Height="450" IsReadOnly="True" TextWrapping="Wrap" VerticalScrollBarVisibility="Auto" FontFamily="Consolas" FontSize="11" BorderThickness="0" Background="{DynamicResource LogBackground}" Padding="14" AutomationProperties.Name="Activity log"/></StackPanel></Border></Grid>
+     <Grid x:Name="ActivityPage" Visibility="Collapsed"><Border Tag="KittyPanel" Style="{StaticResource Card}" Padding="24"><StackPanel><Grid Margin="0,0,0,18"><TextBlock Text="What’s happening behind the scenes." FontSize="20" FontWeight="Bold"/><Button Content="Open log folder  ↗" Style="{StaticResource LinkButton}" HorizontalAlignment="Right" VerticalAlignment="Bottom" Margin="0,40,0,0" Click="Logs_Click"/></Grid><TextBox x:Name="LogBox" MinHeight="400" MaxHeight="520" Height="450" IsReadOnly="True" TextWrapping="Wrap" VerticalScrollBarVisibility="Auto" FontFamily="Consolas" FontSize="11" BorderThickness="0" Background="{DynamicResource LogBackground}" Padding="14" AutomationProperties.Name="Activity log"/></StackPanel></Border></Grid>
     </Grid>
    </ScrollViewer>
    <Grid Grid.Row="3" Margin="0,17,0,0"><TextBlock Text="Independent project. Built on VRCFaceTracking." Foreground="{DynamicResource FaintInk}" FontSize="10"/><Button Content="GitHub  ↗" Style="{StaticResource LinkButton}" FontSize="10" HorizontalAlignment="Right" Click="Website_Click"/></Grid>

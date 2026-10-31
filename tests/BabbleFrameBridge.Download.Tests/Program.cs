@@ -8,6 +8,10 @@ using System.Net;
 using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
+using System.Reflection;
+using System.Reflection.Metadata;
+using System.Reflection.Metadata.Ecma335;
+using System.Reflection.PortableExecutable;
 using BabbleFrameBridge.Shared;
 
 const long MaxArchiveBytes = 256L * 1024 * 1024;
@@ -18,6 +22,7 @@ Directory.CreateDirectory(root);
 var passed = 0;
 var failed = 0;
 var package = Zip(("module.json", Encoding.UTF8.GetBytes("{}")), ("compiled.dll", new byte[] { 1, 2, 3 }));
+var eyeTrackVrDll = ModuleDll("ETVRTrackingModule");
 
 try
 {
@@ -28,7 +33,10 @@ try
             [ModuleKind.BabbleHeadsetRuntime] = ("https://github.com/Project-Babble/Baballonia/releases/download/vrcft-module-4.0.0/VRCFaceTracking.Baballonia.zip", "VRCFaceTracking.Baballonia.zip"),
             [ModuleKind.BaballoniaDesktop] = ("https://github.com/Project-Babble/Baballonia/releases/download/vrcft-module-3.2.0/VRCFaceTracking.Baballonia.zip", "VRCFaceTracking.Baballonia.zip"),
             [ModuleKind.VirtualDesktop] = ("https://download.vrdesktop.net/files/VirtualDesktop.VRCFaceTracking.zip", "VirtualDesktop.VRCFaceTracking.zip"),
-            [ModuleKind.SteamLink] = ("https://github.com/ykeara/LinkFT/releases/download/1.0.6/LinkFTModule.zip", "LinkFTModule.zip")
+            [ModuleKind.SteamLink] = ("https://github.com/ykeara/LinkFT/releases/download/1.0.6/LinkFTModule.zip", "LinkFTModule.zip"),
+            [ModuleKind.SRanipal] = ("https://github.com/VRCFaceTracking/SRanipalTrackingModule/releases/download/1.5/SRanipalTrackingModule.zip", "SRanipalTrackingModule.zip"),
+            [ModuleKind.Beyond] = ("https://github.com/BigscreenVR/VRCFT-Beyond/releases/download/v1.1.0/Build.zip", "BeyondTrackingModule.zip"),
+            [ModuleKind.EyeTrackVR] = ("https://github.com/EyeTrackVR/ETVRTrackingModule/releases/download/0.0.5/ETVRTrackingModule.dll", "ETVRTrackingModule.dll")
         };
         foreach (var (kind, source) in expected)
         {
@@ -67,7 +75,8 @@ try
 
     await Test("each selected provider requests its own pinned package", async () =>
     {
-        var handler = new FakeHandler((_, _) => Task.FromResult(Response(package)));
+        var handler = new FakeHandler((request, _) => Task.FromResult(Response(
+            request.RequestUri!.AbsolutePath.EndsWith(".dll", StringComparison.OrdinalIgnoreCase) ? eyeTrackVrDll : package)));
         using var client = new HttpClient(handler);
         using var downloader = new ModuleDownloader(client);
         foreach (var kind in ModuleCatalog.All.Select(item => item.Kind))
@@ -77,6 +86,61 @@ try
         }
         Check(handler.Uris.SequenceEqual(ModuleCatalog.All.Select(item => ModuleDownloader.SourceFor(item.Kind).DownloadUri)), "Provider request order or URLs changed.");
     });
+
+    await Test("official standalone DLL downloads retain bytes and reject a wrong or malformed module", async () =>
+    {
+        foreach (var (name, bytes, valid) in new[]
+        {
+            ("valid", eyeTrackVrDll, true), ("wrong-entry", ModuleDll("OtherModule"), false),
+            ("web-page", Encoding.UTF8.GetBytes("<html>not a module</html>"), false),
+            ("zip-instead", package, false), ("truncated", eyeTrackVrDll[..80], false)
+        })
+        {
+            var data = DataRoot("standalone-" + name);
+            var handler = new FakeHandler((_, _) => Task.FromResult(Response(bytes)));
+            using var client = new HttpClient(handler);
+            using var downloader = new ModuleDownloader(client);
+            if (valid)
+            {
+                var file = await downloader.DownloadAsync(ModuleKind.EyeTrackVR, data);
+                Check(Path.GetFileName(file) == "ETVRTrackingModule.dll" && File.ReadAllBytes(file).SequenceEqual(bytes),
+                    "The official standalone DLL was renamed, transformed, or treated as a ZIP.");
+            }
+            else
+            {
+                await ExpectFailureAsync(() => downloader.DownloadAsync(ModuleKind.EyeTrackVR, data));
+                AssertNoArtifacts(data);
+            }
+        }
+    });
+
+    if (args.Contains("--official-modules"))
+        await Test("real official SRanipal, Beyond and ETVR packages download, identify, install and reload", async () =>
+        {
+            using var downloader = new ModuleDownloader();
+            var data = DataRoot("official-modules");
+            var store = new ModuleStore(data);
+            foreach (var kind in new[] { ModuleKind.SRanipal, ModuleKind.Beyond, ModuleKind.EyeTrackVR })
+            {
+                var file = await downloader.DownloadAsync(kind, data);
+                var release = store.Prepare(file, kind);
+                Check(release.Kind == kind && release.ModuleId == ModuleCatalog.Get(kind).ModuleId
+                    && release.DllFileName == ModuleCatalog.Get(kind).DllFileName, "The real package did not retain its official identity.");
+                store.Register(release); store.Activate(release);
+                Check(new ModuleStore(data).Current?.Id == release.Id, "Installed official module did not survive a store reload.");
+                if (kind == ModuleKind.SRanipal)
+                    foreach (var generation in new[] { "New", "Old" })
+                        foreach (var dependency in new[] { "SRanipal.dll", "libHTC_License.dll", "nanomsg.dll", "SRWorks_Log.dll", "ViveSR_Client.dll" })
+                            Check(File.Exists(Path.Combine(release.DirectoryPath, "ModuleLibs", generation, dependency)),
+                                "The SRanipal ZIP lost a native dependency.");
+                if (kind == ModuleKind.Beyond)
+                    Check(Path.GetFileName(release.DirectoryPath) == "net7.0", "The nested Beyond module entry was not selected.");
+                var current = store.Current;
+                ExpectFailure(() => store.Prepare(file, kind == ModuleKind.EyeTrackVR ? ModuleKind.Beyond : ModuleKind.EyeTrackVR));
+                Check(store.Current == current, "Rejecting the wrong official provider changed the active module.");
+            }
+            Check(new ModuleStore(data).Installed.Count == 3, "The three new providers did not remain separate module entries.");
+        });
 
     await Test("missing Content-Length downloads stream correctly with unknown progress total", async () =>
     {
@@ -376,6 +440,23 @@ static byte[] Zip(params (string Name, byte[] Bytes)[] entries)
         foreach (var (name, bytes) in entries)
             using (var output = archive.CreateEntry(name, CompressionLevel.NoCompression).Open()) output.Write(bytes);
     return buffer.ToArray();
+}
+static byte[] ModuleDll(string name)
+{
+    // Protocol fixture: metadata only, never loaded or executed by these tests.
+    var metadata = new MetadataBuilder();
+    metadata.AddModule(0, metadata.GetOrAddString(name + ".dll"), metadata.GetOrAddGuid(Guid.NewGuid()), default, default);
+    metadata.AddAssembly(metadata.GetOrAddString(name), new Version(1, 0, 0, 0), default, default, default, AssemblyHashAlgorithm.None);
+    var sdk = metadata.AddAssemblyReference(metadata.GetOrAddString("VRCFaceTracking.SDK"), new Version(1, 0, 0, 0), default, default, default, default);
+    var tracking = metadata.AddTypeReference(sdk, metadata.GetOrAddString("VRCFaceTracking"), metadata.GetOrAddString("ExtTrackingModule"));
+    metadata.AddTypeDefinition(TypeAttributes.NotPublic, default, metadata.GetOrAddString("<Module>"), default,
+        MetadataTokens.FieldDefinitionHandle(1), MetadataTokens.MethodDefinitionHandle(1));
+    metadata.AddTypeDefinition(TypeAttributes.Public | TypeAttributes.Class, metadata.GetOrAddString("Fixture"),
+        metadata.GetOrAddString("TrackingModule"), tracking, MetadataTokens.FieldDefinitionHandle(1), MetadataTokens.MethodDefinitionHandle(1));
+    var image = new ManagedPEBuilder(new PEHeaderBuilder(imageCharacteristics: Characteristics.ExecutableImage | Characteristics.Dll),
+        new MetadataRootBuilder(metadata), new BlobBuilder());
+    var output = new BlobBuilder(); image.Serialize(output);
+    return output.ToArray();
 }
 static int FindSignature(byte[] bytes, uint signature)
 {

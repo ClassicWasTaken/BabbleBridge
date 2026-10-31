@@ -53,6 +53,9 @@ jobs:
       - name: Check silent kitty captions and expiry
         run: dotnet run --project tests/Kitty.Caption.Tests -c Release
 
+      - name: Check kitty panel geometry and pickup bounds
+        run: dotnet run --project tests/Kitty.Panel.Tests -c Release
+
       - name: Check module download validation and cancellation
         run: dotnet run --project tests/BabbleFrameBridge.Download.Tests -c Release
 

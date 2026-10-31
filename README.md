@@ -8,7 +8,7 @@
   <a href="https://babble.diy/">Visit the Project Babble website ↗</a>
 </p>
 
-A Windows app that bridges eye and face tracking to VRChat through compatible **VRCFaceTracking SDK** modules. Supports Babble Headset Runtime, Baballonia desktop, Virtual Desktop, and Steam Link, with Jerry’s templates and VRChat’s native face-tracking SDK beta.
+A Windows app that bridges eye and face tracking to VRChat through compatible **VRCFaceTracking SDK** modules. Download modules for Babble Headset Runtime, Baballonia, Virtual Desktop, Steam Link, SRanipal, Bigscreen Beyond, or EyeTrackVR. Works with Jerry’s templates and VRChat’s native face-tracking SDK beta; available tracking depends on your hardware and module.
 
 ![Face Tracking Bridge running on Windows](docs/images/app-running.png)
 
@@ -24,9 +24,9 @@ Using Baballonia Expressions Alpha? Download **Baballonia** in Modules, or choos
 
 In **Settings**, choose whether to start with SteamVR, close when it exits, or **start minimized to system tray**. Clicking **X** keeps tracking running in the tray; double-click the tray icon to reopen, or right-click it to **Quit**.
 
-Click the **kitty face in the bottom-left corner** to meet Relay, an optional holographic robot cat with smooth articulated movement. Its local recurrent AI follows interruptible play, grooming, investigation and rest routines. Relay is completely silent: meows, chirps, purrs and yawns appear as little text bubbles. The companion pauses in the tray. [Behavior and research notes](docs/RELAY-BEHAVIOR.md).
+Click the **kitty face in the bottom-left corner** to meet Relay, an optional holographic robot cat. Relay starts **off every time you open the app**. Pick it up and drag it around, or let it climb onto visible panels and sit on their edges. Its small, local recurrent model guides play, grooming, investigation and rest; a separate controller handles climbing and pickup. Relay is completely silent: cat sounds appear only as little text bubbles. The companion pauses in the tray. [Behavior and research notes](docs/RELAY-BEHAVIOR.md).
 
-The tracking-connection particles animate while the bridge runs, then freeze and dim when it stops.
+The tracking-connection particles smoothly coast to a stop and dim when the bridge stops, then brighten and resume when it starts.
 
 Other compatible VRCFaceTracking SDK modules work too. `module.json` is optional; use a ZIP if a module needs supporting files.
 

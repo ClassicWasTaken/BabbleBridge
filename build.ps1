@@ -38,6 +38,8 @@ foreach ($symbols in Get-ChildItem -LiteralPath $destination -Recurse -File -Fil
 $unwanted = Get-ChildItem -LiteralPath $destination -Recurse -File | Where-Object {
     $_.Name -in @('vcruntime140.dll', 'VRCFaceTracking.Baballonia.dll', 'Baballonia-module.zip',
         'VirtualDesktop.FaceTracking.dll', 'SteamLinkVRCFTModule.dll', 'LinkFTModule.zip', 'VirtualDesktop.VRCFaceTracking.zip',
+        'SRanipalExtTrackingModule.dll', 'SRanipalTrackingModule.zip', 'SRanipal.dll',
+        'BeyondExtTrackingInterface.dll', 'BeyondTrackingModule.zip', 'ETVRTrackingModule.dll',
         'Babble-Brand-LICENSE.txt', 'BabbleLogos.xaml', 'babbleBanner.png', 'logo_silhouette.svg', 'logo-white.svg')
 } | Select-Object -First 1
 if ($unwanted) { throw "The published app contains an excluded legacy or external component: $($unwanted.FullName)" }

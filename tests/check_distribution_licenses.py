@@ -27,6 +27,8 @@ assert '2017 IBM Corp.' in (root / font).read_text(encoding='utf-8-sig')
 assert hashlib.sha256((root / 'vendor/fti_osc.dll').read_bytes()).hexdigest() == '668628bcaf181617839663fe3624f42eb7d36ae3d16e3434ace40a9545aa982e'
 
 excluded = {'virtualdesktop.facetracking.dll', 'steamlinkvrcftmodule.dll', 'linkftmodule.zip', 'virtualdesktop.vrcfacetracking.zip', 'vcruntime140.dll', 'baballonia-module.zip', 'vrcfacetracking.baballonia.dll',
+            'sranipalexttrackingmodule.dll', 'sranipaltrackingmodule.zip', 'sranipal.dll',
+            'beyondexttrackinginterface.dll', 'beyondtrackingmodule.zip', 'etvrtrackingmodule.dll',
             'babble-brand-license.txt', 'babblelogos.xaml', 'babblebanner.png',
             'logo-white.svg', 'logo_silhouette.svg'}
 for path in root.rglob('*'):

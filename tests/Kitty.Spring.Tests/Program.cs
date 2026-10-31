@@ -91,4 +91,35 @@ var poseBeforeInvalidTime = poses[6]; poses.Step(double.NaN, 6); poses.Step(-1, 
 Check(poses[6] == poseBeforeInvalidTime, "Invalid time changed the visual pose blend.");
 poses.Reset(12);
 Check(poses[12] == 1 && poses.TransitionEnergy == 0, "Suspending motion must reset every pose clock.");
+var physical = new KittyInteractionBlend();
+Check(physical[KittyInteractionPose.None] == 1 && physical.OverrideAmount == 0,
+    "Physical interaction must begin disengaged without adding neural action labels.");
+physical.Step(1d / 144, KittyInteractionPose.Carried);
+Check(physical[KittyInteractionPose.Carried] is > 0 and < .02 && physical.OverrideAmount is > 0 and < .02,
+    "Picking up the kitty must blend into the carried pose rather than snapping.");
+for (var i = 0; i < 180; i++) physical.Step(1d / 144, KittyInteractionPose.Carried);
+var beforeRelease = physical[KittyInteractionPose.Carried];
+physical.Step(1d / 144, KittyInteractionPose.Landing);
+Check(Math.Abs(physical[KittyInteractionPose.Carried] - beforeRelease) < .02,
+    "Dropping the kitty must preserve the articulated pose across the landing transition.");
+for (var i = 0; i < 2000; i++)
+{
+    physical.Step(i % 7 == 0 ? .09 : .004, (KittyInteractionPose)(i % 5));
+    var sum = Enum.GetValues<KittyInteractionPose>().Sum(pose => physical[pose]);
+    Check(double.IsFinite(physical.TransitionEnergy) && Math.Abs(sum - 1) < .000001,
+        "Rapid pickup, climb and perch interruptions escaped the normalized physical blend.");
+}
+static double PhysicalAt(int fps)
+{
+    var blend = new KittyInteractionBlend();
+    for (var i = 0; i < fps; i++) blend.Step(1d / fps, KittyInteractionPose.Climbing);
+    return blend[KittyInteractionPose.Climbing];
+}
+Check(Math.Abs(PhysicalAt(30) - PhysicalAt(144)) < .000001,
+    "Physical interactions must remain smooth and consistent at different refresh rates.");
+physical.Step(double.NaN, KittyInteractionPose.Perched); physical.Reset();
+Check(physical[KittyInteractionPose.None] == 1 && physical.OverrideAmount == 0 && physical.TransitionEnergy == 0,
+    "Turning off the companion must clear every physical interaction pose.");
+physical.Reset((KittyInteractionPose)999);
+Check(physical[KittyInteractionPose.None] == 1, "Invalid physical poses must recover to an ordinary idle pose.");
 Console.WriteLine($"PASS {checks} articulated spring checks: inertial lag, chain independence, bounded motion, frame-rate consistency and reset.");

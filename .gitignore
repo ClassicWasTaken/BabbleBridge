@@ -37,6 +37,9 @@ coverage/
 **/VRCFaceTracking.Baballonia.dll
 **/VirtualDesktop.FaceTracking.dll
 **/SteamLinkVRCFTModule.dll
+**/SRanipalExtTrackingModule.dll
+**/BeyondExtTrackingInterface.dll
+**/ETVRTrackingModule.dll
 
 # Local secrets and signing material
 .env

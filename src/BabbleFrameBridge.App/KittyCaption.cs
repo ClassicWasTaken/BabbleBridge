@@ -37,16 +37,16 @@ public sealed class KittyCaption
     {
         string[] choices = kind switch {
             KittyCaptionKind.Meow => ["mew~", "meow?", "mrrrow~"],
-            KittyCaptionKind.Chirp => ["prrp!", "chirrup~", "brrp!"],
-            KittyCaptionKind.Yawn => ["yaaawn…", "*yawn*", "haaam~"],
+            KittyCaptionKind.Chirp => ["prrp!", "mrrip~", "brrp!"],
+            KittyCaptionKind.Yawn => ["mraaa…", "mraaaw~", "haaam~"],
             KittyCaptionKind.Purr => ["prrr…", "purrr~", "brrrr…"],
-            KittyCaptionKind.Surprise => ["?!", "eep!", "mrr?!"],
-            KittyCaptionKind.Grumpy => ["hmph.", "hff.", "mrrph."],
-            KittyCaptionKind.Curious => ["mrr?", "sniff sniff…", "what’s this?"],
-            KittyCaptionKind.Cozy => ["comfy…", "knead knead", "mrr~"],
-            KittyCaptionKind.Play => ["bap!", "!!", "gotcha!"],
-            KittyCaptionKind.Groom => ["mlem~", "lick lick…", "*wash wash*"],
-            _ => ["zzz…", "z… z…", "…zzz"] };
+            KittyCaptionKind.Surprise => ["mrr?!", "mraow!", "rrp!"],
+            KittyCaptionKind.Grumpy => ["rrr…", "hff.", "mrrph."],
+            KittyCaptionKind.Curious => ["mrr?", "mew?", "prrp?"],
+            KittyCaptionKind.Cozy => ["prrr~", "rrrp~", "mrr~"],
+            KittyCaptionKind.Play => ["mrrp!", "mrow!", "prrp!"],
+            KittyCaptionKind.Groom => ["mlem~", "mrr~", "prrp~"],
+            _ => ["hrrr…", "mrr…", "prrr…"] };
         var index = _random.Next(choices.Length);
         if (choices[index] == Text) index = (index + 1) % choices.Length;
         return Show(choices[index], kind is KittyCaptionKind.Purr or KittyCaptionKind.Dream ? 2.4 : 1.8, urgent);

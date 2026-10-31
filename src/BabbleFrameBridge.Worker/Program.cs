@@ -119,6 +119,20 @@ internal static class Program
                 CheckPort(desktopInputPort, IPAddress.Parse(config["Host"]!.GetValue<string>()));
             }
             else if (kind == ModuleKind.SteamLink) CheckPort(inputPort, IPAddress.Loopback);
+            else if (kind == ModuleKind.EyeTrackVR)
+            {
+                var configuration = Path.Combine(moduleDirectory, "ETVRModuleConfig.json");
+                if (File.Exists(configuration))
+                {
+                    var config = JsonNode.Parse(File.ReadAllText(configuration)) as JsonObject
+                        ?? throw new InvalidDataException("The EyeTrackVR module configuration is not a JSON object.");
+                    inputPort = config["PortNumber"]?.GetValue<int>() ?? inputPort;
+                    if (inputPort is < 1 or > 65535 || inputPort == settings.OutputPort || inputPort == settings.ReceivePort)
+                        throw new ArgumentException("The EyeTrackVR input port must differ from the VRChat send and receive ports.");
+                    CheckPort(inputPort, IPAddress.Parse(config["ListeningAddress"]?.GetValue<string>() ?? "0.0.0.0"));
+                }
+                else CheckPort(inputPort, IPAddress.Any);
+            }
 
             _ = Task.Run(async () =>
             {
@@ -170,16 +184,18 @@ internal static class Program
             };
             module = LoadModule(modulePath);
             module.Logger = logs.CreateLogger(moduleName);
-            moduleNeedsTeardown = kind != ModuleKind.VirtualDesktop;
-            if (kind == ModuleKind.VirtualDesktop)
+            moduleNeedsTeardown = kind is not (ModuleKind.VirtualDesktop or ModuleKind.Beyond or ModuleKind.SRanipal);
+            if (kind is ModuleKind.VirtualDesktop or ModuleKind.Beyond or ModuleKind.SRanipal)
             {
                 // Its upstream Initialize returns no claims when the Streamer's IPC
                 // objects do not exist yet. Keep selection alive without opening OSC
                 // ports or sending neutral tracking until a session becomes available.
-                await WaitForVirtualDesktop(stop.Token);
-                moduleNeedsTeardown = true;
+                await WaitForTrackingSoftware(kind, stop.Token);
+                moduleNeedsTeardown = kind != ModuleKind.SRanipal;
             }
-            var claims = module.Initialize(true, true);
+            var claims = kind == ModuleKind.SRanipal
+                ? await InitializeSRanipal(module, stop.Token) : module.Initialize(true, true);
+            moduleNeedsTeardown = true;
             // A headset can have both channels disabled in its saved configuration. Its
             // live BFR Link still needs to negotiate the next headset session's claims.
             if (!claims.eyeSuccess && !claims.expressionSuccess && !headsetSource)
@@ -230,6 +246,9 @@ internal static class Program
                     ModuleKind.BaballoniaDesktop => $"Module initialized; listening for Baballonia desktop OSC on UDP {inputPort}.",
                     ModuleKind.VirtualDesktop => "Module initialized; connected to Virtual Desktop Streamer.",
                     ModuleKind.SteamLink => $"Module initialized; listening for Steam Link OSC on UDP {inputPort}.",
+                    ModuleKind.SRanipal => "Module initialized; connected to the SRanipal runtime.",
+                    ModuleKind.Beyond => "Module initialized; connected to Beyond Eyetracking.",
+                    ModuleKind.EyeTrackVR => $"Module initialized; listening for EyeTrackVR OSC on UDP {inputPort}.",
                     _ => $"{moduleName} initialized; its tracking input is managed by the module."
                 }
             });
@@ -308,7 +327,8 @@ internal static class Program
         {
             stop.Cancel();
             nativeFace?.Dispose();
-            if (prepareEyes != null) UnifiedTracking.OnUnifiedDataUpdated -= prepareEyes;
+            if (prepareEyes != null)
+                UnifiedTracking.OnUnifiedDataUpdated = (UnifiedTracking.OnUnifiedDataUpdated - prepareEyes) ?? (_ => { });
             if (sender != null) { try { await sender.StopAsync(CancellationToken.None).WaitAsync(TimeSpan.FromSeconds(2)); } catch { } }
             if (router != null) await router.DisposeAsync();
             send?.Dispose();
@@ -316,25 +336,91 @@ internal static class Program
         }
     }
 
-    private static async Task WaitForVirtualDesktop(CancellationToken cancellationToken)
+    private static async Task WaitForTrackingSoftware(ModuleKind kind, CancellationToken cancellationToken)
     {
         var announced = false;
-        while (!VirtualDesktopObjectsAvailable())
+        bool Available() => kind switch
+        {
+            ModuleKind.VirtualDesktop => VirtualDesktopObjectsAvailable(),
+            ModuleKind.Beyond => SharedMemoryAvailable("VRCFTMemmapData"),
+            ModuleKind.SRanipal => SRanipalRuntimeAvailable(),
+            _ => true
+        };
+        while (!Available())
         {
             cancellationToken.ThrowIfCancellationRequested();
             if (!announced)
             {
                 Emit(new
                 {
-                    type = "waiting", source = ModuleKind.VirtualDesktop.ToString(), inputPort = 0,
+                    type = "waiting", source = kind.ToString(), inputPort = 0,
                     eye = false, face = false, connected = false, receiving = false,
-                    message = "Waiting for Virtual Desktop. Start Streamer, enable 'Forward tracking data to PC', and connect your headset. The bridge will connect automatically."
+                    message = kind switch
+                    {
+                        ModuleKind.Beyond => "Waiting for Beyond Eyetracking. Start the Bigscreen Beyond utility, complete enrollment, and enable VRCFT output. The bridge will connect automatically.",
+                        ModuleKind.SRanipal => "Waiting for SRanipal. Install and start the SRanipal runtime and connect your supported VIVE eye or facial tracker. The bridge will connect automatically.",
+                        _ => "Waiting for Virtual Desktop. Start Streamer, enable 'Forward tracking data to PC', and connect your headset. The bridge will connect automatically."
+                    }
                 });
                 announced = true;
             }
             await Task.Delay(TimeSpan.FromSeconds(1), cancellationToken);
         }
         cancellationToken.ThrowIfCancellationRequested();
+    }
+
+    private static bool SharedMemoryAvailable(string name)
+    {
+        using var memory = OpenFileMappingW(0x0004, false, name);
+        return !memory.IsInvalid;
+    }
+
+    private static bool SRanipalRuntimeAvailable()
+    {
+        var processes = Process.GetProcessesByName("sr_runtime");
+        try { return processes.Any(process => !process.HasExited); }
+        finally { foreach (var process in processes) process.Dispose(); }
+    }
+
+    private static async Task<(bool eyeSuccess, bool expressionSuccess)> InitializeSRanipal(ExtTrackingModule module, CancellationToken token)
+    {
+        string? previousMessage = null;
+        while (true)
+        {
+            token.ThrowIfCancellationRequested();
+            string message;
+            var attempted = false;
+            try
+            {
+                if (!SRanipalRuntimeAvailable()) message = "Waiting for SRanipal. Start the SRanipal runtime and connect your supported VIVE eye or facial tracker.";
+                else
+                {
+                    attempted = true;
+                    var claims = module.Initialize(true, true);
+                    if (claims.eyeSuccess || claims.expressionSuccess) return claims;
+                    message = "Waiting for a VIVE tracker. SRanipal is running, but has not enabled eye or face tracking. Connect the device and finish its setup; the bridge will retry automatically.";
+                }
+            }
+            catch (Exception error) when (error is DllNotFoundException or DirectoryNotFoundException)
+            {
+                message = "Waiting for SRanipal setup. Import the complete SRanipal module ZIP, install its required runtime and drivers, and start SRanipal. " + error.Message;
+            }
+            // The upstream module acquires a native-library handle during each
+            // attempt. Release that handle before retrying an unavailable device.
+            // SDK/API errors deliberately remain fatal rather than being hidden.
+            if (attempted)
+            {
+                try { module.Teardown(); }
+                catch (Exception error) { Emit(new { type = "log", message = "SRanipal initialization cleanup: " + error.Message }); }
+            }
+            if (message != previousMessage)
+            {
+                Emit(new { type = "waiting", source = ModuleKind.SRanipal.ToString(), inputPort = 0,
+                    eye = false, face = false, connected = false, receiving = false, message });
+                previousMessage = message;
+            }
+            await Task.Delay(TimeSpan.FromSeconds(3), token);
+        }
     }
 
     private static bool VirtualDesktopObjectsAvailable()

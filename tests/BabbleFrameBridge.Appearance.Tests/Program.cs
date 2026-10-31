@@ -19,6 +19,7 @@ using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using System.Windows.Markup;
 using System.Windows.Interop;
+using System.Windows.Input;
 using System.Windows.Threading;
 using System.Xml.Linq;
 using BabbleFrameBridge.App;
@@ -31,6 +32,7 @@ internal static class Program
     private static MainWindow? window;
     private static readonly ModuleKind[] DownloadOrder =
         [ModuleKind.BabbleHeadsetRuntime, ModuleKind.BaballoniaDesktop, ModuleKind.SteamLink, ModuleKind.VirtualDesktop];
+    private static readonly ModuleKind[] AdditionalDownloadOrder = [ModuleKind.SRanipal, ModuleKind.Beyond, ModuleKind.EyeTrackVR];
 
     [STAThread]
     public static int Main(string[] args)
@@ -49,6 +51,7 @@ internal static class Program
         var baballoniaAlphaZip = Argument("--baballonia-alpha-zip");
         var baballoniaLegacyZip = Argument("--baballonia-legacy-zip");
         var customModuleDll = Argument("--custom-module-dll");
+        var additionalModuleDirectory = Argument("--additional-module-dir");
         var renderDirectory = Argument("--render-dir");
         if (workerExecutable is not null && !File.Exists(workerExecutable))
         {
@@ -93,8 +96,8 @@ internal static class Program
                 PumpUntil(() => Named<StackPanel>(window, "ModulesPage").Visibility == Visibility.Visible,
                     "the overview Add a module button opened the module page");
                 Check(Descendants(Named<ItemsControl>(window, "DownloadChoices")).OfType<Button>()
-                    .Count(button => button.Tag is ModuleKind) == 4,
-                    "The overview Add a module action did not reveal all four in-app download choices.");
+                    .Count(button => button.Tag is ModuleKind) == 7,
+                    "The overview Add a module action did not reveal all seven in-app download choices.");
                 Named<RadioButton>(window, "OverviewNav").IsChecked = true;
                 PumpUntil(() => Named<StackPanel>(window, "OverviewPage").Visibility == Visibility.Visible,
                     "overview restored after checking the Add a module route");
@@ -106,17 +109,21 @@ internal static class Program
                 Pump(); window.UpdateLayout();
                 var choices = Named<ItemsControl>(window, "DownloadChoices");
                 var downloads = Descendants(choices).OfType<Button>().Where(button => button.Tag is ModuleKind).ToArray();
-                var expectedKinds = new[] { ModuleKind.BabbleHeadsetRuntime, ModuleKind.BaballoniaDesktop, ModuleKind.SteamLink, ModuleKind.VirtualDesktop };
-                var labels = new[] { "Download Headset Runtime / BFR", "Download Baballonia", "Download Steam Link", "Download Virtual Desktop" };
+                var expectedKinds = DownloadOrder.Concat(AdditionalDownloadOrder).ToArray();
+                var labels = new[] { "Download Headset Runtime / BFR", "Download Baballonia", "Download Steam Link", "Download Virtual Desktop",
+                    "Download SRanipalTrackingModule", "Download BeyondTrackingModule", "Download ETVR Tracking Module" };
                 var sourceLinks = new[]
                 {
                     "https://github.com/Project-Babble/Baballonia/releases/tag/vrcft-module-4.0.0",
                     "https://github.com/Project-Babble/Baballonia/releases/tag/vrcft-module-3.2.0",
                     "https://github.com/ykeara/LinkFT/releases/tag/1.0.6",
-                    "https://download.vrdesktop.net/files/VirtualDesktop.VRCFaceTracking.zip"
+                    "https://download.vrdesktop.net/files/VirtualDesktop.VRCFaceTracking.zip",
+                    "https://github.com/VRCFaceTracking/SRanipalTrackingModule/releases/tag/1.5",
+                    "https://github.com/BigscreenVR/VRCFT-Beyond/releases/tag/v1.1.0",
+                    "https://github.com/EyeTrackVR/ETVRTrackingModule/releases/tag/0.0.5"
                 };
                 Check(downloads.Select(button => (ModuleKind)button.Tag).SequenceEqual(expectedKinds),
-                    "Download choices are missing or are not ordered BFR, Baballonia, Steam Link, Virtual Desktop.");
+                    "Download choices are missing or do not preserve the requested provider order.");
                 Check(downloads.Select(AutomationProperties.GetName).SequenceEqual(labels),
                     "Download choice accessibility labels do not identify the correct modules.");
                 var sources = Descendants(choices).OfType<Button>()
@@ -307,7 +314,9 @@ internal static class Program
                 Check(!Field<bool>(window, "_running"), "The stopped-particle fixture unexpectedly started tracking.");
                 Method(window, "UpdateBridgeParticles").Invoke(window, null);
                 PumpUntil(() => Math.Abs(particles.Opacity - .24) < .001, "stopped particles dimmed to their resting opacity");
-                Check(!particles.AnimationsEnabled && !Field<bool>(particles, "attached"),
+                PumpUntil(() => particles.MotionSpeed == 0 && !Field<bool>(particles, "attached"),
+                    "stopped particles finished coasting");
+                Check(!particles.AnimationsEnabled,
                     "A stopped bridge retained animated tracking particles.");
                 var stopped = Field<double>(particles, "seconds");
                 RenderParticlesAt(particles, TimeSpan.FromSeconds(100));
@@ -317,7 +326,7 @@ internal static class Program
                     "Stopped tracking particles advanced after manual display ticks or a dispatcher pump.");
             });
 
-            Test("running particle motion follows display time and pauses on hidden pages, minimized windows and reduced motion", () =>
+            Test("tracking particles follow display time, pause offscreen, and coast smoothly when tracking stops", () =>
             {
                 var particles = Named<ParticleField>(window, "HeroParticles");
                 var wasRunning = Field<bool>(window, "_running");
@@ -333,6 +342,7 @@ internal static class Program
                     if (SystemParameters.ClientAreaAnimation)
                     {
                         PumpUntil(() => Field<bool>(particles, "attached"), "visible particle animation attached");
+                        PumpUntil(() => particles.MotionSpeed >= .999, "running particles reached their normal travel speed");
                         if (Field<TimeSpan?>(particles, "lastFrame") is null) RenderParticlesAt(particles, TimeSpan.Zero);
                         var last = Field<TimeSpan?>(particles, "lastFrame")!.Value;
                         var before = Field<double>(particles, "seconds");
@@ -355,12 +365,33 @@ internal static class Program
                         PumpUntil(() => !Field<bool>(particles, "attached"), "minimized window detached particle rendering");
                         window.WindowState = WindowState.Normal;
                         PumpUntil(() => Field<bool>(particles, "attached"), "restored window resumed particles");
+                        PumpUntil(() => particles.MotionSpeed >= .999, "restored particle speed settled");
                     }
                     particles.AnimationsEnabled = false;
-                    Check(!Field<bool>(particles, "attached"), "Reduced motion retained its rendering callback.");
+                    if (SystemParameters.ClientAreaAnimation)
+                    {
+                        Check(particles.MotionSpeed > 0 && Field<bool>(particles, "attached"),
+                            "Stopping tracking froze the particles before they could coast.");
+                        var coasting = Field<double>(particles, "seconds");
+                        var coastFrame = Field<TimeSpan?>(particles, "lastFrame")!.Value + TimeSpan.FromSeconds(1.0 / 144);
+                        RenderParticlesAt(particles, coastFrame);
+                        Check(particles.MotionSpeed is > 0 and < 1 && Field<double>(particles, "seconds") > coasting,
+                            "The particle field did not decelerate while preserving forward motion.");
+                    }
+                    PumpUntil(() => particles.MotionSpeed == 0 && !Field<bool>(particles, "attached"),
+                        "tracking particles coasted to rest", TimeSpan.FromSeconds(3));
                     var stopped = Field<double>(particles, "seconds");
                     PumpFor(TimeSpan.FromMilliseconds(60));
-                    Check(Field<double>(particles, "seconds") == stopped, "Reduced-motion particles advanced.");
+                    Check(Field<double>(particles, "seconds") == stopped, "Resting particles continued advancing.");
+                    particles.AnimationsEnabled = true;
+                    Check(Field<double>(particles, "seconds") == stopped,
+                        "Restarting particle motion reset the displayed simulation frame.");
+                    if (SystemParameters.ClientAreaAnimation)
+                    {
+                        Check(particles.MotionSpeed < 1, "Restarting tracking jumped directly to full particle speed.");
+                        PumpUntil(() => particles.MotionSpeed >= .999 && Field<double>(particles, "seconds") > stopped,
+                            "particle motion accelerated smoothly from its resting frame");
+                    }
                 }
                 finally
                 {
@@ -463,7 +494,7 @@ internal static class Program
                 themes.ApplyTheme(true); Pump(); SavePreview(window, renderDirectory, "connection-dark.png");
             });
 
-            Test("the bottom-left kitty launcher is opt-in, persists, and survives a connection save", () =>
+            Test("the kitty is session-only, survives connection saves, and starts off on every launch", () =>
             {
                 CloseWindow();
                 var profile = Path.Combine(root, "kitty-preferences");
@@ -483,15 +514,20 @@ internal static class Program
                         "The kitty launcher is not in the lower-left sidebar.");
                     Check(Named<Image>(window, "KittyFace").Source is DrawingImage,
                         "The kitty launcher is missing its original vector face.");
+                    var settingsBeforeActivation = File.ReadAllText(Path.Combine(profile, "settings.json"));
                     launcher.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
                     PumpUntil(() => overlay.IsActive && overlay.IsVisible
                         && overlay.IsAnimating == SystemParameters.ClientAreaAnimation, "kitty appeared and attached its visible rendering policy");
-                    Check(AppSettings.Load(profile).KittyEnabled && Named<System.Windows.Shapes.Ellipse>(window, "KittyActiveDot").Visibility == Visibility.Visible,
-                        "Enabling the kitty did not persist or show its active indicator.");
+                    Check(overlay.IsActive && Named<System.Windows.Shapes.Ellipse>(window, "KittyActiveDot").Visibility == Visibility.Visible,
+                        "Enabling the kitty did not show its active indicator.");
+                    Check(File.ReadAllText(Path.Combine(profile, "settings.json")) == settingsBeforeActivation,
+                        "Activating a session-only companion rewrote the saved connection settings.");
                     Check(overlay.IsAnimating == SystemParameters.ClientAreaAnimation,
                         "Kitty rendering does not honor the current Windows motion preference.");
                     InvokeSaveConnection();
-                    Check(AppSettings.Load(profile).KittyEnabled, "Saving a connection reset the kitty preference.");
+                    Check(overlay.IsActive, "Saving a connection disabled the current session's kitty.");
+                    Check(!AppSettings.Load(profile).KittyEnabled,
+                        "A connection save persisted the current session's enabled companion.");
                     Method(window, "DismissNotice").Invoke(window, null);
                     foreach (var dark in new[] { false, true })
                     {
@@ -505,9 +541,12 @@ internal static class Program
                     window = CreateWindow(profile); themes.AttachWindow(window); window.Show();
                     PumpUntil(() => Field<bool>(window, "_initialized") && !Field<bool>(window, "_busy"), "saved kitty profile reopened");
                     overlay = Named<HologramKittyOverlay>(window, "KittyOverlay");
-                    Check(overlay.IsActive && overlay.IsVisible, "Reopening lost the enabled kitty preference.");
+                    Check(!overlay.IsActive && !overlay.IsAnimating
+                        && Named<System.Windows.Shapes.Ellipse>(window, "KittyActiveDot").Visibility == Visibility.Collapsed,
+                        "Reopening automatically enabled the kitty instead of starting off.");
+                    EnableKitty(window);
                     Named<Button>(window, "KittyToggle").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
-                    Check(!overlay.IsActive && !overlay.IsAnimating && !AppSettings.Load(profile).KittyEnabled,
+                    Check(!overlay.IsActive && !overlay.IsAnimating,
                         "The same launcher could not tuck the companion away.");
                 }
                 finally { CloseWindow(); }
@@ -517,8 +556,8 @@ internal static class Program
             {
                 var profile = Path.Combine(root, "kitty-text-migration");
                 Directory.CreateDirectory(profile);
-                // Existing previews may have opted into audio. The silent upgrade
-                // must keep the companion and connection while ignoring that field.
+                // Existing previews may have persisted both activation and audio.
+                // Neither legacy opt-in may activate a kitty on the next launch.
                 File.WriteAllText(Path.Combine(profile, "settings.json"),
                     "{\"AutoStart\":false,\"KittyEnabled\":true,\"KittySoundsEnabled\":true,\"OutputPort\":19180,\"ReceivePort\":19181}");
                 try
@@ -526,24 +565,25 @@ internal static class Program
                     window = CreateWindow(profile); window.Show();
                     PumpUntil(() => Field<bool>(window, "_initialized") && !Field<bool>(window, "_busy"), "legacy audio profile loaded silently");
                     var overlay = Named<HologramKittyOverlay>(window, "KittyOverlay");
-                    Check(overlay.IsActive && AppSettings.Load(profile).KittyEnabled,
-                        "Removing audio disabled the saved companion.");
+                    Check(!overlay.IsActive && !overlay.IsAnimating,
+                        "A saved legacy kitty flag enabled the companion on startup.");
                     Check(window.FindName("KittySoundsBox") is null,
                         "The removed sound preference is still shown in Settings.");
                     Check(typeof(MainWindow).Assembly.GetType("BabbleFrameBridge.App.KittyVoice") is null
                         && typeof(MainWindow).Assembly.GetType("BabbleFrameBridge.App.KittyVoiceSynthesizer") is null,
                         "The text-only build still contains a kitty audio runtime.");
+                    EnableKitty(window);
                     InvokeSaveConnection();
                     var saved = AppSettings.Load(profile);
-                    Check(saved.KittyEnabled && saved.OutputPort == 19180 && saved.ReceivePort == 19181,
+                    Check(overlay.IsActive && saved.OutputPort == 19180 && saved.ReceivePort == 19181,
                         "Saving after the silent migration reset the companion or connection.");
                     CloseWindow();
                     window = CreateWindow(profile); window.Show();
                     PumpUntil(() => Field<bool>(window, "_initialized") && !Field<bool>(window, "_busy"), "silent kitty profile reopened");
-                    Check(Named<HologramKittyOverlay>(window, "KittyOverlay").IsActive
+                    Check(!Named<HologramKittyOverlay>(window, "KittyOverlay").IsActive
                         && Named<TextBox>(window, "PortBox").Text == "19180"
                         && window.FindName("KittySoundsBox") is null,
-                        "Reopening lost settings or restored the removed audio preference.");
+                        "Reopening lost settings, enabled the kitty, or restored the removed audio preference.");
                 }
                 finally { CloseWindow(); }
             });
@@ -556,6 +596,7 @@ internal static class Program
                 {
                     window = CreateWindow(profile); themes.AttachWindow(window); window.Show();
                     PumpUntil(() => Field<bool>(window, "_initialized") && !Field<bool>(window, "_busy"), "caption window loaded");
+                    EnableKitty(window);
                     var overlay = Named<HologramKittyOverlay>(window, "KittyOverlay");
                     var position = Field<Point>(overlay, "_position");
                     var points = new[] { new Point(0, 0), new Point(Math.Max(0, overlay.ActualWidth - 144), 0),
@@ -614,6 +655,7 @@ internal static class Program
                 {
                     window = CreateWindow(profile); window.Show();
                     PumpUntil(() => Field<bool>(window, "_initialized") && !Field<bool>(window, "_busy"), "kitty hit-testing window loaded");
+                    EnableKitty(window);
                     var overlay = Named<HologramKittyOverlay>(window, "KittyOverlay");
                     var surface = Named<Grid>(window, "RootSurface");
                     var bounds = overlay.CatBounds;
@@ -635,6 +677,161 @@ internal static class Program
                 finally { CloseWindow(); }
             });
 
+            Test("kitty clicks stay playful while pickup follows the held point without clicking real controls", () =>
+            {
+                var profile = Path.Combine(root, "kitty-pickup");
+                new AppSettings { AutoStart = false }.Save(profile);
+                try
+                {
+                    window = CreateWindow(profile); window.Show();
+                    PumpUntil(() => Field<bool>(window, "_initialized") && !Field<bool>(window, "_busy"), "pickup window loaded");
+                    var overlay = Named<HologramKittyOverlay>(window, "KittyOverlay");
+                    Check(!overlay.BeginPickup(new Point(300, 300)), "A disabled kitty accepted a pickup.");
+                    EnableKitty(window);
+                    var capturedBefore = Mouse.Captured;
+                    var clicks = 0;
+                    var button = Named<Button>(window, "ImportButton");
+                    button.Click += (_, _) => clicks++;
+                    Check(!overlay.BeginPickup(new Point(-20, -20)), "Empty overlay space accepted a kitty pickup.");
+                    var body = KittyBodyPoint(overlay);
+                    var before = overlay.FeetPosition;
+                    var stimulation = Field<KittyMind>(overlay, "_mind").Stimulation;
+                    Check(overlay.BeginPickup(body), "Pressing the kitty did not begin a gesture.");
+                    overlay.MovePickup(body + new Vector(2, 1));
+                    Check(!overlay.IsDragging && (overlay.FeetPosition - before).Length < .01,
+                        "A small ordinary click moved the companion.");
+                    overlay.EndPickup(body + new Vector(2, 1));
+                    Check(!overlay.IsDragging && Field<KittyMind>(overlay, "_mind").Stimulation > stimulation,
+                        "Releasing an ordinary click did not pester the kitty.");
+
+                    body = KittyBodyPoint(overlay);
+                    before = overlay.FeetPosition;
+                    stimulation = Field<KittyMind>(overlay, "_mind").Stimulation;
+                    Check(overlay.BeginPickup(body), "The next kitty press was ignored.");
+                    overlay.MovePickup(body + new Vector(90, -50));
+                    Check(overlay.IsDragging && (overlay.FeetPosition - before - new Vector(90, -50)).Length < .01,
+                        "Picking up the kitty lost the exact point held under the pointer.");
+                    Check(Field<KittyMind>(overlay, "_mind").Stimulation == stimulation,
+                        "A pickup was counted as an ordinary pester click.");
+                    var overButton = button.TranslatePoint(new Point(button.ActualWidth * .5, button.ActualHeight * .5), overlay);
+                    overlay.MovePickup(overButton);
+                    overlay.EndPickup(overButton);
+                    Check(!overlay.IsDragging && clicks == 0,
+                        "Dropping the companion over a real button clicked that control.");
+                    Check(ReferenceEquals(Mouse.Captured, capturedBefore),
+                        "The logical gesture API changed real mouse capture.");
+
+                    body = KittyBodyPoint(overlay);
+                    Check(overlay.BeginPickup(body), "The dropped kitty could not be picked up again.");
+                    overlay.MovePickup(new Point(-5000, overlay.ActualHeight + 5000));
+                    var clamped = overlay.CatBounds;
+                    Check(clamped.Left >= 0 && clamped.Top >= 0 && clamped.Right <= overlay.ActualWidth
+                        && clamped.Bottom <= overlay.ActualHeight,
+                        "Dragging outside the window stranded the companion outside its viewport.");
+                    var launcher = Named<Button>(window, "KittyToggle");
+                    var launcherCenter = launcher.TranslatePoint(new Point(launcher.ActualWidth * .5, launcher.ActualHeight * .5), overlay);
+                    Check(overlay.InputHitTest(launcherCenter) is null,
+                        "Dragging to the lower left blocked the kitty's own launcher.");
+                    overlay.CancelPickup();
+                }
+                finally { CloseWindow(); }
+            });
+
+            Test("kitty perches on real panel tops and follows scrolling, resizing and page changes", () =>
+            {
+                var profile = Path.Combine(root, "kitty-panel-perches");
+                new AppSettings { AutoStart = false }.Save(profile);
+                try
+                {
+                    window = CreateWindow(profile); themes.AttachWindow(window); window.Show();
+                    PumpUntil(() => Field<bool>(window, "_initialized") && !Field<bool>(window, "_busy"), "panel perch window loaded");
+                    EnableKitty(window);
+                    PumpUntil(() => Named<StackPanel>(window, "OverviewPage").Opacity >= .999,
+                        "overview panel positions settled before selecting a ledge");
+                    var overlay = Named<HologramKittyOverlay>(window, "KittyOverlay");
+                    var panel = KittyPerchSurface(overlay);
+                    var panelPoint = new Point(panel.Left + panel.Width * .5, panel.Top + 8);
+                    Check(Method(window, "FindKittyTarget").Invoke(window, [panelPoint]) is FrameworkElement,
+                        "The supplied kitty ledge does not belong to a real visible panel.");
+                    Check(!overlay.TryClimbTo("a-panel-that-does-not-exist"), "The kitty accepted a hidden or nonexistent climb target.");
+                    Check(overlay.TryClimbTo(panel.Id), "The kitty could not start climbing a real higher panel.");
+                    if (SystemParameters.ClientAreaAnimation)
+                        Check(overlay.IsClimbing && !overlay.IsPerched, "Climbing teleported directly onto the edge without a climb pose.");
+                    PumpUntil(() => overlay.IsPerched && overlay.CurrentPerchSurfaceId == panel.Id,
+                        "kitty completed its climb onto the real panel", TimeSpan.FromSeconds(5));
+                    DropKittyOn(overlay, panel);
+                    Check(overlay.IsPerched && !overlay.IsDragging && overlay.CurrentPerchSurfaceId == panel.Id,
+                        "Releasing the kitty near a panel did not seat it on that panel.");
+                    Check(Math.Abs(overlay.FeetPosition.Y - panel.Top) < .05,
+                        "The perched kitty's feet do not rest on the actual panel top edge.");
+                    SavePreview(window, renderDirectory, "kitty-panel-perch.png");
+
+                    window.Width = window.MinWidth; window.Height = window.MinHeight;
+                    window.UpdateLayout();
+                    PumpUntil(() => overlay.IsPerched && overlay.GetSurfaces!().Any(surface => surface.Id == panel.Id
+                        && Math.Abs(surface.Top - overlay.FeetPosition.Y) < .05), "perch followed the resized panel");
+                    Named<RadioButton>(window, "ModulesNav").IsChecked = true;
+                    PumpUntil(() => Named<StackPanel>(window, "ModulesPage").Visibility == Visibility.Visible
+                        && !overlay.IsPerched, "navigation released a perch on the hidden overview page");
+                    PumpUntil(() => Named<StackPanel>(window, "ModulesPage").Opacity >= .999,
+                        "module page settled before selecting a ledge");
+                    panel = KittyPerchSurface(overlay);
+                    DropKittyOn(overlay, panel);
+                    var scroll = Descendants(window).OfType<ScrollViewer>()
+                        .First(viewer => viewer.IsAncestorOf(Named<StackPanel>(window, "ModulesPage")));
+                    Check(scroll.ScrollableHeight > 0, "The module-page fixture did not exercise scrolling.");
+                    var beforeScroll = overlay.FeetPosition;
+                    scroll.ScrollToVerticalOffset(Math.Min(28, scroll.ScrollableHeight));
+                    PumpUntil(() => scroll.VerticalOffset > 0, "module panels scrolled");
+                    PumpUntil(() => !overlay.IsPerched || overlay.GetSurfaces!().Any(surface => surface.Id == panel.Id
+                        && Math.Abs(surface.Top - overlay.FeetPosition.Y) < .05), "kitty reconciled the scrolled panel edge");
+                    if (overlay.IsPerched)
+                        Check(overlay.FeetPosition.Y < beforeScroll.Y,
+                            "The visible panel moved but its perched kitty remained at the previous screen position.");
+                    Check(overlay.GetSurfaces!().All(surface => surface.Top >= 0 && surface.Top < overlay.ActualHeight),
+                        "Scrolling exposed a hidden or offscreen panel as a climb target.");
+                }
+                finally { CloseWindow(); }
+            });
+
+            Test("kitty pickup cancels on Escape, capture loss, hide, minimize, disable and disposal", () =>
+            {
+                var profile = Path.Combine(root, "kitty-pickup-cancel");
+                new AppSettings { AutoStart = false }.Save(profile);
+                try
+                {
+                    window = CreateWindow(profile); window.Show();
+                    PumpUntil(() => Field<bool>(window, "_initialized") && !Field<bool>(window, "_busy"), "pickup cancellation window loaded");
+                    EnableKitty(window);
+                    var overlay = Named<HologramKittyOverlay>(window, "KittyOverlay");
+                    BeginKittyDrag(overlay); overlay.CancelPickup(); overlay.CancelPickup();
+                    Check(!overlay.IsDragging, "CancelPickup did not safely clear a carried companion.");
+                    BeginKittyDrag(overlay);
+                    overlay.RaiseEvent(new MouseEventArgs(Mouse.PrimaryDevice, Environment.TickCount)
+                        { RoutedEvent = Mouse.LostMouseCaptureEvent });
+                    Check(!overlay.IsDragging, "Losing mouse capture left the companion carried.");
+                    BeginKittyDrag(overlay);
+                    window.RaiseEvent(new KeyEventArgs(Keyboard.PrimaryDevice, PresentationSource.FromVisual(window),
+                        Environment.TickCount, Key.Escape) { RoutedEvent = Keyboard.PreviewKeyDownEvent });
+                    Check(!overlay.IsDragging, "Escape did not release a picked-up companion.");
+                    BeginKittyDrag(overlay); window.Hide();
+                    PumpUntil(() => !overlay.IsDragging && !overlay.IsAnimating, "hiding released the carried companion");
+                    window.Show();
+                    PumpUntil(() => overlay.IsAnimating == SystemParameters.ClientAreaAnimation, "pickup window resumed");
+                    BeginKittyDrag(overlay); window.WindowState = WindowState.Minimized;
+                    PumpUntil(() => !overlay.IsDragging && !overlay.IsAnimating, "minimizing released the carried companion");
+                    window.WindowState = WindowState.Normal;
+                    PumpUntil(() => overlay.IsAnimating == SystemParameters.ClientAreaAnimation, "pickup window restored");
+                    BeginKittyDrag(overlay);
+                    Named<Button>(window, "KittyToggle").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                    Check(!overlay.IsDragging && !overlay.IsActive, "Turning the companion off left a live pickup gesture.");
+                    EnableKitty(window); BeginKittyDrag(overlay); overlay.Dispose();
+                    Check(!overlay.IsDragging && !overlay.IsAnimating && !overlay.BeginPickup(KittyBodyPoint(overlay)),
+                        "A disposed companion retained its pickup or accepted new input.");
+                }
+                finally { CloseWindow(); }
+            });
+
             Test("hiding, minimizing or disabling the kitty stops its clock and resets visual swats", () =>
             {
                 var profile = Path.Combine(root, "kitty-suspension");
@@ -643,6 +840,7 @@ internal static class Program
                 {
                     window = CreateWindow(profile); window.Show();
                     PumpUntil(() => Field<bool>(window, "_initialized") && !Field<bool>(window, "_busy"), "kitty suspension window loaded");
+                    EnableKitty(window);
                     var overlay = Named<HologramKittyOverlay>(window, "KittyOverlay");
                     var cat = Field<HologramKittyVisual>(overlay, "_cat");
                     PumpUntil(() => overlay.IsAnimating == SystemParameters.ClientAreaAnimation, "kitty suspension rendering policy established");
@@ -1710,6 +1908,8 @@ internal static class Program
                         var stoppedParticles = Named<ParticleField>(window, "HeroParticles");
                         PumpUntil(() => Math.Abs(stoppedParticles.Opacity - .24) < .001,
                             "real tracking shutdown dimmed the particle field");
+                        PumpUntil(() => stoppedParticles.MotionSpeed == 0 && !Field<bool>(stoppedParticles, "attached"),
+                            "real tracking shutdown coasted the particle field to rest");
                         Check(!stoppedParticles.AnimationsEnabled && !Field<bool>(stoppedParticles, "attached"),
                             "Real tracking shutdown left the particle field moving.");
                         var frozen = Field<double>(stoppedParticles, "seconds");
@@ -1983,6 +2183,134 @@ internal static class Program
                         SavePreview(window, renderDirectory, "all-downloads-installed.png");
                     }
                     finally { CloseWindow(); }
+                });
+            }
+
+            if (additionalModuleDirectory is not null)
+            {
+                Test("official SRanipal, Beyond and EyeTrackVR download buttons import separate modules and hide installed choices", () =>
+                {
+                    var profile = Path.Combine(root, "additional-official-provider-downloads");
+                    var files = new Dictionary<ModuleKind, string>
+                    {
+                        [ModuleKind.SRanipal] = "SRanipalTrackingModule.zip",
+                        [ModuleKind.Beyond] = "Beyond-Build.zip",
+                        [ModuleKind.EyeTrackVR] = "ETVRTrackingModule.dll"
+                    };
+                    var packages = files.ToDictionary(pair => ModuleDownloader.SourceFor(pair.Key).DownloadUri,
+                        pair => File.ReadAllBytes(Path.Combine(additionalModuleDirectory, pair.Value)));
+                    using var handler = new FixtureDownloadHandler(packages);
+                    using var client = new HttpClient(handler);
+                    using var downloader = new ModuleDownloader(client);
+                    try
+                    {
+                        window = CreateWindow(profile, moduleDownloader: downloader); themes.AttachWindow(window); window.Show();
+                        PumpUntil(() => Field<bool>(window, "_initialized") && !Field<bool>(window, "_busy"), "additional providers window loaded");
+                        Check(AppSettings.Load(profile).AutoStart, "The fixture did not cover a first-launch auto-start preference.");
+                        var installed = 0;
+                        foreach (var kind in AdditionalDownloadOrder)
+                        {
+                            InvokeDownload(kind);
+                            var store = new ModuleStore(profile);
+                            Check(store.Installed.Count == ++installed && store.Installed.Any(release => release.Kind == kind),
+                                "The official download added another provider or failed to import " + kind);
+                            Check(store.Current is null && Field<object?>(window, "_worker") is null
+                                && !Named<Button>(window, "StartButton").IsEnabled,
+                                "Downloading an additional provider selected or started tracking automatically.");
+                            CheckAvailableDownloads(DownloadOrder.Concat(AdditionalDownloadOrder.Where(candidate => !store.Installed.Any(release => release.Kind == candidate))).ToArray());
+                            var cached = DownloadArchives(profile).Single(path => Path.GetFileName(path) == ModuleDownloader.SourceFor(kind).FileName);
+                            Check(HashFile(cached) == Convert.ToHexString(SHA256.HashData(packages[ModuleDownloader.SourceFor(kind).DownloadUri])),
+                                "The imported official module bytes were changed or replaced.");
+                        }
+                        Check(handler.Requests.SequenceEqual(AdditionalDownloadOrder.Select(kind => ModuleDownloader.SourceFor(kind).DownloadUri)),
+                            "An additional module button requested the wrong publisher's download.");
+                        CloseWindow();
+                        window = CreateWindow(profile, moduleDownloader: downloader); window.Show();
+                        PumpUntil(() => Field<bool>(window, "_initialized") && !Field<bool>(window, "_busy"), "additional provider library reopened");
+                        var reopened = new ModuleStore(profile);
+                        Check(reopened.Installed.Count == 3 && AdditionalDownloadOrder.All(kind => reopened.Installed.Any(release => release.Kind == kind))
+                            && reopened.Current is null && Field<object?>(window, "_worker") is null,
+                            "Reopening lost an additional provider or activated tracking without selection.");
+                        Named<RadioButton>(window, "ModulesNav").IsChecked = true; Pump();
+                        CheckAvailableDownloads(DownloadOrder);
+                        SavePreview(window, renderDirectory, "additional-official-modules-installed.png");
+                    }
+                    finally { CloseWindow(); }
+                });
+            }
+
+            if (additionalModuleDirectory is not null && workerExecutable is not null)
+            {
+                Test("Use module keeps offline SRanipal and Beyond selected with the correct waiting state and a quick stop", () =>
+                {
+                    foreach (var (kind, filename, expectedLabel) in new[]
+                    {
+                        (ModuleKind.SRanipal, "SRanipalTrackingModule.zip", "SRanipal"),
+                        (ModuleKind.Beyond, "Beyond-Build.zip", "Beyond")
+                    })
+                    {
+                        var activeRuntime = false;
+                        if (kind == ModuleKind.SRanipal)
+                        {
+                            var processes = Process.GetProcessesByName("sr_runtime");
+                            try { activeRuntime = processes.Length > 0; }
+                            finally { foreach (var process in processes) process.Dispose(); }
+                        }
+                        else
+                        {
+                            using var memory = OpenFileMappingW(0x0004, false, "VRCFTMemmapData");
+                            activeRuntime = !memory.IsInvalid || Marshal.GetLastWin32Error() == 5;
+                        }
+                        if (activeRuntime)
+                        {
+                            Console.WriteLine("SKIP " + kind + " offline UI: the user's tracking runtime is present and was not changed.");
+                            continue;
+                        }
+                        var profile = Path.Combine(root, "offline-" + kind + "-selection");
+                        using var output = ReservePort(); using var feedback = ReservePort();
+                        var feedbackPort = PortOf(feedback); feedback.Dispose();
+                        new AppSettings { AutoStart = false, OutputPort = PortOf(output), ReceivePort = feedbackPort }.Save(profile);
+                        var store = new ModuleStore(profile);
+                        var module = store.Prepare(Path.Combine(additionalModuleDirectory, filename), kind);
+                        store.Register(module);
+                        try
+                        {
+                            window = CreateWindow(profile, workerExecutable); themes.AttachWindow(window); window.Show();
+                            PumpUntil(() => Field<bool>(window, "_initialized") && !Field<bool>(window, "_busy"), "offline provider window loaded");
+                            var selection = Stopwatch.StartNew();
+                            InvokeModuleSelection(module);
+                            Check(selection.Elapsed < TimeSpan.FromSeconds(10), "Selecting the offline module waited for its startup timeout.");
+                            Check(new ModuleStore(profile).Current == module && Field<bool>(window, "_running")
+                                && Field<bool>(window, "_awaitingTrackingSource"),
+                                "Offline module selection was rejected or lost its waiting state: " + kind);
+                            var title = Named<TextBlock>(window, "StateTitle").Text;
+                            var details = Named<TextBlock>(window, "StateDetail").Text;
+                            var headset = Named<TextBlock>(window, "HeadsetState").Text;
+                            Check(title.Contains("Waiting", StringComparison.OrdinalIgnoreCase) && title.Contains(expectedLabel)
+                                && details.Contains(expectedLabel, StringComparison.OrdinalIgnoreCase) && headset.Contains(expectedLabel),
+                                "The waiting state does not identify the selected provider: " + kind);
+                            Check(!title.Contains("Virtual Desktop") && !details.Contains("Virtual Desktop")
+                                && !Named<TextBlock>(window, "GlobalNoticeText").Text.Contains("could not", StringComparison.OrdinalIgnoreCase),
+                                "The offline provider displayed another provider's instructions or a false startup error.");
+                            var processId = Field<Process>(window, "_worker").Id;
+                            PumpFor(TimeSpan.FromMilliseconds(200));
+                            Check(output.Available == 0 && Field<Process>(window, "_worker").Id == processId,
+                                "Waiting for hardware sent neutral tracking or restarted the runtime.");
+                            Named<RadioButton>(window, "OverviewNav").IsChecked = true; Pump();
+                            BeginButtonClick(Named<Button>(window, "StartButton"));
+                            PumpUntil(() => !Field<bool>(window, "_busy") && !Field<bool>(window, "_running"),
+                                "offline provider stopped quickly", TimeSpan.FromSeconds(6));
+                            Check(Field<object?>(window, "_worker") is null && !Field<bool>(window, "_awaitingTrackingSource")
+                                && new ModuleStore(profile).Current == module,
+                                "Stopping the offline provider lost its selection or retained the worker.");
+                            CloseWindow();
+                            window = CreateWindow(profile, workerExecutable); window.Show();
+                            PumpUntil(() => Field<bool>(window, "_initialized") && !Field<bool>(window, "_busy"), "offline provider selection reopened");
+                            Check(new ModuleStore(profile).Current == module && Field<object?>(window, "_worker") is null,
+                                "Reopening lost the offline provider selection or ignored disabled auto-start.");
+                        }
+                        finally { CloseWindow(); }
+                    }
                 });
             }
 
@@ -2271,7 +2599,7 @@ internal static class Program
                         PumpUntil(() => Field<bool>(window, "_initialized") && !Field<bool>(window, "_busy"), "VD waiting profile loaded");
                         InvokeModuleSelection(virtualDesktop);
                         Check(new ModuleStore(profile).Current == virtualDesktop && Field<bool>(window, "_running")
-                            && Field<bool>(window, "_awaitingVirtualDesktop"),
+                            && Field<bool>(window, "_awaitingTrackingSource"),
                             "Use module rejected the absent Streamer instead of saving a waiting VD selection.");
                         Check(Named<TextBlock>(window, "StateTitle").Text.Contains("Waiting", StringComparison.OrdinalIgnoreCase)
                             && Named<TextBlock>(window, "StateDetail").Text.Contains("Streamer", StringComparison.OrdinalIgnoreCase),
@@ -2286,7 +2614,7 @@ internal static class Program
                         BeginButtonClick(Named<Button>(window, "StartButton"));
                         PumpUntil(() => !Field<bool>(window, "_busy") && !Field<bool>(window, "_running"),
                             "waiting VD session stopped", TimeSpan.FromSeconds(6));
-                        Check(Field<object?>(window, "_worker") is null && !Field<bool>(window, "_awaitingVirtualDesktop")
+                        Check(Field<object?>(window, "_worker") is null && !Field<bool>(window, "_awaitingTrackingSource")
                             && new ModuleStore(profile).Current == virtualDesktop,
                             "Stopping a waiting VD worker lost its saved selection or retained waiting state.");
                     }
@@ -2441,6 +2769,53 @@ internal static class Program
         Method(particles, "OnRendering").Invoke(particles, [null, frame]);
     }
 
+    private static void EnableKitty(MainWindow target)
+    {
+        var overlay = Named<HologramKittyOverlay>(target, "KittyOverlay");
+        if (!overlay.IsActive) Named<Button>(target, "KittyToggle").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        PumpUntil(() => overlay.IsActive && overlay.IsVisible
+            && overlay.IsAnimating == SystemParameters.ClientAreaAnimation, "kitty explicitly enabled for this session");
+    }
+
+    private static Point KittyBodyPoint(HologramKittyOverlay overlay)
+    {
+        var bounds = overlay.CatBounds;
+        return new Point(bounds.X + bounds.Width * .5, bounds.Y + bounds.Height * .5);
+    }
+
+    private static void BeginKittyDrag(HologramKittyOverlay overlay)
+    {
+        var body = KittyBodyPoint(overlay);
+        Check(overlay.BeginPickup(body), "The kitty did not accept a new pickup gesture.");
+        overlay.MovePickup(body + new Vector(16, -8));
+        Check(overlay.IsDragging, "Holding and moving the kitty did not pick it up.");
+    }
+
+    private static KittySurface KittyPerchSurface(HologramKittyOverlay overlay)
+    {
+        // Select an eligible edge from the app's actual panel inventory rather
+        // than giving the overlay a synthetic surface that could mask layout bugs.
+        foreach (var surface in overlay.GetSurfaces?.Invoke() ?? [])
+            if (KittyPanelWorld.TryFindNearestPerch([surface], overlay.ActualWidth, overlay.ActualHeight,
+                surface.Left + surface.Width * .5 - KittyPanelWorld.FeetX,
+                surface.Top - KittyPanelWorld.FeetY, .1, out _)) return surface;
+        throw new InvalidOperationException("No real visible panel top is available to the kitty.");
+    }
+
+    private static void DropKittyOn(HologramKittyOverlay overlay, KittySurface surface)
+    {
+        var body = KittyBodyPoint(overlay);
+        var feet = overlay.FeetPosition;
+        Check(overlay.BeginPickup(body), "The kitty did not accept pickup before a panel drop.");
+        var release = body + (new Point(surface.Left + surface.Width * .5, surface.Top) - feet);
+        // A cat already on this edge must still cross the pickup threshold.
+        overlay.MovePickup(body + new Vector(18, -9));
+        overlay.MovePickup(release);
+        overlay.EndPickup(release);
+        PumpUntil(() => overlay.IsPerched && overlay.CurrentPerchSurfaceId == surface.Id,
+            "kitty finished its soft landing on the panel edge");
+    }
+
     private static UdpClient ReservePort()
     {
         var socket = new UdpClient(AddressFamily.InterNetwork);
@@ -2591,6 +2966,10 @@ internal static class Program
 
     private static void CheckAvailableDownloads(params ModuleKind[] expected)
     {
+        // These profile fixtures install the original four providers. The three
+        // additional official providers must remain available beside them.
+        var installed = Field<ModuleStore>(window!, "_store").Installed.Where(release => release.IsAvailable).Select(release => release.Kind).ToHashSet();
+        expected = expected.Concat(AdditionalDownloadOrder.Where(kind => !installed.Contains(kind))).Distinct().ToArray();
         var choices = Named<ItemsControl>(window!, "DownloadChoices");
         var actual = choices.Items.Cast<object>().Select(item => (ModuleKind)item.GetType().GetProperty("Kind")!.GetValue(item)!).ToArray();
         Check(actual.SequenceEqual(expected), "Installed providers were not hidden from downloads in the requested order: " + string.Join(", ", actual));
@@ -2628,7 +3007,9 @@ internal static class Program
     private static string[] DownloadArchives(string profile)
     {
         var downloads = Path.Combine(profile, "downloads");
-        return Directory.Exists(downloads) ? Directory.GetFiles(downloads, "*.zip", SearchOption.AllDirectories) : [];
+        return Directory.Exists(downloads) ? Directory.GetFiles(downloads, "*", SearchOption.AllDirectories)
+            .Where(path => Path.GetExtension(path).Equals(".zip", StringComparison.OrdinalIgnoreCase)
+                || Path.GetExtension(path).Equals(".dll", StringComparison.OrdinalIgnoreCase)).ToArray() : [];
     }
 
     private static Button DownloadButton(ModuleKind kind)

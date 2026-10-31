@@ -15,7 +15,7 @@ namespace BabbleFrameBridge.App;
 /// A local neural-policy companion layered over the app. Only the cat is hit
 /// testable; its visual antics never click a real control or move the OS cursor.
 /// </summary>
-public sealed class HologramKittyOverlay : FrameworkElement, IDisposable
+public sealed partial class HologramKittyOverlay : FrameworkElement, IDisposable
 {
     private const double CatSize = 144;
     private const double DecisionInterval = .125;
@@ -84,13 +84,15 @@ public sealed class HologramKittyOverlay : FrameworkElement, IDisposable
             if (ActualWidth > 0 && ActualHeight > 0)
             {
                 PositionInitially();
-                _position = ClampPosition(_position);
+                RefreshSurfaces();
+                _position = ClampWorldPosition(_position);
                 _target = ClampPosition(_target);
                 PlaceCat();
             }
             _velocity = default;
             _lift = 0;
             _cat.ResetRig();
+            RenderWorldFrame(.5);
             _rippleRemaining = 0;
             AnimationSuspended?.Invoke(this, EventArgs.Empty);
             InvalidateVisual();
@@ -111,6 +113,8 @@ public sealed class HologramKittyOverlay : FrameworkElement, IDisposable
         owner.IsVisibleChanged += OwnerVisibilityChanged;
         owner.StateChanged += OwnerStateChanged;
         owner.Closed += OwnerClosed;
+        owner.Deactivated += OwnerDeactivated;
+        owner.PreviewKeyDown += PickupKeyDown;
         SystemParameters.StaticPropertyChanged += SystemPreferenceChanged;
         UpdateActivity();
     }
@@ -123,6 +127,7 @@ public sealed class HologramKittyOverlay : FrameworkElement, IDisposable
         Visibility = active ? Visibility.Visible : Visibility.Collapsed;
         if (active)
         {
+            _nextClimbAt = _seconds + 3.5;
             PositionInitially();
             PlaceCat();
             _cat.RenderFrame(_mind.Action, 0, _seconds, facing: _facing, excitement: _mind.Stimulation);
@@ -159,17 +164,18 @@ public sealed class HologramKittyOverlay : FrameworkElement, IDisposable
                 _velocity = default;
                 _lift = 0;
                 _cat.ResetRig();
+                if (visible && !SystemParameters.ClientAreaAnimation) CompleteWorldWithoutMotion();
                 PlaceCat();
                 _pointerActive = false;
                 _cursorMotion = _wavePulse = 0;
                 _rippleRemaining = 0;
                 ClearCaption();
-                _cat.RenderFrame(KittyAction.Watch, .5, _seconds, facing: _facing);
+                RenderWorldFrame(.5);
                 AnimationSuspended?.Invoke(this, EventArgs.Empty);
                 InvalidateVisual();
             }
         }
-        if (!visible) ClearCaption();
+        if (!visible) { CancelPickup(); ClearCaption(); }
         else if (animate) _captionTimer.Stop();
         if (_inputAttached == animate || _owner is null) return;
         _inputAttached = animate;
@@ -230,7 +236,13 @@ public sealed class HologramKittyOverlay : FrameworkElement, IDisposable
     {
         base.OnMouseDown(args);
         var point = args.GetPosition(this);
-        if (!_active || args.ChangedButton != MouseButton.Left || !HitCat(point)) return;
+        if (args.ChangedButton != MouseButton.Left || !BeginPickup(point)) return;
+        if (!CaptureMouse()) CancelPickup();
+        args.Handled = true;
+    }
+
+    private void Pester(Point point)
+    {
         _pointer = _lastPointer = point;
         _pointerActive = true;
         _previousPointerDelta = default;
@@ -244,9 +256,8 @@ public sealed class HologramKittyOverlay : FrameworkElement, IDisposable
             ObserveActionChange();
         }
         else _cat.RenderFrame(KittyAction.Watch, .5, _seconds, facing: _facing);
-        ShowBubble(_mind.Irritation > .65 ? "hff." : _mind.Stimulation > .6 ? "!!" : "mrrp", 1.25);
+        ShowBubble(_mind.Irritation > .65 ? "hff." : _mind.Stimulation > .6 ? "mrow!" : "mrrp", 1.25);
         StateChanged?.Invoke(this, EventArgs.Empty);
-        args.Handled = true;
     }
 
     private KittyStimulus Stimulus()
@@ -273,16 +284,16 @@ public sealed class HologramKittyOverlay : FrameworkElement, IDisposable
         _decisionAccumulator += dt;
         _cursorMotion *= Math.Exp(-dt * 3.5);
         _wavePulse *= Math.Exp(-dt * 1.5);
-        if (_decisionAccumulator >= DecisionInterval)
+        if (_decisionAccumulator >= DecisionInterval && !_carry.IsPressed && !IsClimbing)
         {
             _mind.Tick(Math.Min(.5, _decisionAccumulator), Stimulus());
             _decisionAccumulator = 0;
             ObserveActionChange();
         }
-        UpdateMovement(dt);
+        if (!UpdateWorld(dt)) UpdateMovement(dt);
         var phase = Math.Clamp((_mind.ActionAge + _decisionAccumulator) / Math.Max(.1, _mind.ActionDuration), 0, 1);
         UpdateGaze(dt);
-        if (!_impactSent && phase >= .4)
+        if (!_carry.IsPressed && _worldMode == WorldMode.Free && !_impactSent && phase >= .4)
         {
             if (_mind.Action is KittyAction.SmackPanel or KittyAction.Scratch)
             {
@@ -310,7 +321,7 @@ public sealed class HologramKittyOverlay : FrameworkElement, IDisposable
             _captionSent = true;
         }
         _cat.UpdateRig(dt, _velocity.X, _velocity.Y, _facing);
-        _cat.RenderFrame(_mind.Action, phase, _seconds, _gaze.X, _gaze.Y, _facing, _mind.Stimulation);
+        RenderWorldFrame(phase, advance: true);
         var hadOverlayEffects = _caption.Visible || _rippleRemaining > 0;
         _caption.Advance(dt);
         _rippleRemaining = Math.Max(0, _rippleRemaining - dt);
@@ -343,9 +354,9 @@ public sealed class HologramKittyOverlay : FrameworkElement, IDisposable
             KittyAction.Circle => ClampPosition(_restingSpot),
             _ => _position
         };
-        if (_mind.Action == KittyAction.Zoomies) ShowBubble("!!", 1);
+        if (_mind.Action == KittyAction.Zoomies) ShowBubble("mrow!", 1);
         else if (_mind.Action == KittyAction.Grumpy) ShowBubble("hff.", 1.6);
-        else if (_mind.Action is KittyAction.Swat or KittyAction.SmackPanel) ShowBubble("bap!", .65);
+        else if (_mind.Action is KittyAction.Swat or KittyAction.SmackPanel) ShowBubble("mrrp!", .65);
         if (_mind.Action is KittyAction.Loaf or KittyAction.Sleep) _restingSpot = _position;
         StateChanged?.Invoke(this, EventArgs.Empty);
     }
@@ -560,6 +571,8 @@ public sealed class HologramKittyOverlay : FrameworkElement, IDisposable
         _owner.IsVisibleChanged -= OwnerVisibilityChanged;
         _owner.StateChanged -= OwnerStateChanged;
         _owner.Closed -= OwnerClosed;
+        _owner.Deactivated -= OwnerDeactivated;
+        _owner.PreviewKeyDown -= PickupKeyDown;
         _owner.PreviewMouseMove -= OnPointerMove;
         _owner.PreviewMouseDown -= OnWindowClick;
         _owner.MouseLeave -= OnPointerLeave;
@@ -572,6 +585,7 @@ public sealed class HologramKittyOverlay : FrameworkElement, IDisposable
     {
         Dispatcher.VerifyAccess();
         if (_disposed) return;
+        CancelPickup();
         _disposed = true;
         _active = _rendering = false;
         _captionTimer.Stop(); _captionTimer.Tick -= OnCaptionTick;

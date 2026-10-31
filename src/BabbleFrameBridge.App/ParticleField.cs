@@ -36,6 +36,9 @@ public sealed class ParticleField : FrameworkElement
     private Point pointer;
     private TimeSpan? lastFrame;
     private double seconds;
+    private const double SpeedTransitionSeconds = .65;
+    private double motionSpeed = 1, speedFrom = 1, speedTarget = 1, speedElapsed = SpeedTransitionSeconds;
+    public double MotionSpeed => motionSpeed;
     private double pathSeconds = double.NaN, pathWidth, pathHeight;
 
     public bool AnimationsEnabled
@@ -56,6 +59,16 @@ public sealed class ParticleField : FrameworkElement
     private static void OnAnimationPreferenceChanged(DependencyObject sender, DependencyPropertyChangedEventArgs args)
     {
         var field = (ParticleField)sender;
+        field.speedFrom = field.motionSpeed;
+        field.speedTarget = field.AnimationsEnabled ? 1 : 0;
+        field.speedElapsed = 0;
+        if (!field.AnimationsEnabled) field.pointerActive = false;
+        if (!field.loaded || !field.IsVisible || !SystemParameters.ClientAreaAnimation
+            || field.owner?.WindowState == WindowState.Minimized)
+        {
+            field.motionSpeed = field.speedFrom = field.speedTarget;
+            field.speedElapsed = SpeedTransitionSeconds;
+        }
         field.UpdateAnimationState(); field.InvalidateVisual();
     }
 
@@ -94,9 +107,15 @@ public sealed class ParticleField : FrameworkElement
     private void UpdateAnimationState()
     {
         if (!Dispatcher.CheckAccess()) { Dispatcher.BeginInvoke(new Action(UpdateAnimationState)); return; }
-        var active = loaded && IsVisible && ActualWidth > 0 && ActualHeight > 0
-            && AnimationsEnabled && SystemParameters.ClientAreaAnimation
+        var visible = loaded && IsVisible && ActualWidth > 0 && ActualHeight > 0
+            && SystemParameters.ClientAreaAnimation
             && owner?.WindowState != WindowState.Minimized;
+        if (!visible && !AnimationsEnabled)
+        {
+            motionSpeed = speedFrom = speedTarget = 0;
+            speedElapsed = SpeedTransitionSeconds;
+        }
+        var active = visible && (AnimationsEnabled || motionSpeed > .00001);
         if (active == attached) return;
         attached = active; lastFrame = null;
         if (active) CompositionTarget.Rendering += OnRendering;
@@ -113,7 +132,7 @@ public sealed class ParticleField : FrameworkElement
     private void OnMouseMove(object sender, MouseEventArgs args)
     {
         pointer = args.GetPosition(this);
-        pointerActive = attached && pointer.X >= 0 && pointer.Y >= 0
+        pointerActive = attached && AnimationsEnabled && pointer.X >= 0 && pointer.Y >= 0
             && pointer.X <= ActualWidth && pointer.Y <= ActualHeight;
     }
     private void OnMouseLeave(object sender, MouseEventArgs args) => pointerActive = false;
@@ -121,7 +140,13 @@ public sealed class ParticleField : FrameworkElement
     private void OnRendering(object? sender, EventArgs args)
     {
         if (!attached || args is not RenderingEventArgs frame || lastFrame == frame.RenderingTime) return;
-        var dt = lastFrame.HasValue ? Math.Clamp((frame.RenderingTime - lastFrame.Value).TotalSeconds, 0, .035) : 0;
+        var elapsed = lastFrame.HasValue ? Math.Clamp((frame.RenderingTime - lastFrame.Value).TotalSeconds, 0, .15) : 0;
+        var beforeSpeed = motionSpeed;
+        speedElapsed = Math.Min(SpeedTransitionSeconds, speedElapsed + elapsed);
+        var t = speedElapsed / SpeedTransitionSeconds;
+        var ease = t * t * (3 - 2 * t);
+        motionSpeed = speedFrom + (speedTarget - speedFrom) * ease;
+        var dt = Math.Min(elapsed, .035) * (beforeSpeed + motionSpeed) * .5;
         lastFrame = frame.RenderingTime; seconds += dt;
         if (pointerActive || displaced)
         {
@@ -147,6 +172,7 @@ public sealed class ParticleField : FrameworkElement
             }
         }
         InvalidateVisual();
+        if (!AnimationsEnabled && speedElapsed >= SpeedTransitionSeconds) UpdateAnimationState();
     }
 
     protected override void OnRender(DrawingContext drawing)
