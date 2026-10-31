@@ -6,6 +6,7 @@ using System.Text;
 using System.IO;
 using System.Windows;
 using System.Runtime.InteropServices;
+using System.Windows.Interop;
 
 namespace BabbleFrameBridge.App;
 
@@ -15,15 +16,24 @@ public partial class App : Application
     private Mutex? _installerPresence;
     private SystemThemeManager? _theme;
     private CancellationTokenSource? _steamVrMonitor;
+    private SystemTrayIcon? _tray;
+    private HwndSource? _windowSource;
+    private uint _restoreMessage, _quitMessage;
+    private EventWaitHandle? _instanceReady;
     [DllImport("kernel32.dll", CharSet = CharSet.Unicode)]
     private static extern int RegisterApplicationRestart(string commandLine, uint flags);
     [DllImport("shell32.dll", CharSet = CharSet.Unicode)]
     private static extern int SetCurrentProcessExplicitAppUserModelID(string appId);
+    [DllImport("user32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+    private static extern uint RegisterWindowMessage(string name);
+    [DllImport("user32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool PostMessage(nint window, uint message, nint wParam, nint lParam);
     protected override void OnStartup(StartupEventArgs e)
     {
         base.OnStartup(e);
         var root = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "BabbleFrameBridge");
-        var maintenance = e.Args.Contains("--refresh-steamvr-registration") || e.Args.Contains("--unregister-steamvr");
+        var maintenance = e.Args.Contains("--refresh-steamvr-registration") || e.Args.Contains("--unregister-steamvr") || e.Args.Contains("--quit");
         try { StartApplication(e, ref root); }
         catch (Exception error)
         {
@@ -56,12 +66,25 @@ public partial class App : Application
             ?? throw new InvalidOperationException("The app executable could not be located."));
         if (SteamVrMaintenance.TryRun(e.Args, root, () => steamVr.ConfigureAutoLaunch(true), steamVr.Unregister)) { Shutdown(); return; }
         var key = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(root.ToUpperInvariant())))[..20];
+        _restoreMessage = RegisterWindowMessage("ClassicWasTaken.FaceTrackingBridge.Open." + key);
+        _quitMessage = RegisterWindowMessage("ClassicWasTaken.FaceTrackingBridge.Quit." + key);
+        if (_restoreMessage == 0 || _quitMessage == 0) throw new InvalidOperationException("Windows could not register the app's Open and Quit actions.");
+        _instanceReady = new EventWaitHandle(false, EventResetMode.ManualReset, "Local\\FaceTrackingBridge.Ready-" + key);
         _instance = new Mutex(true, "Local\\BabbleFrameBridge-" + key, out var first);
         if (!first)
         {
-            if (!e.Args.Contains("--steamvr")) MessageBox.Show("Face Tracking Bridge is already open.", "Face Tracking Bridge");
+            // Reopening the shortcut restores a hidden instance. SteamVR's
+            // automatic launch never interrupts an already-running session.
+            if (e.Args.Contains("--quit") || !e.Args.Contains("--steamvr"))
+            {
+                if (!_instanceReady.WaitOne(TimeSpan.FromSeconds(5)))
+                    throw new InvalidOperationException("Face Tracking Bridge is still starting or shutting down. Try opening it again in a moment.");
+                PostMessage(0xffff, e.Args.Contains("--quit") ? _quitMessage : _restoreMessage, 0, 0);
+            }
             Shutdown(); return;
         }
+        _instanceReady.Reset();
+        if (e.Args.Contains("--quit")) { Shutdown(); return; }
         // Stable presence marker lets future installers detect even portable copies.
         // Profile mutexes continue to keep normal and diagnostic data isolated.
         _installerPresence = new Mutex(false, "Local\\FrameBridge.Desktop");
@@ -82,11 +105,45 @@ public partial class App : Application
         var windowRoot = root;
         MainWindow = window;
         _theme.AttachWindow(window);
+        window.SourceInitialized += (_, _) => {
+            _windowSource = HwndSource.FromHwnd(new WindowInteropHelper(window).Handle);
+            _windowSource?.AddHook(InstanceWindowMessage);
+            if (_windowSource is not null) _instanceReady.Set();
+        };
         window.StartupPreferencesChanged += (_, _) => UpdateSteamVrMonitor(steamVr, window, windowRoot);
         window.Closed += (_, _) => StopSteamVrMonitor();
-        if (window.StartMinimized || e.Args.Contains("--minimized")) window.WindowState = WindowState.Minimized;
+        SessionEnding += (_, _) => window.AllowSystemExit();
+        try
+        {
+            _tray = new SystemTrayIcon(Path.Combine(AppContext.BaseDirectory, "Assets", "Brand", "FaceTrackingBridge-headset-v2.ico"),
+                window.RestoreFromSystemTray, window.RequestExit);
+            window.ConfigureSystemTray(_tray.TryShow);
+            _tray.Unavailable += (_, _) => window.RestoreFromSystemTray();
+            _tray.TryShow();
+        }
+        catch (Exception error) { LogMaintenanceError(root, error); }
         UpdateSteamVrMonitor(steamVr, window, root);
-        window.Show();
+        if ((window.StartMinimized || e.Args.Contains("--minimized")) && window.HideToSystemTray())
+        {
+            // Create a hidden HWND for Open/Quit IPC, without showing a taskbar
+            // button or activating a window during startup.
+            new WindowInteropHelper(window).EnsureHandle();
+            _ = window.InitializeBridgeAsync();
+        }
+        else window.Show();
+    }
+
+    private nint InstanceWindowMessage(nint window, int message, nint wParam, nint lParam, ref bool handled)
+    {
+        if ((uint)message == _restoreMessage || (uint)message == _quitMessage)
+        {
+            handled = true;
+            var quit = (uint)message == _quitMessage;
+            _ = Dispatcher.BeginInvoke(new Action(() => {
+                if (MainWindow is MainWindow main) { if (quit) main.RequestExit(); else main.RestoreFromSystemTray(); }
+            }));
+        }
+        return 0;
     }
 
     private void UpdateSteamVrMonitor(SteamVrIntegration steamVr, MainWindow window, string root)
@@ -107,7 +164,7 @@ public partial class App : Application
             await steamVr.MonitorSessionAsync(() => Dispatcher.BeginInvoke(() =>
             {
                 if (!token.IsCancellationRequested && window.CloseWithSteamVr)
-                    window.Close();
+                    window.RequestExit();
             }), token);
         }
         catch (OperationCanceledException) when (token.IsCancellationRequested) { }
@@ -136,6 +193,9 @@ public partial class App : Application
     protected override void OnExit(ExitEventArgs e)
     {
         StopSteamVrMonitor();
+        _tray?.Dispose();
+        _windowSource?.RemoveHook(InstanceWindowMessage);
+        _instanceReady?.Dispose();
         _theme?.Dispose(); _installerPresence?.Dispose(); _instance?.Dispose(); base.OnExit(e);
     }
 }

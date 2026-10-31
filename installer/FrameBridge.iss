@@ -147,6 +147,8 @@ Name: "{#IconDesktopDir}\{#ProductName}"; Filename: "{app}\BabbleFrameBridge.exe
 Filename: "{app}\BabbleFrameBridge.exe"; Description: "Open &Face Tracking Bridge"; WorkingDir: "{app}"; Flags: nowait postinstall skipifsilent
 
 [Messages]
+SetupAppRunningError=Setup has detected that %1 is currently running.%n%nRight-click the Face Tracking Bridge system tray icon and choose Quit. Clicking the window's X only hides it.%n%nThen click OK to continue, or Cancel to exit Setup.
+UninstallAppRunningError=Uninstall has detected that %1 is currently running.%n%nRight-click the Face Tracking Bridge system tray icon and choose Quit. Clicking the window's X only hides it.%n%nThen click OK to continue, or Cancel to exit Uninstall.
 WelcomeLabel1=Meet Face Tracking Bridge.
 WelcomeLabel2=Your headset expressions, connected to VRChat.%n%nSetup will install this independent bridge for your Windows account.%n%nThe Microsoft Visual C++ v14 Redistributable (x64) must be installed separately from Microsoft.%n%nFuture versions can be installed over this one. Your settings and imported modules stay in place.
 FinishedHeadingLabel=You’re ready to express yourself.

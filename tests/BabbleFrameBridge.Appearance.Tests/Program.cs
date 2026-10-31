@@ -436,6 +436,32 @@ internal static class Program
                 themes.ApplyTheme(true); Pump(); SavePreview(window, renderDirectory, "connection-dark.png");
             });
 
+            Test("startup preferences have their own Settings page and clear system tray wording", () =>
+            {
+                Named<RadioButton>(window, "PreferencesNav").IsChecked = true;
+                PumpUntil(() => Named<StackPanel>(window, "PreferencesPage").Visibility == Visibility.Visible,
+                    "dedicated Settings page opened");
+                Check(Named<TextBlock>(window, "PageTitle").Text == "Settings",
+                    "The startup preferences page did not have the Settings heading.");
+                var preferences = Named<StackPanel>(window, "PreferencesPage");
+                var connection = Named<StackPanel>(window, "SettingsPage");
+                Check(Descendants(preferences).Contains(Named<Border>(window, "StartupWindowCard"))
+                    && Descendants(preferences).Contains(Named<CheckBox>(window, "AutoStartBox"))
+                    && !Descendants(connection).Contains(Named<Border>(window, "StartupWindowCard"))
+                    && !Descendants(connection).Contains(Named<CheckBox>(window, "AutoStartBox")),
+                    "Startup preferences remained in Connection instead of Settings.");
+                Check((string)Named<CheckBox>(window, "StartMinimizedBox").Content == "Start minimized to system tray"
+                    && AutomationProperties.GetName(Named<CheckBox>(window, "StartMinimizedBox")) == "Start minimized to system tray",
+                    "The minimized startup preference did not explicitly identify the system tray.");
+                Check(Descendants(preferences).OfType<TextBlock>().Any(text => text.Text.Contains("X keeps tracking running")
+                    && text.Text.Contains("Open and Quit")), "Settings did not explain close-to-tray and how to quit.");
+                Named<RadioButton>(window, "SettingsNav").IsChecked = true;
+                PumpUntil(() => connection.Visibility == Visibility.Visible, "Connection page restored");
+                Check(Named<TextBlock>(window, "PageTitle").Text == "Connection"
+                    && Descendants(connection).Contains(Named<Button>(window, "SaveButton"))
+                    && preferences.Visibility == Visibility.Collapsed, "Connection no longer shows its own controls independently.");
+            });
+
             CloseWindow();
             Test("startup preferences register SteamVR once and survive connection saves and relaunch", () =>
             {
@@ -471,8 +497,8 @@ internal static class Program
                     Check(saved.StartWithSteamVr && saved.CloseWithSteamVr && saved.StartMinimized
                         && saved.OutputPort == 19200 && saved.ReceivePort == 19201 && !saved.AutoStart,
                         "Saving a connection reset the startup preferences.");
-                    Named<RadioButton>(window, "SettingsNav").IsChecked = true;
-                    PumpUntil(() => Named<StackPanel>(window, "SettingsPage").Opacity >= .999, "startup settings entrance completed");
+                    Named<RadioButton>(window, "PreferencesNav").IsChecked = true;
+                    PumpUntil(() => Named<StackPanel>(window, "PreferencesPage").Opacity >= .999, "startup settings entrance completed");
                     themes.ApplyTheme(false); Pump(); SavePreview(window, renderDirectory, "startup-light.png");
                     themes.ApplyTheme(true); Pump(); SavePreview(window, renderDirectory, "startup-dark.png");
                     CloseWindow();
@@ -580,44 +606,174 @@ internal static class Program
                 finally { registration.TrySetResult(); CloseWindow(); }
             });
 
+            Test("closing X hides to the tray without closing the window or changing runtime state", () =>
+            {
+                var profile = Path.Combine(root, "close-to-tray");
+                new AppSettings { AutoStart = false }.Save(profile);
+                try
+                {
+                    window = CreateWindow(profile);
+                    window.Show();
+                    PumpUntil(() => Field<bool>(window, "_initialized") && !Field<bool>(window, "_busy"), "close-to-tray profile loaded");
+                    var ensured = 0; var closed = false;
+                    window.ConfigureSystemTray(() => { ensured++; return true; });
+                    window.Closed += (_, _) => closed = true;
+                    var running = Field<bool>(window, "_running");
+                    var worker = Field<object?>(window, "_worker");
+                    var taskbarPreference = window.ShowInTaskbar;
+                    window.Close();
+                    PumpUntil(() => !window.IsVisible, "closing X hid the window");
+                    Check(ensured > 0 && !closed && !Field<bool>(window, "_closing")
+                        && Field<bool>(window, "_running") == running && ReferenceEquals(worker, Field<object?>(window, "_worker")),
+                        "Closing X began shutdown or changed tracking runtime state instead of hiding.");
+                    window.RestoreFromSystemTray();
+                    PumpUntil(() => window.IsVisible && !IsIconic(new WindowInteropHelper(window).Handle), "tray restore reopened the window");
+                    Check(window.ShowInTaskbar == taskbarPreference, "Restoring changed the window's taskbar preference.");
+                    Check(window.HideToSystemTray() && !window.IsVisible, "Hiding an already initialized window failed.");
+                    window.RequestExit();
+                    PumpUntil(() => closed, "explicit Quit closed the hidden window");
+                    Check(!Field<bool>(window, "_running") && Field<object?>(window, "_worker") is null,
+                        "Explicit Quit left the runtime active.");
+                }
+                finally { CloseWindow(); }
+            });
+
+            Test("an unavailable system tray leaves the window accessible and allows an explicit Quit", () =>
+            {
+                var profile = Path.Combine(root, "unavailable-tray");
+                new AppSettings { AutoStart = false }.Save(profile);
+                try
+                {
+                    window = CreateWindow(profile);
+                    window.Show();
+                    PumpUntil(() => Field<bool>(window, "_initialized") && !Field<bool>(window, "_busy"), "tray fallback profile loaded");
+                    window.ConfigureSystemTray(() => false);
+                    Check(!window.HideToSystemTray() && window.IsVisible,
+                        "A failed tray registration hid the only accessible window.");
+                    var closed = false;
+                    window.Closed += (_, _) => closed = true;
+                    window.RequestExit();
+                    PumpUntil(() => closed, "Quit closed the visible fallback");
+                }
+                finally { CloseWindow(); }
+            });
+
             if (published is not null)
             {
-                Test("the published app starts minimized in the taskbar and restores without exiting", () =>
+                Test("the published app starts in the system tray, restores, hides on X and quits cleanly", () =>
                 {
                     var profile = Path.Combine(root, "published-minimized-startup");
                     new AppSettings { AutoStart = false, StartMinimized = true }.Save(profile);
-                    var start = new ProcessStartInfo(Path.Combine(published, "BabbleFrameBridge.exe")) { UseShellExecute = false };
-                    start.ArgumentList.Add("--data");
-                    start.ArgumentList.Add(profile);
-                    using var process = Process.Start(start) ?? throw new InvalidOperationException("The published app did not start.");
+                    Process Launch(params string[] arguments)
+                    {
+                        var start = new ProcessStartInfo(Path.Combine(published, "BabbleFrameBridge.exe")) { UseShellExecute = false };
+                        foreach (var argument in arguments) start.ArgumentList.Add(argument);
+                        start.ArgumentList.Add("--data");
+                        start.ArgumentList.Add(profile);
+                        return Process.Start(start) ?? throw new InvalidOperationException("The published app did not start.");
+                    }
+                    using var process = Launch();
                     try
                     {
-                        IntPtr handle = IntPtr.Zero;
+                        IntPtr main = IntPtr.Zero, tray = IntPtr.Zero;
                         PumpUntil(() =>
                         {
-                            process.Refresh();
-                            handle = process.MainWindowHandle;
-                            return process.HasExited || handle != IntPtr.Zero;
-                        }, "published minimized window created", TimeSpan.FromSeconds(15));
-                        Check(!process.HasExited && handle != IntPtr.Zero, "The minimized app exited or did not create a window.");
-                        PumpUntil(() => IsIconic(handle), "published app entered its saved minimized state");
-                        Check(IsWindowVisible(handle) && GetWindow(handle, 4) == IntPtr.Zero,
-                            "The minimized app was hidden or owned instead of remaining available in the taskbar.");
-                        SendMessage(handle, 0x0112, (IntPtr)0xF120, IntPtr.Zero); // SC_RESTORE
-                        PumpUntil(() => !IsIconic(handle) && IsWindowVisible(handle), "published app restored from taskbar");
-                        SendMessage(handle, 0x0112, (IntPtr)0xF020, IntPtr.Zero); // SC_MINIMIZE
-                        PumpUntil(() => IsIconic(handle), "published app minimized again");
-                        process.Refresh();
-                        Check(!process.HasExited && IsWindowVisible(handle), "Minimizing closed or hid the running app.");
-                        Check(process.CloseMainWindow() && process.WaitForExit(5000) && process.ExitCode == 0,
-                            "The minimized app did not close normally.");
+                            main = FindProcessWindow(process.Id, "Face Tracking Bridge");
+                            tray = FindProcessWindow(process.Id, "Face Tracking Bridge tray");
+                            return process.HasExited || main != IntPtr.Zero && (HasTrayIcon(tray) || IsWindowVisible(main));
+                        }, "published startup established a tray icon or visible fallback", TimeSpan.FromSeconds(15));
+                        Check(!process.HasExited && main != IntPtr.Zero, "The app exited or did not create its main window.");
+                        var hasTray = HasTrayIcon(tray);
+                        Check(FindWindow("Shell_TrayWnd", null) == IntPtr.Zero || hasTray,
+                            "Explorer's notification area exists, but the app did not register its system tray icon.");
+                        Console.WriteLine(hasTray ? "  Native shell tray icon lifecycle exercised." : "  No notification area; visible fallback exercised.");
+                        if (hasTray)
+                            Check(!IsWindowVisible(main), "Start minimized left the main window visible instead of hiding it in the system tray.");
+                        else
+                            Check(IsWindowVisible(main) && !IsIconic(main), "An unavailable system tray stranded the app without a visible fallback.");
+
+                        using (var reopen = Launch())
+                            Check(reopen.WaitForExit(5000) && reopen.ExitCode == 0, "Reopening the app blocked instead of restoring the existing instance.");
+                        PumpUntil(() =>
+                        {
+                            main = FindProcessWindow(process.Id, "Face Tracking Bridge");
+                            return main != IntPtr.Zero && IsWindowVisible(main) && !IsIconic(main);
+                        }, "a second launch restored the existing main window");
+                        Check(GetWindow(main, 4) == IntPtr.Zero, "The restored window was owned instead of being available in the taskbar.");
+
+                        if (hasTray)
+                        {
+                            PostMessage(main, 0x0010, IntPtr.Zero, IntPtr.Zero); // WM_CLOSE, title-bar X
+                            PumpUntil(() => !IsWindowVisible(main), "closing X hid the window to the system tray");
+                            Check(!process.HasExited && HasTrayIcon(tray), "Closing X quit the process or removed its tray icon.");
+                            PostMessage(tray, 0x8247, IntPtr.Zero, (IntPtr)((1 << 16) | 0x0400)); // v4 NIN_SELECT
+                            PumpUntil(() =>
+                            {
+                                main = FindProcessWindow(process.Id, "Face Tracking Bridge");
+                                return main != IntPtr.Zero && IsWindowVisible(main);
+                            }, "tray activation reopened the window");
+                            PostMessage(main, 0x0010, IntPtr.Zero, IntPtr.Zero);
+                            PumpUntil(() => !IsWindowVisible(main), "the restored window hid to tray again");
+                        }
+                        using (var quit = Launch("--quit"))
+                            Check(quit.WaitForExit(5000) && quit.ExitCode == 0, "Quit did not reach the existing app instance.");
+                        Check(process.WaitForExit(5000) && process.ExitCode == 0, "The tray app did not stop cleanly after Quit.");
+                        Check(!HasTrayIcon(tray), "Quitting left the native system tray icon registered.");
                     }
                     finally
                     {
                         if (!process.HasExited)
                         {
-                            process.CloseMainWindow();
+                            using var quit = Launch("--quit");
+                            quit.WaitForExit(5000);
                             if (!process.WaitForExit(5000)) process.Kill(entireProcessTree: true);
+                        }
+                    }
+                });
+
+                Test("two simultaneous launches restore one tray instance without leaving a duplicate process", () =>
+                {
+                    var profile = Path.Combine(root, "published-simultaneous-startup");
+                    new AppSettings { AutoStart = false, StartMinimized = true }.Save(profile);
+                    Process Launch(params string[] arguments)
+                    {
+                        var start = new ProcessStartInfo(Path.Combine(published, "BabbleFrameBridge.exe")) { UseShellExecute = false };
+                        foreach (var argument in arguments) start.ArgumentList.Add(argument);
+                        start.ArgumentList.Add("--data");
+                        start.ArgumentList.Add(profile);
+                        return Process.Start(start) ?? throw new InvalidOperationException("The simultaneous app launch failed.");
+                    }
+                    using var first = Launch();
+                    using var second = Launch();
+                    try
+                    {
+                        Process? winner = null;
+                        PumpUntil(() =>
+                        {
+                            if (first.HasExited == second.HasExited) return false;
+                            winner = first.HasExited ? second : first;
+                            var handle = FindProcessWindow(winner.Id, "Face Tracking Bridge");
+                            return handle != IntPtr.Zero && IsWindowVisible(handle) && !IsIconic(handle);
+                        }, "simultaneous launches restored the one surviving instance", TimeSpan.FromSeconds(15));
+                        Check(winner is not null && (first.HasExited ? first.ExitCode : second.ExitCode) == 0,
+                            "The duplicate launch failed instead of restoring the app.");
+                        var tray = FindProcessWindow(winner!.Id, "Face Tracking Bridge tray");
+                        Check(FindWindow("Shell_TrayWnd", null) == IntPtr.Zero || HasTrayIcon(tray),
+                            "The surviving simultaneous instance lost its native tray icon.");
+                        using (var quit = Launch("--quit"))
+                            Check(quit.WaitForExit(5000) && quit.ExitCode == 0, "Quit did not reach the simultaneous-startup winner.");
+                        Check(winner.WaitForExit(5000) && winner.ExitCode == 0,
+                            "The simultaneous-startup winner did not close normally.");
+                        Check(!HasTrayIcon(tray), "The simultaneous-startup winner left a tray icon behind.");
+                    }
+                    finally
+                    {
+                        if (!first.HasExited || !second.HasExited)
+                        {
+                            using var quit = Launch("--quit");
+                            quit.WaitForExit(5000);
+                            foreach (var process in new[] { first, second })
+                                if (!process.HasExited && !process.WaitForExit(5000)) process.Kill(entireProcessTree: true);
                         }
                     }
                 });
@@ -625,6 +781,54 @@ internal static class Program
 
             if (suppliedZip is not null)
             {
+                if (workerExecutable is not null)
+                {
+                    Test("hidden startup initializes tracking before the window is ever shown and restores the same worker", () =>
+                    {
+                        var profile = Path.Combine(root, "hidden-tracking-startup");
+                        var fixtures = Path.Combine(root, "hidden-startup-fixtures");
+                        Directory.CreateDirectory(fixtures);
+                        using var output = ReservePort();
+                        var reservations = Enumerable.Range(0, 3).Select(_ => ReservePort()).ToArray();
+                        var receivePort = PortOf(reservations[0]);
+                        var linkPort = PortOf(reservations[1]);
+                        var inputPort = PortOf(reservations[2]);
+                        foreach (var reservation in reservations) reservation.Dispose();
+                        new AppSettings
+                        {
+                            AutoStart = true, StartMinimized = true, OutputPort = PortOf(output), ReceivePort = receivePort,
+                            LinkPort = linkPort, InputSource = TrackingInputSource.HeadsetRuntime
+                        }.Save(profile);
+                        var store = new ModuleStore(profile);
+                        store.Install(ModuleFixture(suppliedZip, fixtures, "4.0.0", inputPort, linkPort));
+                        try
+                        {
+                            window = CreateWindow(profile, workerExecutable);
+                            themes.AttachWindow(window);
+                            window.ConfigureSystemTray(() => true);
+                            new WindowInteropHelper(window).EnsureHandle();
+                            Task? initialization = null;
+                            window.Dispatcher.BeginInvoke(new Action(() => initialization = window.InitializeBridgeAsync()));
+                            PumpUntil(() => initialization?.IsCompleted == true, "hidden startup initialized its worker", TimeSpan.FromSeconds(30));
+                            Check(initialization!.IsCompletedSuccessfully && Field<bool>(window, "_initialized")
+                                && Field<bool>(window, "_running") && !window.IsVisible,
+                                "Tracking did not start while the window remained hidden.");
+                            var worker = Field<Process>(window, "_worker");
+                            var pid = worker.Id;
+                            using var observation = Process.GetProcessById(pid);
+                            Check(!worker.HasExited && worker.StartInfo.ArgumentList.Contains("--no-discovery"),
+                                "Hidden startup did not create an isolated live worker.");
+                            window.RestoreFromSystemTray();
+                            PumpUntil(() => window.IsVisible && window.IsLoaded && !Field<bool>(window, "_busy"), "hidden startup restored its first window");
+                            Check(Field<bool>(window, "_running") && Field<Process>(window, "_worker").Id == pid,
+                                "First restore restarted or lost the already initialized tracking worker.");
+                            window.RequestExit();
+                            PumpUntil(() => observation.HasExited, "Quit stopped the hidden-started worker");
+                        }
+                        finally { CloseWindow(); }
+                    });
+                }
+
                 Test("an explicitly imported module survives restart and enables Start without running it", () =>
                 {
                     Check(File.Exists(suppliedZip), "The explicit module fixture does not exist.");
@@ -1005,6 +1209,14 @@ internal static class Program
                         Check(Field<Process>(window, "_worker").StartInfo.ArgumentList.Contains("--no-discovery"),
                             "The isolated worker could discover a live VRChat session.");
                         var originalPid = Field<Process>(window, "_worker").Id;
+                        window.ConfigureSystemTray(() => true);
+                        window.Close();
+                        PumpUntil(() => !window.IsVisible, "active tracking window hid to tray");
+                        Check(Field<bool>(window, "_running") && Field<Process>(window, "_worker").Id == originalPid
+                            && !Field<Process>(window, "_worker").HasExited,
+                            "Closing to tray stopped or replaced the active tracking worker.");
+                        window.RestoreFromSystemTray();
+                        PumpUntil(() => window.IsVisible, "active tracking window restored from tray");
                         var settingsPath = Path.Combine(profile, "settings.json");
                         var savedConnection = File.ReadAllText(settingsPath);
                         Named<TextBox>(window, "PortBox").Text = inputPort.ToString();
@@ -2403,8 +2615,8 @@ internal static class Program
     private static void CloseWindow()
     {
         if (window is null) return;
-        window.Close();
-        PumpUntil(() => !window.IsVisible, "test window closed");
+        window.RequestExit();
+        PumpUntil(() => !window.IsLoaded && Field<bool>(window, "_allowClose"), "test window closed");
         window = null;
     }
 
@@ -2428,6 +2640,57 @@ internal static class Program
         return result;
     }
 
+    private static IntPtr FindProcessWindow(int processId, string title)
+    {
+        var found = IntPtr.Zero;
+        EnumWindows((handle, _) =>
+        {
+            GetWindowThreadProcessId(handle, out var owner);
+            if (owner != processId) return true;
+            var text = new System.Text.StringBuilder(256);
+            GetWindowText(handle, text, text.Capacity);
+            if (text.ToString() != title) return true;
+            found = handle;
+            return false;
+        }, IntPtr.Zero);
+        return found;
+    }
+
+    private static bool HasTrayIcon(IntPtr window)
+    {
+        if (window == IntPtr.Zero) return false;
+        var identifier = new NotifyIconIdentifier
+        {
+            Size = (uint)Marshal.SizeOf<NotifyIconIdentifier>(), Window = window, Id = 1
+        };
+        return ShellNotifyIconGetRect(ref identifier, out _) == 0;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct NotifyIconIdentifier
+    {
+        public uint Size;
+        public IntPtr Window;
+        public uint Id;
+        public Guid Guid;
+    }
+    [StructLayout(LayoutKind.Sequential)]
+    private struct NativeRect { public int Left, Top, Right, Bottom; }
+    private delegate bool EnumWindowCallback(IntPtr window, IntPtr parameter);
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool EnumWindows(EnumWindowCallback callback, IntPtr parameter);
+    [DllImport("user32.dll")]
+    private static extern uint GetWindowThreadProcessId(IntPtr window, out uint processId);
+    [DllImport("user32.dll", CharSet = CharSet.Unicode, EntryPoint = "GetWindowTextW")]
+    private static extern int GetWindowText(IntPtr window, System.Text.StringBuilder text, int length);
+    [DllImport("user32.dll", CharSet = CharSet.Unicode, EntryPoint = "FindWindowW")]
+    private static extern IntPtr FindWindow(string className, string? windowName);
+    [DllImport("shell32.dll", EntryPoint = "Shell_NotifyIconGetRect")]
+    private static extern int ShellNotifyIconGetRect(ref NotifyIconIdentifier identifier, out NativeRect rectangle);
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool PostMessage(IntPtr window, uint message, IntPtr wParam, IntPtr lParam);
     [DllImport("user32.dll", SetLastError = true)]
     private static extern IntPtr SendMessage(IntPtr window, int message, IntPtr wParam, IntPtr lParam);
     [DllImport("user32.dll")]

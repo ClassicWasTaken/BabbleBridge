@@ -10,7 +10,7 @@
 
 A Windows app that bridges eye and face tracking to VRChat through compatible **VRCFaceTracking SDK** modules. Supports Babble Headset Runtime, Baballonia desktop, Virtual Desktop, and Steam Link, with Jerry’s templates and VRChat’s native face-tracking SDK beta.
 
-![Face Tracking Bridge running on Windows](docs/images/app-running.jpg)
+![Face Tracking Bridge running on Windows](docs/images/app-running.png)
 
 ## Get started
 
@@ -22,7 +22,7 @@ Downloads come from the module authors; modules are never bundled. Your selected
 
 Using Baballonia Expressions Alpha? Download **Baballonia** in Modules, or choose **Update for Expressions Alpha** on an older imported module.
 
-In **Connection → Startup & window**, you can start and close with SteamVR or start minimized in the Windows taskbar. Tracking continues while minimized.
+In **Settings**, choose whether to start with SteamVR, close when it exits, or **start minimized to system tray**. Clicking **X** keeps tracking running in the tray; double-click the tray icon to reopen, or right-click it to **Quit**.
 
 Other compatible VRCFaceTracking SDK modules work too. `module.json` is optional; use a ZIP if a module needs supporting files.
 

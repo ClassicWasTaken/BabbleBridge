@@ -68,7 +68,8 @@ their target belongs to this installation. Unrelated shortcuts are preserved.
 Owned FaceTracking Bridge, Babble Bridge, Steam Frame Babble Bridge and Frame Bridge shortcuts migrate
 after their new replacement exists. Foreign shortcuts with those names remain.
 Setup and Uninstall refuse to proceed while this application's presence mutex
-exists; close the application before updating or removing it.
+exists. Choose Quit from the app's system tray menu before updating or removing
+it. Clicking the window's X hides the app and keeps tracking running.
 
 STEAMVR LAUNCH REGISTRATION
 Automatic SteamVR launch is optional and starts disabled. When it is enabled

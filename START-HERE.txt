@@ -97,22 +97,26 @@ YOUR FILES
 Settings, imported module versions and activity logs are stored in:
   %LOCALAPPDATA%\BabbleFrameBridge
 Existing VRCFaceTracking installations are not imported or modified. Logs stay
-on your PC; the bridge does not initialize a telemetry sender. Closing the app
+on your PC; the bridge does not initialize a telemetry sender. Quitting the app
 stops its tracking worker. Do not post logs containing avatar IDs, usernames,
 network addresses or other private data without removing those details.
 
-STARTUP AND TASKBAR
-Open Connection > Startup & window to enable Start with SteamVR, Close when
-SteamVR exits, or Start minimized in the taskbar. Each option is off initially
+STARTUP AND SYSTEM TRAY
+Open Settings to enable Start with SteamVR, Close when SteamVR exits, or
+Start minimized to system tray. These three options are off initially
 and saves immediately. SteamVR startup needs an installed SteamVR runtime.
 Changing its setting may briefly open SteamVR's background settings service;
 it does not start a VR session. Auto-close waits until a SteamVR session has
 actually been observed, then closes the app cleanly when that session ends.
 Opening the bridge manually without SteamVR running leaves it open.
-Minimize with the normal title-bar button; tracking continues in the taskbar.
-Restore the app by clicking its taskbar icon. Start minimized applies on the
-next launch, including SteamVR launches. The existing Start the bridge when
-this app opens option controls whether the saved module starts tracking.
+Clicking the window's X hides it in the system tray and keeps tracking running.
+Double-click its tray icon to reopen, or right-click for Open and Quit. Opening
+the app shortcut again also restores the existing window. Quit app in Settings
+fully exits too. Start minimized applies on the next launch, including SteamVR
+launches. Tracking starts even when the window opens directly in the tray.
+If the Windows tray is unavailable, the window stays accessible instead.
+Start the bridge when this app opens is also in Settings and controls whether
+the saved module starts tracking. Close when SteamVR exits fully quits the app.
 Upgrades refresh an enabled SteamVR registration to the installed path.
 Uninstall removes this app's registration and clears that startup opt-in;
 other saved preferences and imported modules stay available for a reinstall.
@@ -124,7 +128,8 @@ respects Windows reduced-motion preferences and pauses while minimized.
 IBM Plex Sans is included with its SIL Open Font License notice.
 
 UPDATE OR REMOVE THE APP
-Run a newer Face Tracking Bridge installer over the existing app; close the app first.
+Run a Face Tracking Bridge installer over the existing app; first choose Quit
+from the system tray menu or Settings. The window's X keeps the app running.
 Setup keeps the installation directory and your separate settings, logs and
 module library. The first public 1.0.0 release also supports migration from the
 retired private release series. Future releases use normal version ordering.

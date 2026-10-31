@@ -31,6 +31,10 @@ public partial class MainWindow : Window
     private CancellationTokenSource? _downloadCancellation;
     private Task? _downloadTask;
     private Task? _startupPreferenceTask;
+    private Task? _initializationTask;
+    private Func<bool>? _ensureSystemTrayIcon;
+    private bool _exitRequested;
+    private WindowState _restoreWindowState = WindowState.Normal;
     private bool _syncingStartupPreferences;
     private AppSettings _settings;
     private Process? _worker;
@@ -88,7 +92,14 @@ public partial class MainWindow : Window
         ApplyMotionPreference();
         SystemParameters.StaticPropertyChanged += MotionPreference_Changed;
         Closed += (_, _) => { SystemParameters.StaticPropertyChanged -= MotionPreference_Changed; _noticeTimer.Stop(); if (_ownsModuleDownloader) _moduleDownloader.Dispose(); };
-        Loaded += async (_, _) => await RunOperation(async () => {
+        Loaded += async (_, _) => await InitializeBridgeAsync();
+        StateChanged += (_, _) => { if (WindowState != WindowState.Minimized) _restoreWindowState = WindowState; };
+        Closing += ClosingAsync;
+    }
+
+    // Starting in the tray must initialize tracking even before the window has
+    // ever been shown. The Loaded event reuses the same task on the first Open.
+    public Task InitializeBridgeAsync() => _initializationTask ??= Dispatcher.InvokeAsync(() => RunOperation(async () => {
             _initialized = true;
             Motion.Transition(_currentPage ?? OverviewPage, _motionEnabled);
             RefreshModule();
@@ -103,9 +114,35 @@ public partial class MainWindow : Window
                 SetNoModuleState();
                 Log(_store.Installed.Count == 0 ? "No tracking module installed. Choose a supported module ZIP or drop it onto this window." : "Choose an installed tracking module in Modules.");
             }
-        });
-        Closing += ClosingAsync;
+        })).Task.Unwrap();
+
+    public void ConfigureSystemTray(Func<bool> ensureIcon) => _ensureSystemTrayIcon = ensureIcon;
+
+    public bool HideToSystemTray()
+    {
+        if (_ensureSystemTrayIcon is null || _exitRequested || _closing) return false;
+        try { if (!_ensureSystemTrayIcon()) return false; }
+        catch (Exception error) { Log("System tray is unavailable: " + error.Message); return false; }
+        Hide();
+        return true;
     }
+
+    public void RestoreFromSystemTray()
+    {
+        if (_closing || _allowClose) return;
+        Show();
+        if (WindowState == WindowState.Minimized) WindowState = _restoreWindowState;
+        Activate();
+    }
+
+    public void RequestExit()
+    {
+        _exitRequested = true;
+        Close();
+    }
+
+    public void AllowSystemExit() => _exitRequested = true;
+    private void Quit_Click(object sender, RoutedEventArgs e) => RequestExit();
 
     private async Task RunOperation(Func<Task> action)
     {
@@ -940,7 +977,7 @@ public partial class MainWindow : Window
         Motion.Enabled = _motionEnabled;
         HeroParticles.AnimationsEnabled = _motionEnabled;
         if (!_motionEnabled) {
-            foreach (var page in new FrameworkElement[] { OverviewPage, ModulesPage, SettingsPage, ActivityPage, GlobalNotice }) Motion.Transition(page, false);
+            foreach (var page in new FrameworkElement[] { OverviewPage, ModulesPage, SettingsPage, PreferencesPage, ActivityPage, GlobalNotice }) Motion.Transition(page, false);
         }
     }
 
@@ -973,12 +1010,14 @@ public partial class MainWindow : Window
         OverviewPage.Visibility = page == "overview" ? Visibility.Visible : Visibility.Collapsed;
         ModulesPage.Visibility = page == "modules" ? Visibility.Visible : Visibility.Collapsed;
         SettingsPage.Visibility = page == "settings" ? Visibility.Visible : Visibility.Collapsed;
+        PreferencesPage.Visibility = page == "preferences" ? Visibility.Visible : Visibility.Collapsed;
         ActivityPage.Visibility = page == "activity" ? Visibility.Visible : Visibility.Collapsed;
-        FrameworkElement selected = page switch { "modules" => ModulesPage, "settings" => SettingsPage, "activity" => ActivityPage, _ => OverviewPage };
+        FrameworkElement selected = page switch { "modules" => ModulesPage, "settings" => SettingsPage, "preferences" => PreferencesPage, "activity" => ActivityPage, _ => OverviewPage };
         if (_currentPage != selected) { _currentPage = selected; Motion.Transition(selected, _motionEnabled); }
         (PageTitle.Text, PageSubtitle.Text) = page switch {
             "modules" => ("Modules", "Your headset. Your choice of module."),
             "settings" => ("Connection", "Keep your expressions flowing."),
+            "preferences" => ("Settings", "Startup and your system tray."),
             "activity" => ("Activity log", "A clear view of your tracking session."),
             _ => ("Face Tracking Bridge", "Your expressions, connected.")
         };
@@ -994,19 +1033,26 @@ public partial class MainWindow : Window
     private static void OpenLink(string url) => Process.Start(new ProcessStartInfo(url) { UseShellExecute = true });
     private async void ClosingAsync(object? sender, CancelEventArgs e) {
         if (_allowClose) return;
+        // Ordinary title-bar X keeps tracking alive. Explicit Quit, SteamVR
+        // session exit and Windows session ending use the real shutdown path.
+        if (!_exitRequested && !_closing && HideToSystemTray()) { e.Cancel = true; return; }
         e.Cancel = true;
         if (_closing) return;
         _closing = true; IsEnabled = false;
         _downloadCancellation?.Cancel();
+        _ready?.TrySetCanceled();
         try
         {
             if (_downloadTask is { IsCompleted: false } download) await download;
             if (_startupPreferenceTask is { IsCompleted: false } startupPreference) await startupPreference;
+            if (_initializationTask is { IsCompleted: false } initialization) await initialization;
             await StopWorker();
         }
         catch (Exception failure)
         {
             _closing = false; IsEnabled = true;
+            _exitRequested = false;
+            RestoreFromSystemTray();
             Log("Could not close the tracking runtime: " + failure.Message);
             ShowNotice(failure.Message, true);
             RefreshButtons();

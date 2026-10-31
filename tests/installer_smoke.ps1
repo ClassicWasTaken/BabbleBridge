@@ -7,7 +7,8 @@ param(
     [Parameter(Mandatory)][string]$PayloadDirectory,
     [Parameter(Mandatory)][string]$WorkDirectory,
     [Parameter(Mandatory)][string]$ModuleZip,
-    [string]$PreviousPayloadDirectory
+    [string]$PreviousPayloadDirectory,
+    [switch]$AllowSameVersionReplacement
 )
 
 $ErrorActionPreference = 'Stop'
@@ -66,7 +67,19 @@ $migrationTargetVersion = '1.0.0'
 $generationReset = $upgradeVersion -eq '1.0.0' -and (
     ($initialDisplayName -eq 'Babble Bridge' -and $initialVersion -in @('1.0.1', '1.0.2')) -or
     ($initialDisplayName -eq 'FaceTracking Bridge' -and $initialVersion -eq '1.0.3'))
-if ($previousPayload -and !$generationReset -and ([Version]$upgradeVersion -le [Version]$initialVersion)) {
+$sameVersionReplacement = $false
+if ($AllowSameVersionReplacement) {
+    if (!$previousPayload -or ([Version]$upgradeVersion -ne [Version]$initialVersion)) {
+        throw 'AllowSameVersionReplacement requires previous and candidate payloads with the same numeric version.'
+    }
+    $previousAppHash = (Get-FileHash -LiteralPath (Join-Path $previousPayload 'BabbleFrameBridge.dll') -Algorithm SHA256).Hash
+    $candidateAppHash = (Get-FileHash -LiteralPath (Join-Path $payloadSource 'BabbleFrameBridge.dll') -Algorithm SHA256).Hash
+    if ($previousAppHash -eq $candidateAppHash) {
+        throw 'AllowSameVersionReplacement requires a different candidate app binary; identical builds do not exercise replacement.'
+    }
+    $sameVersionReplacement = $true
+}
+if ($previousPayload -and !$generationReset -and !$sameVersionReplacement -and ([Version]$upgradeVersion -le [Version]$initialVersion)) {
     throw 'PreviousPayloadDirectory must contain an older app version or an exact known generation-2 reset source.'
 }
 
@@ -473,7 +486,7 @@ if failure.is_file() and failure.read_text(encoding="utf-8") == command:
     finally { $heldMutex.Dispose() }
     Add-Check 'Setup rejected an update while the isolated application mutex existed, before changing version or files.'
     $exitCode = Invoke-TestSetup $upgradeSetup 'upgrade'
-    Assert-True ($exitCode -eq 0) "Newer-version upgrade failed with $exitCode."
+    Assert-True ($exitCode -eq 0) "Application payload replacement failed with $exitCode."
     $expectedDisplayName = 'Face Tracking Bridge'
     $registration = Read-TestRegistration
     Assert-True ($registration.DisplayVersion -eq $upgradeVersion) 'Upgrade did not update DisplayVersion.'
@@ -490,7 +503,10 @@ if failure.is_file() and failure.read_text(encoding="utf-8") == command:
     Add-Check 'Upgrade refreshes the same owned SteamVR registration after replacing app files and preserves the automatic-launch choice.'
     if ($previousPayload) {
         Assert-True ((Get-FileHash -LiteralPath (Join-Path $installPath 'BabbleFrameBridge.dll') -Algorithm SHA256).Hash -ne $initialAppHash) 'The real app upgrade left the old application binary in place.'
-        Add-Check "Real app binaries upgraded from $initialVersion to $upgradeVersion; installed app and worker hashes match the new payload."
+        if ($sameVersionReplacement) {
+            Add-Check "An earlier $initialVersion build was replaced by the corrected $upgradeVersion build; installed app and worker hashes match the new payload."
+        }
+        else { Add-Check "Real app binaries upgraded from $initialVersion to $upgradeVersion; installed app and worker hashes match the new payload." }
     }
     else { Add-Check 'A newer synthetic release replaced installed files and updated the same uninstall entry.' }
     Assert-ForeignShortcutUnchanged
@@ -565,7 +581,15 @@ if failure.is_file() and failure.read_text(encoding="utf-8") == command:
     Add-Check 'A later 1.0.1 installer accepts skipped-reset generation-2/preview sources and rejects the same numeric transitions after generation 3.'
 
     if (!$generationReset) {
-        $exitCode = Invoke-TestSetup $firstSetup 'downgrade'
+        $downgradeSetup = $firstSetup
+        if ($sameVersionReplacement) {
+            # Same-version replacement is intentionally permitted by Setup.
+            # Build a genuinely older numeric setup to retain downgrade coverage.
+            Assert-True ([Version]$upgradeVersion -gt [Version]'0.0.0') 'A numeric downgrade fixture needs a release newer than 0.0.0.'
+            Compile-TestInstaller '0.0.0'
+            $downgradeSetup = Join-Path $compiledPath 'FrameBridgeTest-0.0.0.exe'
+        }
+        $exitCode = Invoke-TestSetup $downgradeSetup 'downgrade'
         Assert-True ($exitCode -ne 0) 'The old installer unexpectedly allowed a downgrade.'
         $registration = Read-TestRegistration
         Assert-True ($registration.DisplayVersion -eq $upgradeVersion) 'Downgrade rejection changed the installed version.'
@@ -681,6 +705,7 @@ finally {
         Result = $result; TestAppId = $testId; TestInstallDirectory = $installPath
         ProductionAppIdUsed = $false; Versions = @($initialVersion, $upgradeVersion)
         RealPayloadUpgrade = [bool]$previousPayload
+        SameVersionReplacement = [bool]$sameVersionReplacement
         GenerationTwoReset = [bool]$generationReset
         PublicReleaseGeneration = 3
         DevelopmentMigrationTarget = $migrationTargetVersion
@@ -691,7 +716,9 @@ finally {
     }
     $json = ConvertTo-Json $report -Depth 6
     [IO.File]::WriteAllText((Join-Path $runRoot 'report.json'), $json)
-    $upgradeDescription = if ($previousPayload) { "Real application payloads tested: $initialVersion to $upgradeVersion." } else { 'The synthetic newer installer tested upgrade behavior without changing production version.' }
+    $upgradeDescription = if ($sameVersionReplacement) {
+        "Real application payloads tested: earlier $initialVersion build to corrected $upgradeVersion build (explicit same-version replacement)."
+    } elseif ($previousPayload) { "Real application payloads tested: $initialVersion to $upgradeVersion." } else { 'The synthetic newer installer tested upgrade behavior without changing production version.' }
     $summary = @('FACE TRACKING BRIDGE INSTALLER VALIDATION', '', "Result: $result", '', 'Isolated per-user install, reinstall, upgrade, downgrade rejection and uninstall.', 'The test used a separate random application identity and workspace install and shortcut folders.', $upgradeDescription, 'Shortcut collision protection and running-application install/uninstall guards were exercised.', 'SteamVR hooks used an isolated fake helper; real SteamVR registration and native APIs were excluded.', 'Installed-worker mapping used the existing --all-parameters diagnostic mode.', 'VRChat avatar discovery was excluded to avoid interference with a running local game.', '')
     $summary += $checks | ForEach-Object { '- ' + $_ }
     if ($failure) { $summary += @('', 'Failure: ' + $failure) }
