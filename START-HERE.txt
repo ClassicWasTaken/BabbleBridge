@@ -1,4 +1,4 @@
-FACETRACKING BRIDGE 1.0.2 — WINDOWS x64
+FACE TRACKING BRIDGE 1.0.3 — WINDOWS x64
 
 PREREQUISITE
 Install the Microsoft Visual C++ v14 Redistributable (x64) from Microsoft:
@@ -10,7 +10,7 @@ GET STARTED
 1. Run FaceTracking-Bridge-Setup.exe. Setup installs for your Windows account and
    offers an optional desktop shortcut. For a portable build, extract the
    entire folder and keep its runtime, Assets, licenses and notice files.
-2. Close the separate VRCFaceTracking app and open FaceTracking Bridge.
+2. Close the separate VRCFaceTracking app and open Face Tracking Bridge.
 3. Open Modules and click Download next to your provider, or import your own
    VRCFaceTracking module DLL or ZIP. Modules come from their original authors and
    are never bundled. Choose Use module to start the selected profile.
@@ -108,7 +108,7 @@ respects Windows reduced-motion preferences and pauses while minimized.
 IBM Plex Sans is included with its SIL Open Font License notice.
 
 UPDATE OR REMOVE THE APP
-Run a newer FaceTracking Bridge installer over the existing app; close the app first.
+Run a newer Face Tracking Bridge installer over the existing app; close the app first.
 Setup keeps the installation directory and your separate settings, logs and
 module library. The first public 1.0.0 release also supports migration from the
 retired private release series. Future releases use normal version ordering.

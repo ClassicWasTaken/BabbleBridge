@@ -35,7 +35,7 @@ $desktopShortcut = Join-Path $desktopIconDirectory "$testProductName.lnk"
 $startShortcut = Join-Path $groupIconDirectory "$testProductName.lnk"
 $guideShortcut = Join-Path $groupIconDirectory 'Setup guide.lnk'
 $legacyGroupParent = Join-Path $runRoot 'shortcuts/legacy-start'
-$legacyNames = @('Frame Bridge', 'Steam Frame Babble Bridge', 'Babble Bridge')
+$legacyNames = @('Frame Bridge', 'Steam Frame Babble Bridge', 'Babble Bridge', 'FaceTracking Bridge')
 $foreignTarget = Join-Path $runRoot 'unrelated-tool.exe'
 $foreignShortcutHash = $null
 $registryKey = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\${testId}_is1"
@@ -44,7 +44,7 @@ $checks = [Collections.Generic.List[string]]::new()
 $failure = $null
 $initialDisplayName = if ($previousPayload) {
     [Diagnostics.FileVersionInfo]::GetVersionInfo((Join-Path $previousPayload 'BabbleFrameBridge.exe')).ProductName
-} else { 'FaceTracking Bridge' }
+} else { 'Face Tracking Bridge' }
 $expectedDisplayName = $initialDisplayName
 
 function Get-PayloadVersion([string]$Directory) {
@@ -156,7 +156,7 @@ function Get-UserDataSnapshot {
     }
     return ConvertTo-Json -InputObject @($files.ToArray()) -Depth 5 -Compress
 }
-function Compile-TestInstaller([string]$Version, [string]$DisplayName = 'FaceTracking Bridge') {
+function Compile-TestInstaller([string]$Version, [string]$DisplayName = 'Face Tracking Bridge') {
     Write-Output "Building isolated installer $Version..."
     $iconPath = if (Test-Path -LiteralPath (Join-Path $payload 'Assets/Brand/FaceTrackingBridge-headset-v2.ico')) {
         'Assets\Brand\FaceTrackingBridge-headset-v2.ico'
@@ -208,7 +208,7 @@ function Set-TestRegistrationFixture([string]$Version, [string]$Name, [Nullable[
 }
 function Restore-CurrentRegistration {
     if (Test-Path -LiteralPath $registryKey) {
-        Set-TestRegistrationFixture $upgradeVersion 'FaceTracking Bridge' 3
+        Set-TestRegistrationFixture $upgradeVersion 'Face Tracking Bridge' 3
     }
 }
 function Assert-AcceptedMigration([string]$Setup, [string]$Version, [string]$Name, [Nullable[int]]$Generation, [string]$Label, [string]$ExpectedVersion = $script:migrationTargetVersion) {
@@ -327,6 +327,12 @@ try {
     Add-Check 'Same-version reinstall reused the installation directory and uninstall entry.'
     Add-Check 'An unrelated same-name desktop shortcut survived unchecked installation and explicitly selected reinstallation.'
 
+    # Recreate the preceding product's owned Start menu links after installing
+    # the old payload, so the real upgrade exercises the spacing-name migration.
+    $previousNamedGroup = Join-Path $legacyGroupParent 'FaceTracking Bridge'
+    New-TestShortcut (Join-Path $previousNamedGroup 'FaceTracking Bridge.lnk') (Join-Path $installPath 'BabbleFrameBridge.exe')
+    New-TestShortcut (Join-Path $previousNamedGroup 'Setup guide.lnk') (Join-Path $installPath 'START-HERE.txt')
+
     if ($generationReset) {
         # Reproduce the exact public generation preceding the 1.0.0 reset.
         Set-TestRegistrationFixture $initialVersion $initialDisplayName 2
@@ -357,7 +363,7 @@ try {
     Add-Check 'Setup rejected an update while the isolated application mutex existed, before changing version or files.'
     $exitCode = Invoke-TestSetup $upgradeSetup 'upgrade'
     Assert-True ($exitCode -eq 0) "Newer-version upgrade failed with $exitCode."
-    $expectedDisplayName = 'FaceTracking Bridge'
+    $expectedDisplayName = 'Face Tracking Bridge'
     $registration = Read-TestRegistration
     Assert-True ($registration.DisplayVersion -eq $upgradeVersion) 'Upgrade did not update DisplayVersion.'
     Assert-True ((Get-ItemPropertyValue -LiteralPath $registryKey -Name BabbleBridgeReleaseGeneration) -eq 3) 'Upgrade did not register public release generation 3.'
@@ -374,7 +380,11 @@ try {
     else { Add-Check 'A newer synthetic release replaced installed files and updated the same uninstall entry.' }
     Assert-ForeignShortcutUnchanged
     Assert-OwnedStartShortcuts
-    Add-Check 'Upgrade registers the FaceTracking Bridge name with the same application identity and installation directory.'
+    Add-Check 'Upgrade registers the Face Tracking Bridge name with the same application identity and installation directory.'
+    Assert-True (!(Test-Path -LiteralPath (Join-Path $previousNamedGroup 'FaceTracking Bridge.lnk'))) 'Upgrade left the owned former FaceTracking Bridge Start shortcut.'
+    Assert-True (!(Test-Path -LiteralPath (Join-Path $previousNamedGroup 'Setup guide.lnk'))) 'Upgrade left the owned former FaceTracking Bridge guide shortcut.'
+    Assert-True ((Get-Content -LiteralPath (Join-Path $previousNamedGroup 'keep.txt') -Raw) -eq 'unrelated existing group content') 'Spacing-name migration removed unrelated group content.'
+    Add-Check 'The real upgrade migrates owned FaceTracking Bridge Start menu shortcuts after their new replacements exist.'
     if ($generationReset) {
         Add-Check "Known generation-2 $initialDisplayName $initialVersion migrated to $upgradeVersion and recorded generation 3."
     }
@@ -416,7 +426,9 @@ try {
         @('1.0.3', 'Unrelated Bridge', 2),
         @('1.5.1', 'Frame Bridge', 2),
         @('1.0.3', 'FaceTracking Bridge', 4),
-        @('1.0.3', 'FaceTracking Bridge', $null)
+        @('1.0.3', 'FaceTracking Bridge', $null),
+        @('1.0.3', 'Face Tracking Bridge', 3),
+        @('1.0.3', 'Face Tracking Bridge', 2)
     )
     $caseIndex = 0
     foreach ($case in $rejectedCases) {
@@ -496,11 +508,18 @@ print(json.dumps(result, indent=2))
     Assert-True ($exitCode -eq 0) 'Installation preserving an existing owned desktop shortcut failed.'
     Assert-OwnedStartShortcuts
     Assert-True ((Get-TestShortcutTarget $desktopShortcut) -eq (Join-Path $installPath 'BabbleFrameBridge.exe')) 'Requested desktop shortcut target is incorrect.'
-    foreach ($legacyName in @('Frame Bridge', 'Babble Bridge')) {
+    foreach ($legacyName in @('Frame Bridge', 'Babble Bridge', 'FaceTracking Bridge')) {
         Assert-True (!(Test-Path -LiteralPath (Join-Path $desktopIconDirectory "$legacyName.lnk"))) 'An owned former desktop shortcut survived its replacement.'
     }
     Assert-True ((Get-FileHash -LiteralPath $foreignLegacyShortcut -Algorithm SHA256).Hash -eq $foreignLegacyHash) 'A different application''s legacy-name shortcut was altered.'
     Add-Check 'Existing owned desktop shortcuts migrate without requiring the optional task; unrelated legacy-name shortcuts remain unchanged.'
+    $foreignFormerName = Join-Path $desktopIconDirectory 'FaceTracking Bridge.lnk'
+    New-TestShortcut $foreignFormerName $foreignTarget
+    $foreignFormerHash = (Get-FileHash -LiteralPath $foreignFormerName -Algorithm SHA256).Hash
+    $exitCode = Invoke-TestSetup $upgradeSetup 'foreign-former-spelling-shortcut'
+    Assert-True ($exitCode -eq 0) 'Reinstall preserving the unrelated former-spelling shortcut failed.'
+    Assert-True ((Get-FileHash -LiteralPath $foreignFormerName -Algorithm SHA256).Hash -eq $foreignFormerHash) 'The spacing-name migration altered an unrelated FaceTracking Bridge shortcut.'
+    Add-Check 'An unrelated FaceTracking Bridge desktop shortcut survives the spacing-name migration.'
     $heldMutex = [Threading.Mutex]::new($false, $testMutex)
     try {
         $exitCode = Invoke-TestUninstaller 'uninstall-blocked-by-running-app'
@@ -543,7 +562,7 @@ finally {
     $json = ConvertTo-Json $report -Depth 6
     [IO.File]::WriteAllText((Join-Path $runRoot 'report.json'), $json)
     $upgradeDescription = if ($previousPayload) { "Real application payloads tested: $initialVersion to $upgradeVersion." } else { 'The synthetic newer installer tested upgrade behavior without changing production version.' }
-    $summary = @('FACETRACKING BRIDGE INSTALLER VALIDATION', '', "Result: $result", '', 'Isolated per-user install, reinstall, upgrade, downgrade rejection and uninstall.', 'The test used a separate random application identity and workspace install and shortcut folders.', $upgradeDescription, 'Shortcut collision protection and running-application install/uninstall guards were exercised.', 'Installed-worker mapping used the existing --all-parameters diagnostic mode.', 'VRChat avatar discovery was excluded to avoid interference with a running local game.', '')
+    $summary = @('FACE TRACKING BRIDGE INSTALLER VALIDATION', '', "Result: $result", '', 'Isolated per-user install, reinstall, upgrade, downgrade rejection and uninstall.', 'The test used a separate random application identity and workspace install and shortcut folders.', $upgradeDescription, 'Shortcut collision protection and running-application install/uninstall guards were exercised.', 'Installed-worker mapping used the existing --all-parameters diagnostic mode.', 'VRChat avatar discovery was excluded to avoid interference with a running local game.', '')
     $summary += $checks | ForEach-Object { '- ' + $_ }
     if ($failure) { $summary += @('', 'Failure: ' + $failure) }
     $summaryText = $summary -join [Environment]::NewLine
@@ -552,3 +571,4 @@ finally {
     Write-Output $json
 }
 if ($failure) { throw $failure }
+exit 0

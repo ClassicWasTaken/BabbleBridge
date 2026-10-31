@@ -1,10 +1,10 @@
 # Copyright (c) 2026 Frame Bridge contributors.
 # SPDX-License-Identifier: Apache-2.0
 
-"""Generate original FaceTracking Bridge artwork. Requires Python3 and Pillow.
+"""Generate original Face Tracking Bridge artwork. Requires Python3 and Pillow.
 
 The headset mark, closed spline motif, layout and colors below are original
-FaceTracking Bridge assets. No Project Babble or VRChat logo is used.
+Face Tracking Bridge assets. No Project Babble or VRChat logo is used.
 IBM Plex Sans is an unmodified OFL1.1 font; its license stays with the app.
 """
 from pathlib import Path
@@ -102,7 +102,7 @@ def main():
     panel=Image.alpha_composite(panel,flow)
     panel.alpha_composite(logo.resize((100,100),Image.Resampling.LANCZOS),(32,39))
     text=ImageDraw.Draw(panel)
-    text.multiline_text((30,171),'FaceTracking\nBridge',font=font('Bold',36),fill='#F2F7FC',spacing=0)
+    text.multiline_text((30,171),'Face Tracking\nBridge',font=font('Bold',36),fill='#F2F7FC',spacing=0)
     text.multiline_text((32,276),'Headset tracking.\nYour module, your setup.',font=font('Regular',16),fill='#B6C8D8',spacing=6)
     text.line((32,340,86,340),fill='#6AE3F9',width=2)
     text.line((32,553,296,553),fill='#2C3E50',width=1)

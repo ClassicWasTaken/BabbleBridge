@@ -399,7 +399,7 @@ internal static class Program
         if (error is FileNotFoundException or FileLoadException)
             return "A module dependency could not be loaded. A standalone DLL may need other files; import the author's complete module ZIP with its dependencies. " + error.Message;
         if (error is MissingMethodException or MissingFieldException or TypeLoadException)
-            return "The module or one of its dependencies requires an SDK API this build does not provide. Use a module compatible with the VRCFaceTracking 5.4.1 SDK, or update FaceTracking Bridge. " + error.Message;
+            return "The module or one of its dependencies requires an SDK API this build does not provide. Use a module compatible with the VRCFaceTracking 5.4.1 SDK, or update Face Tracking Bridge. " + error.Message;
         if (error is BadImageFormatException)
             return "The selected module or a dependency is not a compatible Windows x64 .NET assembly. Import the author's compiled Windows x64 VRCFaceTracking module package. " + error.Message;
         return error.Message;

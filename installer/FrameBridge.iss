@@ -1,22 +1,22 @@
 ; Copyright (c) 2026 Frame Bridge contributors.
 ; SPDX-License-Identifier: Apache-2.0
 
-; FaceTracking Bridge per-user installer. Keep BuildIdentity stable for every release.
+; Face Tracking Bridge per-user installer. Keep BuildIdentity stable for every release.
 ; Settings and module releases live outside {app} and are never removed here.
 #ifndef AppPayload
   #define AppPayload "..\dist\BabbleFrameBridge"
 #endif
 #ifndef AppVersion
-  #define AppVersion "1.0.2"
+  #define AppVersion "1.0.3"
 #endif
 #ifndef BuildIdentity
   #define BuildIdentity "FrameBridge.Desktop.8E250247-8BA9-42B7-A698-94D2A52E880A"
 #endif
 #ifndef ProductName
-  #define ProductName "FaceTracking Bridge"
+  #define ProductName "Face Tracking Bridge"
 #endif
 #ifndef DisplayName
-  #define DisplayName "FaceTracking Bridge"
+  #define DisplayName "Face Tracking Bridge"
 #endif
 #ifndef AppMutexName
   #define AppMutexName "Local\FrameBridge.Desktop"
@@ -46,10 +46,10 @@ AppId={#BuildIdentity}
 AppName={#DisplayName}
 AppVersion={#AppVersion}
 AppVerName={#DisplayName} {#AppVersion}
-AppPublisher=FaceTracking Bridge contributors
+AppPublisher=Face Tracking Bridge contributors
 AppComments=Independent bridge for headset tracking and VRChat.
 AppCopyright=Independent application. See LICENSE and NOTICE.txt.
-DefaultDirName={localappdata}\Programs\FaceTracking Bridge
+DefaultDirName={localappdata}\Programs\Face Tracking Bridge
 DefaultGroupName={#ProductName}
 PrivilegesRequired=lowest
 ArchitecturesAllowed=x64compatible
@@ -90,7 +90,7 @@ VersionInfoVersion={#AppVersion}
 VersionInfoProductName={#DisplayName}
 VersionInfoProductVersion={#AppVersion}
 VersionInfoDescription={#DisplayName} Installer
-VersionInfoCompany=FaceTracking Bridge contributors
+VersionInfoCompany=Face Tracking Bridge contributors
 
 [Languages]
 Name: "english"; MessagesFile: "compiler:Default.isl"
@@ -126,13 +126,13 @@ Name: "{#IconGroupDir}\Setup guide"; Filename: "{app}\START-HERE.txt"; Check: Sh
 Name: "{#IconDesktopDir}\{#ProductName}"; Filename: "{app}\BabbleFrameBridge.exe"; WorkingDir: "{app}"; IconFilename: "{app}\{#HeadsetIconPath}"; IconIndex: 0; Check: ShouldHaveDesktopShortcut; AppUserModelID: "FrameBridge.Desktop"
 
 [Run]
-Filename: "{app}\BabbleFrameBridge.exe"; Description: "Open &FaceTracking Bridge"; WorkingDir: "{app}"; Flags: nowait postinstall skipifsilent
+Filename: "{app}\BabbleFrameBridge.exe"; Description: "Open &Face Tracking Bridge"; WorkingDir: "{app}"; Flags: nowait postinstall skipifsilent
 
 [Messages]
-WelcomeLabel1=Meet FaceTracking Bridge.
+WelcomeLabel1=Meet Face Tracking Bridge.
 WelcomeLabel2=Your headset expressions, connected to VRChat.%n%nSetup will install this independent bridge for your Windows account.%n%nThe Microsoft Visual C++ v14 Redistributable (x64) must be installed separately from Microsoft.%n%nFuture versions can be installed over this one. Your settings and imported modules stay in place.
 FinishedHeadingLabel=You’re ready to express yourself.
-FinishedLabel=FaceTracking Bridge is installed.%n%nOpen Modules to download an official module or import your own ZIP, then connect your tracking provider.%n%nExisting imported modules are preserved. To update the app later, run its newer setup file. To update only the module, import a new ZIP inside the app.
+FinishedLabel=Face Tracking Bridge is installed.%n%nOpen Modules to download an official module or import your own ZIP, then connect your tracking provider.%n%nExisting imported modules are preserved. To update the app later, run its newer setup file. To update only the module, import a new ZIP inside the app.
 BeveledLabel=Independent runtime bridge
 
 [Code]
@@ -179,6 +179,7 @@ begin
     (({#MigrateLegacyShortcuts} = 1) and
       (IsAppShortcut(ExpandConstant('{#IconDesktopDir}\Frame Bridge.lnk'), Target) or
        IsAppShortcut(ExpandConstant('{#IconDesktopDir}\Babble Bridge.lnk'), Target) or
+       IsAppShortcut(ExpandConstant('{#IconDesktopDir}\FaceTracking Bridge.lnk'), Target) or
        IsAppShortcut(ExpandConstant('{#IconDesktopDir}\Steam Frame Babble Bridge.lnk'), Target)));
 end;
 
@@ -225,11 +226,12 @@ begin
     if {#MigrateLegacyShortcuts} = 1 then begin
       { Retire an old link only after its replacement was actually created.
         A name collision with another app must not remove the only owned link. }
-      for Index := 0 to 2 do begin
+      for Index := 0 to 3 do begin
         case Index of
           0: OldName := 'Frame Bridge';
           1: OldName := 'Steam Frame Babble Bridge';
           2: OldName := 'Babble Bridge';
+          3: OldName := 'FaceTracking Bridge';
         end;
         if CompareText(OldName, '{#ProductName}') <> 0 then begin
           if IsAppShortcut(ExpandConstant('{#IconDesktopDir}\{#ProductName}.lnk'),
@@ -334,7 +336,7 @@ begin
       if (Pos('1.0.', '{#AppVersion}') = 1) and HasReleaseGeneration and
         (ReleaseGeneration = 2) and
         IsKnownGenerationTwoBuild(InstalledVersion, InstalledName) then begin
-        Log('Migrating a known generation-2 installation to FaceTracking Bridge {#AppVersion}.');
+        Log('Migrating a known generation-2 installation to Face Tracking Bridge {#AppVersion}.');
         Exit;
       end;
       { The private preview series used 1.0.1–1.0.5. Users may skip the
@@ -353,7 +355,7 @@ begin
         Log('Transitioning a known development installation to the first stable release.');
         Exit;
       end;
-      SuppressibleMsgBox('FaceTracking Bridge ' + InstalledVersion +
+      SuppressibleMsgBox('Face Tracking Bridge ' + InstalledVersion +
         ' is already installed. Use the same or a newer setup file to keep your app up to date.',
         mbInformation, MB_OK, IDOK);
       Result := False;

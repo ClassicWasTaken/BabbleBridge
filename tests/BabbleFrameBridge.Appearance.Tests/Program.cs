@@ -194,11 +194,11 @@ internal static class Program
 
             Test("the interface uses its module library without obsolete source controls or sidebar cards", () =>
             {
-                Check(window.Title == "FaceTracking Bridge", "The window still uses the previous product name.");
-                Check(Named<TextBlock>(window, "PageTitle").Text == "FaceTracking Bridge",
+                Check(window.Title == "Face Tracking Bridge", "The window still uses the previous product name.");
+                Check(Named<TextBlock>(window, "PageTitle").Text == "Face Tracking Bridge",
                     "The overview heading does not use the new product name.");
                 var wordmark = Named<TextBlock>(window, "BrandWordmark");
-                Check(wordmark.Text == "FaceTracking Bridge", "The sidebar still uses the previous product name.");
+                Check(wordmark.Text == "Face Tracking Bridge", "The sidebar still uses the previous product name.");
                 var previousWidth = window.Width;
                 var previousTheme = themes.CurrentIsDark;
                 try
@@ -210,6 +210,11 @@ internal static class Program
                     var navigationBounds = navigation.TransformToAncestor(window).TransformBounds(new Rect(navigation.RenderSize));
                     Check(wordmarkBounds.Right <= navigationBounds.Right + .5 && wordmarkBounds.Bottom < navigationBounds.Top,
                         "The longer product name overlaps navigation or exceeds the sidebar.");
+                    var firstLine = new FormattedText("Face Tracking", System.Globalization.CultureInfo.InvariantCulture,
+                        wordmark.FlowDirection, new Typeface(wordmark.FontFamily, wordmark.FontStyle, wordmark.FontWeight, wordmark.FontStretch),
+                        wordmark.FontSize, wordmark.Foreground, VisualTreeHelper.GetDpi(wordmark).PixelsPerDip);
+                    Check(firstLine.WidthIncludingTrailingWhitespace <= wordmark.ActualWidth + .5,
+                        "The spaced brand name cannot fit cleanly on two sidebar lines.");
                     var heading = Named<TextBlock>(window, "PageTitle");
                     var titleText = new FormattedText(heading.Text, System.Globalization.CultureInfo.InvariantCulture,
                         heading.FlowDirection, new Typeface(heading.FontFamily, heading.FontStyle, heading.FontWeight, heading.FontStretch),
@@ -231,7 +236,8 @@ internal static class Program
                 foreach (var name in new[] { "HeadsetSourceButton", "DesktopSourceButton", "TrackingInputPort", "MotionBox" })
                     Check(window.FindName(name) is null, "An obsolete control remains: " + name);
                 var text = string.Join("\n", Descendants(window).OfType<TextBlock>().Select(block => block.Text));
-                Check(!text.Contains("Babble Bridge", StringComparison.OrdinalIgnoreCase),
+                Check(!text.Contains("Babble Bridge", StringComparison.OrdinalIgnoreCase)
+                    && !text.Contains("FaceTracking Bridge", StringComparison.Ordinal),
                     "The interface still displays the previous product name.");
                 foreach (var removed in new[] { "Made for your headset", "Appearance follows Windows", "Updates, with a way back", "Keep VRCFaceTracking closed" })
                     Check(!text.Contains(removed, StringComparison.OrdinalIgnoreCase), "An obsolete information card remains: " + removed);

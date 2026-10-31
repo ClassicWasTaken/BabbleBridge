@@ -6,6 +6,8 @@
     <Nullable>enable</Nullable>
     <RuntimeIdentifier>win-x64</RuntimeIdentifier>
     <AssemblyName>BabbleFrameBridge.Worker</AssemblyName>
+    <AssemblyTitle>Face Tracking Bridge Worker</AssemblyTitle>
+    <Product>Face Tracking Bridge</Product>
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="../../vendor/VRCFaceTracking.Core/VRCFaceTracking.Core.csproj" />

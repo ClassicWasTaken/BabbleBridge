@@ -888,7 +888,7 @@ public partial class MainWindow : Window
             "modules" => ("Modules", "Your headset. Your choice of module."),
             "settings" => ("Connection", "Keep your expressions flowing."),
             "activity" => ("Activity log", "A clear view of your tracking session."),
-            _ => ("FaceTracking Bridge", "Your expressions, connected.")
+            _ => ("Face Tracking Bridge", "Your expressions, connected.")
         };
     }
 

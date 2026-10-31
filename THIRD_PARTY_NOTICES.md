@@ -1,6 +1,6 @@
 # Third-party copyrights and licenses
 
-The original FaceTracking Bridge code and original headset artwork are
+The original Face Tracking Bridge code and original headset artwork are
 Copyright (c) 2026 Frame Bridge contributors, licensed under [Apache 2.0](LICENSE).
 Third-party works retain their own copyrights and terms. This file maps those
 works to the full notices preserved in the repository and distribution.

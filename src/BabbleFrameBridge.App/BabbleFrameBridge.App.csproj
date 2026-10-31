@@ -6,9 +6,10 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <AssemblyName>BabbleFrameBridge</AssemblyName>
-    <Version>1.0.2</Version>
-    <Product>FaceTracking Bridge</Product>
-    <Authors>FaceTracking Bridge contributors</Authors>
+    <AssemblyTitle>Face Tracking Bridge</AssemblyTitle>
+    <Version>1.0.3</Version>
+    <Product>Face Tracking Bridge</Product>
+    <Authors>Face Tracking Bridge contributors</Authors>
     <Copyright>Copyright (c) 2026 Frame Bridge contributors. Third-party copyrights remain with their respective owners.</Copyright>
     <Description>Independent Windows bridge for a compatible headset runtime and VRChat face tracking.</Description>
     <ApplicationIcon>Assets\Bridge.ico</ApplicationIcon>

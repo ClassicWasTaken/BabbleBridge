@@ -239,7 +239,7 @@ internal sealed class AvatarRouter : IAsyncDisposable
                 var context = await listener!.GetContextAsync().WaitAsync(stop.Token);
                 var hostInfo = context.Request.RawUrl?.Contains("HOST_INFO", StringComparison.OrdinalIgnoreCase) == true;
                 object response = hostInfo
-                    ? new { NAME = "FaceTracking Bridge", OSC_IP = "127.0.0.1", OSC_PORT = settings.ReceivePort, OSC_TRANSPORT = "UDP" }
+                    ? new { NAME = "Face Tracking Bridge", OSC_IP = "127.0.0.1", OSC_PORT = settings.ReceivePort, OSC_TRANSPORT = "UDP" }
                     : new { FULL_PATH = "/", CONTENTS = new Dictionary<string, object> { ["avatar"] = new { FULL_PATH = "/avatar", CONTENTS = new Dictionary<string, object> { ["change"] = new { FULL_PATH = "/avatar/change", ACCESS = 2, TYPE = "s" } } } } };
                 var bytes = Encoding.UTF8.GetBytes(System.Text.Json.JsonSerializer.Serialize(response));
                 context.Response.ContentType = "application/json";

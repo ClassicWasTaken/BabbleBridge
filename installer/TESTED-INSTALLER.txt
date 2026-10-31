@@ -1,10 +1,10 @@
-FACETRACKING BRIDGE INSTALLER VALIDATION
+FACE TRACKING BRIDGE INSTALLER VALIDATION
 
 Result: PASS
 
 Isolated per-user install, reinstall, upgrade, downgrade rejection and uninstall.
 The test used a separate random application identity and workspace install and shortcut folders.
-Real application payloads tested: 1.0.1 to 1.0.2.
+Real application payloads tested: 1.0.2 to 1.0.3.
 Shortcut collision protection and running-application install/uninstall guards were exercised.
 Installed-worker mapping used the existing --all-parameters diagnostic mode.
 VRChat avatar discovery was excluded to avoid interference with a running local game.
@@ -14,8 +14,9 @@ VRChat avatar discovery was excluded to avoid interference with a running local 
 - Same-version reinstall reused the installation directory and uninstall entry.
 - An unrelated same-name desktop shortcut survived unchecked installation and explicitly selected reinstallation.
 - Setup rejected an update while the isolated application mutex existed, before changing version or files.
-- Real app binaries upgraded from 1.0.1 to 1.0.2; installed app and worker hashes match the new payload.
-- Upgrade registers the FaceTracking Bridge name with the same application identity and installation directory.
+- Real app binaries upgraded from 1.0.2 to 1.0.3; installed app and worker hashes match the new payload.
+- Upgrade registers the Face Tracking Bridge name with the same application identity and installation directory.
+- The real upgrade migrates owned FaceTracking Bridge Start menu shortcuts after their new replacements exist.
 - Exact generation-2 Babble Bridge 1.0.1/1.0.2 and FaceTracking Bridge 1.0.3 migrate to 1.0.0; existing 1.0.0 reinstalls normally.
 - Unmarked private previews and exact older development builds migrate and record generation 3.
 - Generation-3/future builds and unknown name/version/generation combinations are rejected without changing files or registration.
@@ -25,6 +26,7 @@ VRChat avatar discovery was excluded to avoid interference with a running local 
 - The isolated uninstaller removed installed app files and its test registration.
 - Uninstall removed this installation's Start menu and guide shortcuts and preserved the unrelated desktop shortcut.
 - Existing owned desktop shortcuts migrate without requiring the optional task; unrelated legacy-name shortcuts remain unchanged.
+- An unrelated FaceTracking Bridge desktop shortcut survives the spacing-name migration.
 - Uninstall rejected removal while the isolated application mutex existed, preserving files, registration and shortcuts.
 - The migrated desktop shortcut was created and was removed by normal uninstall.
 - Real user settings, imported modules, and module state remained byte-for-byte unchanged.

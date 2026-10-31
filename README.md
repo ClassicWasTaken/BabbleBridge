@@ -1,4 +1,4 @@
-# FaceTracking Bridge
+# Face Tracking Bridge
 
 <h2 align="center">
   <a href="https://github.com/ClassicWasTaken/FaceTrackingBridge/releases/latest/download/FaceTracking-Bridge-Setup.exe">⬇ Download for Windows (.exe)</a>
@@ -10,7 +10,7 @@
 
 A Windows app that bridges eye and face tracking to VRChat through compatible **VRCFaceTracking SDK** modules. Supports Babble Headset Runtime, Baballonia desktop, Virtual Desktop, and Steam Link, with Jerry’s templates and VRChat’s native face-tracking SDK beta.
 
-![FaceTracking Bridge running on Windows](docs/images/app-running.jpg)
+![Face Tracking Bridge running on Windows](docs/images/app-running.jpg)
 
 ## Get started
 
