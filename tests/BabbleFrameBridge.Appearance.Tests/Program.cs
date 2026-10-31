@@ -436,6 +436,163 @@ internal static class Program
                 themes.ApplyTheme(true); Pump(); SavePreview(window, renderDirectory, "connection-dark.png");
             });
 
+            Test("the bottom-left kitty launcher is opt-in, persists, and survives a connection save", () =>
+            {
+                CloseWindow();
+                var profile = Path.Combine(root, "kitty-preferences");
+                new AppSettings { AutoStart = false }.Save(profile);
+                try
+                {
+                    window = CreateWindow(profile);
+                    themes.AttachWindow(window); window.Show();
+                    PumpUntil(() => Field<bool>(window, "_initialized") && !Field<bool>(window, "_busy"), "kitty profile opened");
+                    var overlay = Named<HologramKittyOverlay>(window, "KittyOverlay");
+                    var launcher = Named<Button>(window, "KittyToggle");
+                    var surface = Named<Grid>(window, "RootSurface");
+                    var location = launcher.TranslatePoint(default, surface);
+                    Check(!AppSettings.Load(profile).KittyEnabled && !overlay.IsActive && !overlay.IsAnimating,
+                        "A fresh profile started the optional companion.");
+                    Check(location.X < 216 && location.Y > surface.ActualHeight * .55,
+                        "The kitty launcher is not in the lower-left sidebar.");
+                    Check(Named<Image>(window, "KittyFace").Source is DrawingImage,
+                        "The kitty launcher is missing its original vector face.");
+                    launcher.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                    PumpUntil(() => overlay.IsActive && overlay.IsVisible
+                        && overlay.IsAnimating == SystemParameters.ClientAreaAnimation, "kitty appeared and attached its visible rendering policy");
+                    Check(AppSettings.Load(profile).KittyEnabled && Named<System.Windows.Shapes.Ellipse>(window, "KittyActiveDot").Visibility == Visibility.Visible,
+                        "Enabling the kitty did not persist or show its active indicator.");
+                    Check(overlay.IsAnimating == SystemParameters.ClientAreaAnimation,
+                        "Kitty rendering does not honor the current Windows motion preference.");
+                    InvokeSaveConnection();
+                    Check(AppSettings.Load(profile).KittyEnabled, "Saving a connection reset the kitty preference.");
+                    Method(window, "DismissNotice").Invoke(window, null);
+                    foreach (var dark in new[] { false, true })
+                    {
+                        themes.ApplyTheme(dark); Pump();
+                        Check(Contrast(ColorOf(launcher.Foreground), ColorOf(launcher.Background)) >= 4.5,
+                            "The active kitty launcher text is unreadable after a theme change.");
+                        SavePreview(window, renderDirectory, dark ? "kitty-dark.png" : "kitty-light.png");
+                    }
+                    CloseWindow();
+                    Check(!overlay.IsActive && !overlay.IsAnimating, "Closing the window retained the kitty's rendering subscription.");
+                    window = CreateWindow(profile); themes.AttachWindow(window); window.Show();
+                    PumpUntil(() => Field<bool>(window, "_initialized") && !Field<bool>(window, "_busy"), "saved kitty profile reopened");
+                    overlay = Named<HologramKittyOverlay>(window, "KittyOverlay");
+                    Check(overlay.IsActive && overlay.IsVisible, "Reopening lost the enabled kitty preference.");
+                    Named<Button>(window, "KittyToggle").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                    Check(!overlay.IsActive && !overlay.IsAnimating && !AppSettings.Load(profile).KittyEnabled,
+                        "The same launcher could not tuck the companion away.");
+                }
+                finally { CloseWindow(); }
+            });
+
+            Test("kitty hit testing covers its body while empty space and the launcher remain usable", () =>
+            {
+                var profile = Path.Combine(root, "kitty-hit-testing");
+                new AppSettings { AutoStart = false, KittyEnabled = true }.Save(profile);
+                try
+                {
+                    window = CreateWindow(profile); window.Show();
+                    PumpUntil(() => Field<bool>(window, "_initialized") && !Field<bool>(window, "_busy"), "kitty hit-testing window loaded");
+                    var overlay = Named<HologramKittyOverlay>(window, "KittyOverlay");
+                    var surface = Named<Grid>(window, "RootSurface");
+                    var bounds = overlay.CatBounds;
+                    var body = new Point(bounds.X + bounds.Width * .5, bounds.Y + bounds.Height * .5);
+                    Check(ReferenceEquals(overlay.InputHitTest(body), overlay), "The visible kitty cannot receive interaction.");
+                    Check(overlay.InputHitTest(new Point(overlay.ActualWidth - 8, 22)) is null,
+                        "The transparent overlay intercepts controls outside the kitty.");
+                    var launcher = Named<Button>(window, "KittyToggle");
+                    var center = launcher.TranslatePoint(new Point(launcher.ActualWidth * .5, launcher.ActualHeight * .5), surface);
+                    Check(overlay.InputHitTest(center) is null, "The kitty blocks its own hide button.");
+                    var hit = surface.InputHitTest(center);
+                    Check(ReferenceEquals(hit, launcher) || hit is Visual visual && launcher.IsAncestorOf(visual),
+                        "The full-window layer intercepts the bottom-left launcher.");
+                    Check(Method(window, "FindKittyTarget").Invoke(window, [center]) is null,
+                        "The companion can swat or animate its own launcher.");
+                    Check(bounds.Left >= 0 && bounds.Top >= 0 && bounds.Right <= overlay.ActualWidth && bounds.Bottom <= overlay.ActualHeight,
+                        "The companion was placed outside the application client area.");
+                }
+                finally { CloseWindow(); }
+            });
+
+            Test("hiding, minimizing or disabling the kitty stops its clock and resets visual swats", () =>
+            {
+                var profile = Path.Combine(root, "kitty-suspension");
+                new AppSettings { AutoStart = false, KittyEnabled = true }.Save(profile);
+                try
+                {
+                    window = CreateWindow(profile); window.Show();
+                    PumpUntil(() => Field<bool>(window, "_initialized") && !Field<bool>(window, "_busy"), "kitty suspension window loaded");
+                    var overlay = Named<HologramKittyOverlay>(window, "KittyOverlay");
+                    var button = Named<Button>(window, "ImportButton");
+                    Motion.PetWobble(button);
+                    window.Hide();
+                    PumpUntil(() => !overlay.IsAnimating, "hidden kitty detached rendering");
+                    var seconds = Field<double>(overlay, "_seconds");
+                    PumpFor(TimeSpan.FromMilliseconds(100));
+                    Check(Field<double>(overlay, "_seconds") == seconds && !Field<bool>(overlay, "_inputAttached"),
+                        "A hidden companion kept advancing or listening to pointer motion.");
+                    Check(TransformParts(button.RenderTransform).All(part => !part.HasAnimatedProperties),
+                        "Hiding the companion left a panel/button swat animation running.");
+                    window.Show();
+                    PumpUntil(() => overlay.IsAnimating == SystemParameters.ClientAreaAnimation, "visible kitty followed motion preference");
+                    window.WindowState = WindowState.Minimized;
+                    PumpUntil(() => !overlay.IsAnimating, "minimized kitty detached rendering");
+                    window.WindowState = WindowState.Normal;
+                    PumpUntil(() => overlay.IsAnimating == SystemParameters.ClientAreaAnimation, "restored kitty resumed rendering");
+                    Motion.PetWobble(button);
+                    Named<Button>(window, "KittyToggle").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                    Check(!overlay.IsAnimating && !Field<bool>(overlay, "_inputAttached") && overlay.Visibility == Visibility.Collapsed,
+                        "Disabling the companion retained rendering or input subscriptions.");
+                    Check(TransformParts(button.RenderTransform).All(part => !part.HasAnimatedProperties),
+                        "Tucking the kitty away retained a swat transform.");
+                }
+                finally { CloseWindow(); }
+            });
+
+            Test("kitty panel wobbles preserve layout and button behavior, settle, and respect reduced motion", () =>
+            {
+                var profile = Path.Combine(root, "kitty-wobble");
+                new AppSettings { AutoStart = false }.Save(profile);
+                var previousMotion = Motion.Enabled;
+                try
+                {
+                    window = CreateWindow(profile); window.Show();
+                    PumpUntil(() => Field<bool>(window, "_initialized") && !Field<bool>(window, "_busy"), "wobble fixture loaded");
+                    var button = Named<Button>(window, "ImportButton");
+                    var size = new Size(button.ActualWidth, button.ActualHeight);
+                    var margin = button.Margin; var enabled = button.IsEnabled; var clicks = 0;
+                    button.Click += (_, _) => clicks++;
+                    Motion.Enabled = true;
+                    Motion.PetWobble(button, 1);
+                    if (SystemParameters.ClientAreaAnimation)
+                    {
+                        Check(TransformParts(button.RenderTransform).Any(part => part.HasAnimatedProperties),
+                            "A kitty swat did not attach any render animation.");
+                        // Allow the spring's clock to begin, then wait for its final
+                        // matrix rather than asserting a particular display tick.
+                        PumpFor(TimeSpan.FromMilliseconds(760));
+                        PumpUntil(() => NearlyIdentity(button.RenderTransform.Value), "kitty spring settled at its resting transform");
+                    }
+                    Check(button.ActualWidth == size.Width && button.ActualHeight == size.Height
+                        && button.Margin == margin && button.IsEnabled == enabled && clicks == 0,
+                        "A visual kitty swat changed layout, disabled a button, or clicked it.");
+                    Motion.PetWobble(button);
+                    Motion.ResetPetWobbles();
+                    Check(NearlyIdentity(button.RenderTransform.Value) && TransformParts(button.RenderTransform).All(part => !part.HasAnimatedProperties),
+                        "Reset left a displaced or animated button.");
+                    Motion.Enabled = false;
+                    Motion.PetWobble(button);
+                    Check(NearlyIdentity(button.RenderTransform.Value) && TransformParts(button.RenderTransform).All(part => !part.HasAnimatedProperties),
+                        "Reduced motion allowed a new kitty wobble.");
+                }
+                finally { Motion.ResetPetWobbles(); Motion.Enabled = previousMotion; CloseWindow(); }
+            });
+
+            // Restore the original profile expected by the connection/startup checks.
+            window = CreateWindow(emptyProfile); themes.AttachWindow(window); window.Show();
+            PumpUntil(() => Field<bool>(window, "_initialized") && !Field<bool>(window, "_busy"), "profile reopened after companion checks");
+
             Test("startup preferences have their own Settings page and clear system tray wording", () =>
             {
                 Named<RadioButton>(window, "PreferencesNav").IsChecked = true;
@@ -2546,6 +2703,15 @@ internal static class Program
 
     private static T Named<T>(MainWindow target, string name) where T : FrameworkElement =>
         target.FindName(name) as T ?? throw new InvalidOperationException("Missing named control: " + name);
+    private static IEnumerable<Transform> TransformParts(Transform transform)
+    {
+        yield return transform;
+        if (transform is TransformGroup group)
+            foreach (var child in group.Children)
+                foreach (var item in TransformParts(child)) yield return item;
+    }
+    private static bool NearlyIdentity(Matrix matrix) => Math.Abs(matrix.M11 - 1) < .001 && Math.Abs(matrix.M22 - 1) < .001
+        && Math.Abs(matrix.M12) < .001 && Math.Abs(matrix.M21) < .001 && Math.Abs(matrix.OffsetX) < .01 && Math.Abs(matrix.OffsetY) < .01;
     private static bool EntranceActive(FrameworkElement element)
     {
         var states = typeof(Motion).GetField("States", BindingFlags.Static | BindingFlags.NonPublic)?.GetValue(null)

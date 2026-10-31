@@ -84,6 +84,12 @@ https://github.com/guygodin/VirtualDesktop.VRCFaceTracking
 https://github.com/ykeara/LinkFT
 
 ORIGINAL VISUAL ASSETS
+Relay's holographic robot-cat artwork, procedural animations, local neural
+behavior policy, and synthetic training code/examples are original project
+work under Apache 2.0. No VRChat mascot artwork or third-party pretrained
+weights are included. See tools/train_kitty_policy.py and tests/Kitty.Tests/README.md
+in the source for model provenance and reproduction instructions.
+
 The original headset mark, app icon, installer illustration, and particle flow in this
 version are original project assets under Apache 2.0. Official Project Babble
 logos, the Babble branding pack, and the previous homepage-animation port are

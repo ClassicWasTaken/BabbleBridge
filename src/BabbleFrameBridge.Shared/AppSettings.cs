@@ -60,6 +60,7 @@ public sealed class AppSettings
     public bool StartWithSteamVr { get; set; }
     public bool CloseWithSteamVr { get; set; }
     public bool StartMinimized { get; set; }
+    public bool KittyEnabled { get; set; }
 
     public static AppSettings Load(string root)
     {

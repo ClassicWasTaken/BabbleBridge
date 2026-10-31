@@ -44,6 +44,9 @@ jobs:
       - name: Check SteamVR startup registration and session lifecycle
         run: dotnet run --project tests/SteamVR.Tests -c Release
 
+      - name: Check local kitty neural policy and behavior recovery
+        run: dotnet run --project tests/Kitty.Tests -c Release
+
       - name: Check module download validation and cancellation
         run: dotnet run --project tests/BabbleFrameBridge.Download.Tests -c Release
 

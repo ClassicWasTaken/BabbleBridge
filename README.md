@@ -24,6 +24,8 @@ Using Baballonia Expressions Alpha? Download **Baballonia** in Modules, or choos
 
 In **Settings**, choose whether to start with SteamVR, close when it exits, or **start minimized to system tray**. Clicking **X** keeps tracking running in the tray; double-click the tray icon to reopen, or right-click it to **Quit**.
 
+Click the **kitty face in the bottom-left corner** to meet Relay, an optional holographic robot cat. Wave your mouse near its face or click it to play. Relay explores, swats, gets the zoomies, grooms, naps, and gets grumpy when pestered. Its tiny AI runs locally; the kitty pauses while the app is in the tray.
+
 Other compatible VRCFaceTracking SDK modules work too. `module.json` is optional; use a ZIP if a module needs supporting files.
 
 Only import modules from publishers you trust: they run code on your PC under their own licenses.

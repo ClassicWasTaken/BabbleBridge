@@ -11,6 +11,8 @@ using System.Reflection.PortableExecutable;
 using System.Text;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Controls.Primitives;
+using System.Windows.Automation;
 using System.Windows.Media;
 using System.Windows.Media.Animation;
 using System.Windows.Threading;
@@ -89,9 +91,16 @@ public partial class MainWindow : Window
         UpdateSourceLabels();
         AutoStartBox.IsChecked = _settings.AutoStart;
         SyncStartupPreferences();
+        KittyFace.Source = HologramKittyVisual.CreateHeadIcon();
+        KittyOverlay.Attach(this);
+        KittyOverlay.CanSmackAt = point => FindKittyTarget(point) is not null;
+        KittyOverlay.ImpactRequested = (point, strength) => { if (FindKittyTarget(point) is { } target) Motion.PetWobble(target, strength); };
+        KittyOverlay.AnimationSuspended += (_, _) => Motion.ResetPetWobbles();
+        KittyOverlay.StateChanged += (_, _) => UpdateKittyButton();
+        ApplyKittyPreference();
         ApplyMotionPreference();
         SystemParameters.StaticPropertyChanged += MotionPreference_Changed;
-        Closed += (_, _) => { SystemParameters.StaticPropertyChanged -= MotionPreference_Changed; _noticeTimer.Stop(); if (_ownsModuleDownloader) _moduleDownloader.Dispose(); };
+        Closed += (_, _) => { KittyOverlay.Dispose(); Motion.ResetPetWobbles(); SystemParameters.StaticPropertyChanged -= MotionPreference_Changed; _noticeTimer.Stop(); if (_ownsModuleDownloader) _moduleDownloader.Dispose(); };
         Loaded += async (_, _) => await InitializeBridgeAsync();
         StateChanged += (_, _) => { if (WindowState != WindowState.Minimized) _restoreWindowState = WindowState; };
         Closing += ClosingAsync;
@@ -143,6 +152,56 @@ public partial class MainWindow : Window
 
     public void AllowSystemExit() => _exitRequested = true;
     private void Quit_Click(object sender, RoutedEventArgs e) => RequestExit();
+
+    private void KittyToggle_Click(object sender, RoutedEventArgs e)
+    {
+        if (_closing) return;
+        var previous = _settings.KittyEnabled;
+        try
+        {
+            _settings.KittyEnabled = !previous;
+            _settings.Save(_root);
+        }
+        catch (Exception error)
+        {
+            _settings.KittyEnabled = previous;
+            ShowNotice("The kitty preference could not be saved. " + error.Message, true);
+        }
+        ApplyKittyPreference();
+    }
+
+    private void ApplyKittyPreference()
+    {
+        KittyOverlay.SetActive(_settings.KittyEnabled);
+        if (!_settings.KittyEnabled) Motion.ResetPetWobbles();
+        UpdateKittyButton();
+    }
+
+    private void UpdateKittyButton()
+    {
+        KittyActiveDot.Visibility = _settings.KittyEnabled ? Visibility.Visible : Visibility.Collapsed;
+        KittyToggle.ToolTip = _settings.KittyEnabled ? "Relay · " + KittyOverlay.Status + " · click to hide kitty" : "Wake Relay, your holographic kitty";
+        AutomationProperties.SetName(KittyToggle, _settings.KittyEnabled ? "Hide holographic kitty" : "Wake holographic kitty");
+        KittyToggle.SetResourceReference(Control.BackgroundProperty, _settings.KittyEnabled ? "NavSelected" : "SidebarBackground");
+        KittyToggle.SetResourceReference(Control.ForegroundProperty, "SidebarInk");
+    }
+
+    private FrameworkElement? FindKittyTarget(Point point)
+    {
+        DependencyObject? hit = null;
+        VisualTreeHelper.HitTest(RootSurface, item => ReferenceEquals(item, KittyOverlay)
+            ? HitTestFilterBehavior.ContinueSkipSelfAndChildren : HitTestFilterBehavior.Continue,
+            result => { hit = result.VisualHit; return HitTestResultBehavior.Stop; }, new PointHitTestParameters(point));
+        Border? panel = null;
+        for (var node = hit; node is not null && !ReferenceEquals(node, RootSurface); node = VisualTreeHelper.GetParent(node))
+        {
+            if (ReferenceEquals(node, KittyToggle)) return null;
+            if (node is ButtonBase { IsVisible: true } button) return button;
+            if (panel is null && node is Border { IsVisible: true } border && border.CornerRadius.TopLeft >= 8
+                && border.ActualWidth >= 150 && border.ActualHeight >= 55) panel = border;
+        }
+        return panel;
+    }
 
     private async Task RunOperation(Func<Task> action)
     {
@@ -864,6 +923,7 @@ public partial class MainWindow : Window
             StartWithSteamVr = _settings.StartWithSteamVr,
             CloseWithSteamVr = _settings.CloseWithSteamVr,
             StartMinimized = _settings.StartMinimized,
+            KittyEnabled = _settings.KittyEnabled,
             AutoStart = AutoStartBox.IsChecked == true };
         ValidateConnection(updated, _store.Current);
         var previous = _settings;
@@ -876,6 +936,7 @@ public partial class MainWindow : Window
         catch (Exception failure)
         {
             await StopWorker();
+            previous.KittyEnabled = _settings.KittyEnabled;
             previous.Save(_root); _settings = previous;
             HostBox.Text = previous.OutputHost; PortBox.Text = previous.OutputPort.ToString(); ReceiveBox.Text = previous.ReceivePort.ToString();
             if (wasRunning && _store.Current is { } current)

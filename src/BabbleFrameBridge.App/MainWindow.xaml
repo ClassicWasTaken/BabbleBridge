@@ -1,7 +1,7 @@
 <!-- Copyright (c) 2026 Frame Bridge contributors. SPDX-License-Identifier: Apache-2.0 -->
 <Window x:Class="BabbleFrameBridge.App.MainWindow" xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" xmlns:local="clr-namespace:BabbleFrameBridge.App"
  Title="Face Tracking Bridge" Width="1200" Height="900" MinWidth="1020" MinHeight="760" WindowStartupLocation="CenterScreen" ShowInTaskbar="True" Background="{DynamicResource Cream}" Foreground="{DynamicResource Ink}" FontFamily="{StaticResource BrandFont}" FontSize="14" UseLayoutRounding="True" TextOptions.TextFormattingMode="Display" AllowDrop="True" Drop="Window_Drop" DragOver="Window_DragOver" Icon="Assets/Brand/bridge-logo.png">
- <Grid>
+ <Grid x:Name="RootSurface">
   <Grid.ColumnDefinitions><ColumnDefinition Width="216"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
   <Border Background="{DynamicResource SidebarBackground}">
    <Grid Margin="18,26,18,22"><Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
@@ -16,7 +16,7 @@
      <RadioButton x:Name="ActivityNav" GroupName="Pages" Style="{StaticResource Navigation}" Tag="activity" Checked="Navigate_Click"><StackPanel Orientation="Horizontal"><Path Style="{StaticResource OutlineIcon}" Stroke="{Binding Foreground,RelativeSource={RelativeSource AncestorType=RadioButton}}" Data="M2,12H6L9,4 14,20 17,12H22" Margin="0,0,12,0"/><TextBlock Text="Activity log" VerticalAlignment="Center"/></StackPanel></RadioButton>
     </StackPanel>
     <StackPanel Grid.Row="3">
-
+     <Button x:Name="KittyToggle" Style="{StaticResource QuietButton}" HorizontalAlignment="Left" Padding="11,8" Margin="6,0,6,22" Click="KittyToggle_Click" ToolTip="Wake Relay, your holographic kitty" AutomationProperties.Name="Wake holographic kitty" AutomationProperties.HelpText="Toggle the optional local AI cat. Wave near the cat or click it to play."><StackPanel Orientation="Horizontal"><Image x:Name="KittyFace" Width="29" Height="29" Margin="0,0,9,0"/><TextBlock Text="Kitty" VerticalAlignment="Center" FontSize="12" FontWeight="SemiBold"/><Ellipse x:Name="KittyActiveDot" Width="5" Height="5" Fill="{DynamicResource Accent}" Margin="12,0,1,0" VerticalAlignment="Center" Visibility="Collapsed"/></StackPanel></Button>
      <Button Content="Setup guide  ↗" Style="{StaticResource LinkButton}" Foreground="{DynamicResource SidebarInk}" HorizontalAlignment="Left" Margin="8,0,0,18" Click="Guide_Click"/>
      <Button Style="{StaticResource LinkButton}" Foreground="{DynamicResource SidebarMuted}" HorizontalAlignment="Left" Margin="8,0,0,7" Click="Attribution_Click"><TextBlock Text="Credits &amp; licenses ↗" FontSize="10"/></Button>
      <TextBlock x:Name="BuildLabel" Text="INDEPENDENT BUILD" Foreground="{DynamicResource SidebarFaint}" FontSize="9" Margin="8,0,0,0"/>
@@ -139,6 +139,7 @@
    </ScrollViewer>
    <Grid Grid.Row="3" Margin="0,17,0,0"><TextBlock Text="Independent project. Built on VRCFaceTracking." Foreground="{DynamicResource FaintInk}" FontSize="10"/><Button Content="GitHub  ↗" Style="{StaticResource LinkButton}" FontSize="10" HorizontalAlignment="Right" Click="Website_Click"/></Grid>
   </Grid>
+  <local:HologramKittyOverlay x:Name="KittyOverlay" Grid.ColumnSpan="2" Panel.ZIndex="100" ClipToBounds="True"/>
  </Grid>
 </Window>
 
